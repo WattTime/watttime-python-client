@@ -2,10 +2,17 @@ import unittest
 from datetime import datetime, timedelta
 from dateutil.parser import parse
 from pytz import timezone, UTC
-from watttime_sdk import WattTimeBase, WattTimeHistorical, WattTimeMyAccess, WattTimeForecast
+from watttime_sdk import (
+    WattTimeBase,
+    WattTimeHistorical,
+    WattTimeMyAccess,
+    WattTimeForecast,
+)
 
 import pandas as pd
 import requests
+
+REGION = "CAISO_NORTH"
 
 
 class TestWattTimeBase(unittest.TestCase):
@@ -91,9 +98,7 @@ class TestWattTimeHistorical(unittest.TestCase):
     def test_get_historical_jsons_3_months(self):
         start = "2022-01-01 00:00Z"
         end = "2022-12-31 00:00Z"
-        region = "CAISO_NORTH"
-
-        jsons = self.historical.get_historical_jsons(start, end, region)
+        jsons = self.historical.get_historical_jsons(start, end, REGION)
 
         self.assertIsInstance(jsons, list)
         self.assertGreaterEqual(len(jsons), 1)
@@ -102,9 +107,7 @@ class TestWattTimeHistorical(unittest.TestCase):
     def test_get_historical_jsons_1_week(self):
         start = "2022-01-01 00:00Z"
         end = "2022-01-07 00:00Z"
-        region = "CAISO_NORTH"
-
-        jsons = self.historical.get_historical_jsons(start, end, region)
+        jsons = self.historical.get_historical_jsons(start, end, REGION)
 
         self.assertIsInstance(jsons, list)
         self.assertGreaterEqual(len(jsons), 1)
@@ -118,8 +121,7 @@ class TestWattTimeHistorical(unittest.TestCase):
             if signal_type == "co2_aoer":
                 region = "CAISO"
             else:
-                region = "CAISO_NORTH"
-
+                region = REGION
             jsons = self.historical.get_historical_jsons(
                 start, end, region, signal_type=signal_type
             )
@@ -127,14 +129,12 @@ class TestWattTimeHistorical(unittest.TestCase):
             self.assertGreaterEqual(len(jsons), 1)
             self.assertIsInstance(jsons[0], dict)
             self.assertEqual(jsons[0]["meta"]["signal_type"], signal_type)
-            self.assertEqual(jsons[0]["meta"]["region"], region)
+            self.assertEqual(jsons[0]["meta"]["REGION"], REGION)
 
     def test_get_historical_pandas(self):
         start = datetime.now() - timedelta(days=7)
         end = datetime.now()
-        region = "CAISO_NORTH"
-
-        df = self.historical.get_historical_pandas(start, end, region)
+        df = self.historical.get_historical_pandas(start, end, REGION)
 
         self.assertIsInstance(df, pd.DataFrame)
         self.assertGreaterEqual(len(df), 1)
@@ -144,10 +144,8 @@ class TestWattTimeHistorical(unittest.TestCase):
     def test_get_historical_pandas_meta(self):
         start = datetime.now() - timedelta(days=7)
         end = datetime.now()
-        region = "CAISO_NORTH"
-
         df = self.historical.get_historical_pandas(
-            start, end, region, include_meta=True
+            start, end, REGION, include_meta=True
         )
 
         self.assertIsInstance(df, pd.DataFrame)
@@ -165,34 +163,34 @@ class TestWattTimeMyAccess(unittest.TestCase):
         json = self.access.get_access_json()
         self.assertIsInstance(json, dict)
         self.assertIn("signal_types", json)
-        self.assertIn("regions", json["signal_types"][0])
+        self.assertIn("REGIONs", json["signal_types"][0])
         self.assertIn("signal_type", json["signal_types"][0])
-        self.assertIn("region", json["signal_types"][0]["regions"][0])
-        self.assertIn("region_full_name", json["signal_types"][0]["regions"][0])
-        self.assertIn("parent", json["signal_types"][0]["regions"][0])
+        self.assertIn("REGION", json["signal_types"][0]["REGIONs"][0])
+        self.assertIn("REGION_full_name", json["signal_types"][0]["REGIONs"][0])
+        self.assertIn("parent", json["signal_types"][0]["REGIONs"][0])
         self.assertIn(
-            "data_point_period_seconds", json["signal_types"][0]["regions"][0]
+            "data_point_period_seconds", json["signal_types"][0]["REGIONs"][0]
         )
-        self.assertIn("endpoints", json["signal_types"][0]["regions"][0])
-        self.assertIn("endpoint", json["signal_types"][0]["regions"][0]["endpoints"][0])
-        self.assertIn("models", json["signal_types"][0]["regions"][0]["endpoints"][0])
+        self.assertIn("endpoints", json["signal_types"][0]["REGIONs"][0])
+        self.assertIn("endpoint", json["signal_types"][0]["REGIONs"][0]["endpoints"][0])
+        self.assertIn("models", json["signal_types"][0]["REGIONs"][0]["endpoints"][0])
         self.assertIn(
-            "model", json["signal_types"][0]["regions"][0]["endpoints"][0]["models"][0]
+            "model", json["signal_types"][0]["REGIONs"][0]["endpoints"][0]["models"][0]
         )
         self.assertIn(
             "data_start",
-            json["signal_types"][0]["regions"][0]["endpoints"][0]["models"][0],
+            json["signal_types"][0]["REGIONs"][0]["endpoints"][0]["models"][0],
         )
         self.assertIn(
             "train_start",
-            json["signal_types"][0]["regions"][0]["endpoints"][0]["models"][0],
+            json["signal_types"][0]["REGIONs"][0]["endpoints"][0]["models"][0],
         )
         self.assertIn(
             "train_end",
-            json["signal_types"][0]["regions"][0]["endpoints"][0]["models"][0],
+            json["signal_types"][0]["REGIONs"][0]["endpoints"][0]["models"][0],
         )
         self.assertIn(
-            "type", json["signal_types"][0]["regions"][0]["endpoints"][0]["models"][0]
+            "type", json["signal_types"][0]["REGIONs"][0]["endpoints"][0]["models"][0]
         )
 
     def test_access_pandas(self):
@@ -201,7 +199,7 @@ class TestWattTimeMyAccess(unittest.TestCase):
         self.assertGreaterEqual(len(df), 1)
         self.assertIn("signal_type", df.columns)
         self.assertIn("ba_abbrev", df.columns)
-        self.assertIn("region_name", df.columns)
+        self.assertIn("REGION_name", df.columns)
         self.assertIn("endpoint", df.columns)
         self.assertIn("model_date", df.columns)
         self.assertIn("model", df.columns)
@@ -216,25 +214,43 @@ class TestWattTimeForecast(unittest.TestCase):
     def setUp(self):
         self.forecast = WattTimeForecast()
 
-    def test_get_current_jsons(self):
-        region = "CAISO_NORTH"
-
-        json = self.forecast.get_forecast_json(region=region)
+    def test_get_current_json(self):
+        json = self.forecast.get_forecast_json(region=REGION)
 
         self.assertIsInstance(json, dict)
-        self.assertIn('meta', json)
-        self.assertEqual(len(json['data']), 288)
-        self.assertIn('point_time', json['data'][0])
-        
-    def test_get_current_pandas(self):
-        region = "CAISO_NORTH"
+        self.assertIn("meta", json)
+        self.assertEqual(len(json["data"]), 288)
+        self.assertIn("point_time", json["data"][0])
 
-        df = self.forecast.get_forecast_pandas(region=region)
+    def test_get_current_pandas(self):
+        df = self.forecast.get_forecast_pandas(region=REGION)
 
         self.assertIsInstance(df, pd.DataFrame)
         self.assertGreaterEqual(len(df), 1)
         self.assertIn("point_time", df.columns)
         self.assertIn("value", df.columns)
+
+    def test_historical_forecast_jsons(self):
+        start = "2023-01-01 00:00Z"
+        end = "2023-01-03 00:00Z"
+        json = self.forecast.get_historical_forecast_json(start, end, region=REGION)
+
+        self.assertIsInstance(json, list)
+        self.assertIn("meta", json)
+        self.assertEqual(len(json[0]["data"]), 288)
+        self.assertIn("generated_at", json["data"][0])
+
+    def test_historical_forecast_pandas(self):
+        start = "2023-01-01 00:00Z"
+        end = "2023-01-03 00:00Z"
+        df = self.forecast.get_historical_forecast_pandas(start, end, region=REGION)
+
+        self.assertIsInstance(df, pd.DataFrame)
+        self.assertGreaterEqual(len(df), 1)
+        self.assertIn("point_time", df.columns)
+        self.assertIn("value", df.columns)
+        self.assertIn("generated_at", df.columns)
+
 
 if __name__ == "__main__":
     unittest.main()

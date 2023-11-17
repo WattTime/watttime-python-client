@@ -74,7 +74,7 @@ class WattTimeHistorical(WattTimeBase):
         start: Union[str, datetime],
         end: Union[str, datetime],
         region: str,
-        signal_type: Optional[Literal["co2_moer", "co2_aoer", "health_damages"]] = "co2_moer",
+        signal_type: Optional[Literal["co2_moer", "co2_aoer", "health_damage"]] = "co2_moer",
         model_date: Optional[Union[str, date]] = None,
     ) -> List[dict]:
         """
@@ -84,7 +84,7 @@ class WattTimeHistorical(WattTimeBase):
             start (datetime): inclusive start, with a UTC timezone.
             end (datetime): inclusive end, with a UTC timezone.
             region (str): string, accessible through the /my-access endpoint, or use the free region (CAISO_NORTH)
-            signal_type (str, optional): one of ['co2_moer', 'co2_aoer', 'health_damages']. Defaults to "co2_moer".
+            signal_type (str, optional): one of ['co2_moer', 'co2_aoer', 'health_damage']. Defaults to "co2_moer".
             model_date (Optional[Union[str, date]], optional): Optionally provide a model_date, used for versioning models.
                 Defaults to None.
 
@@ -127,7 +127,7 @@ class WattTimeHistorical(WattTimeBase):
         start: Union[str, datetime],
         end: Union[str, datetime],
         region: str,
-        signal_type: Optional[Literal["co2_moer", "co2_aoer", "health_damages"]] = "co2_moer",
+        signal_type: Optional[Literal["co2_moer", "co2_aoer", "health_damage"]] = "co2_moer",
         model_date: Optional[Union[str, date]] = None,
         include_meta: bool = False,
     ):
@@ -148,5 +148,34 @@ class WattTimeHistorical(WattTimeBase):
         )
         return df
 
+class WattTimeMyAccess(WattTimeBase):
+    
+    def access_json(self) -> Dict:
+        if not self.is_token_valid():
+            self.login()
+        url = "{}/v3/my-access".format(self.url_base)
+        headers = {"Authorization": "Bearer " + self.token}
+        rsp = requests.get(url, headers=headers)
+        return rsp.json()
+    
+    def access_pandas(self) -> pd.DataFrame:
+        j = self.access_json()
+        out = []
+        for sig_dict in j['signal_types']:
+            for reg_dict in sig_dict['regions']:
+                for end_dict in reg_dict['endpoints']:
+                    for model_dict in end_dict['models']:
+                        out.append(
+                            {
+                                "signal_type": sig_dict['signal_type'],
+                                "ba_abbrev": reg_dict['region'],
+                                "region_name": reg_dict['region_full_name'],
+                                "endpoint": end_dict['endpoint'],
+                                "model_date": model_dict['model'],
+                                **model_dict
+                            }
+                        )
 
-class WattTimeForecast(WattTimeBase):
+        return pd.DataFrame(out)
+
+# class WattTimeForecast(WattTimeBase):

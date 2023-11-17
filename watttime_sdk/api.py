@@ -150,7 +150,7 @@ class WattTimeHistorical(WattTimeBase):
 
 class WattTimeMyAccess(WattTimeBase):
     
-    def access_json(self) -> Dict:
+    def get_access_json(self) -> Dict:
         if not self.is_token_valid():
             self.login()
         url = "{}/v3/my-access".format(self.url_base)
@@ -158,8 +158,8 @@ class WattTimeMyAccess(WattTimeBase):
         rsp = requests.get(url, headers=headers)
         return rsp.json()
     
-    def access_pandas(self) -> pd.DataFrame:
-        j = self.access_json()
+    def get_access_pandas(self) -> pd.DataFrame:
+        j = self.get_access_json()
         out = []
         for sig_dict in j['signal_types']:
             for reg_dict in sig_dict['regions']:
@@ -178,4 +178,48 @@ class WattTimeMyAccess(WattTimeBase):
 
         return pd.DataFrame(out)
 
-# class WattTimeForecast(WattTimeBase):
+class WattTimeForecast(WattTimeBase):
+    
+    def get_forecast_json(
+        self,
+        region: str,
+        signal_type: Optional[Literal["co2_moer", "co2_aoer", "health_damage"]] = "co2_moer",
+        model_date: Optional[Union[str, date]] = None,
+    ) -> Dict:
+        """
+        Retrieves the most recent forecast data in JSON format based on the given region, signal type, and model date.
+        This endpoint does not accept start and end as parameters, it only returns the most recent data!
+        To access historical data, use the /v3/forecast/historical endpoint.
+        https://docs.watttime.org/#tag/GET-Forecast/operation/get_historical_forecast_v3_forecast_historical_get
+        
+        Args:
+            region (str): The region for which forecast data is requested.
+            signal_type (str, optional): The type of signal to retrieve forecast data for. Defaults to "co2_moer".
+                Valid options are "co2_moer", "co2_aoer", and "health_damage".
+            model_date (str or date, optional): The date of the model version to use for the forecast data.
+                If not provided, the most recent model version will be used.
+        
+        Returns:
+            List[dict]: A list of dictionaries representing the forecast data in JSON format.
+        """
+        if not self.is_token_valid():
+            self.login()
+        params = {"region": region, "signal_type": signal_type}
+        
+        # No model_date will default to the most recent model version available
+        if model_date is not None:
+            params["model_date"] = model_date
+
+        url = "{}/v3/forecast".format(self.url_base)
+        headers = {"Authorization": "Bearer " + self.token}
+        rsp = requests.get(url, headers=headers, params=params)
+        return rsp.json()
+    
+    def get_forecast_pandas(
+        self,
+        region: str,
+        signal_type: Optional[Literal["co2_moer", "co2_aoer", "health_damage"]] = "co2_moer",
+        model_date: Optional[Union[str, date]] = None,
+    ) -> pd.DataFrame:
+        j = self.get_forecast_json(region, signal_type, model_date)
+        return pd.json_normalize(j, record_path="data", meta=["meta"])

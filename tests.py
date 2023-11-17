@@ -1,7 +1,8 @@
 import unittest
 from datetime import datetime, timedelta
+from dateutil.parser import parse
 from pytz import timezone, UTC
-from watttime_sdk import WattTimeBase, WattTimeHistorical, WattTimeMyAccess
+from watttime_sdk import WattTimeBase, WattTimeHistorical, WattTimeMyAccess, WattTimeForecast
 
 import pandas as pd
 import requests
@@ -161,7 +162,7 @@ class TestWattTimeMyAccess(unittest.TestCase):
         self.access = WattTimeMyAccess()
 
     def test_access_json_structure(self):
-        json = self.access.access_json()
+        json = self.access.get_access_json()
         self.assertIsInstance(json, dict)
         self.assertIn("signal_types", json)
         self.assertIn("regions", json["signal_types"][0])
@@ -195,7 +196,7 @@ class TestWattTimeMyAccess(unittest.TestCase):
         )
 
     def test_access_pandas(self):
-        df = self.access.access_pandas()
+        df = self.access.get_access_pandas()
         self.assertIsInstance(df, pd.DataFrame)
         self.assertGreaterEqual(len(df), 1)
         self.assertIn("signal_type", df.columns)
@@ -210,6 +211,30 @@ class TestWattTimeMyAccess(unittest.TestCase):
         self.assertIn("type", df.columns)
         self.assertGreaterEqual(len(df), 1)
 
+
+class TestWattTimeForecast(unittest.TestCase):
+    def setUp(self):
+        self.forecast = WattTimeForecast()
+
+    def test_get_current_jsons(self):
+        region = "CAISO_NORTH"
+
+        json = self.forecast.get_forecast_json(region=region)
+
+        self.assertIsInstance(json, dict)
+        self.assertIn('meta', json)
+        self.assertEqual(len(json['data']), 288)
+        self.assertIn('point_time', json['data'][0])
+        
+    def test_get_current_pandas(self):
+        region = "CAISO_NORTH"
+
+        df = self.forecast.get_forecast_pandas(region=region)
+
+        self.assertIsInstance(df, pd.DataFrame)
+        self.assertGreaterEqual(len(df), 1)
+        self.assertIn("point_time", df.columns)
+        self.assertIn("value", df.columns)
 
 if __name__ == "__main__":
     unittest.main()

@@ -182,9 +182,11 @@ class WattTimeHistorical(WattTimeBase):
                     None
         """
         df = self.get_historical_pandas(start, end, region, signal_type, model_date)
+        start, end = self._parse_dates(start, end)  # next line errors with str input if this isn't included: 'str' object has no attribute 'date'
         df.to_csv(
             f"{region}_{signal_type}_{start.date()}_{end.date()}.csv", index=False
         )
+        print(f"file written to {region}_{signal_type}_{start.date()}_{end.date()}.csv")
 
 
 class WattTimeMyAccess(WattTimeBase):
@@ -284,9 +286,10 @@ class WattTimeForecast(WattTimeBase):
             Literal["co2_moer", "co2_aoer", "health_damage"]
         ] = "co2_moer",
         model_date: Optional[Union[str, date]] = None,
+        include_meta: bool = False,
     ) -> pd.DataFrame:
         j = self.get_forecast_json(region, signal_type, model_date)
-        return pd.json_normalize(j, record_path="data", meta=["meta"])
+        return pd.json_normalize(j, record_path="data", meta=["meta"] if include_meta else [])
 
     def get_historical_forecast_json(
         self,

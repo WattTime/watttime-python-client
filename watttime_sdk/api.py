@@ -213,7 +213,7 @@ class WattTimeMyAccess(WattTimeBase):
         Returns:
             pd.DataFrame: A DataFrame containing access data with the following columns:
                 - signal_type: The type of signal.
-                - ba_abbrev: The abbreviation of the region.
+                - region: The abbreviation of the region.
                 - region_name: The full name of the region.
                 - endpoint: The endpoint.
                 - model_date: The date of the model.
@@ -228,7 +228,7 @@ class WattTimeMyAccess(WattTimeBase):
                         out.append(
                             {
                                 "signal_type": sig_dict["signal_type"],
-                                "ba_abbrev": reg_dict["region"],
+                                "region": reg_dict["region"],
                                 "region_name": reg_dict["region_full_name"],
                                 "endpoint": end_dict["endpoint"],
                                 "model_date": model_dict["model"],

@@ -198,7 +198,7 @@ class TestWattTimeMyAccess(unittest.TestCase):
         self.assertIsInstance(df, pd.DataFrame)
         self.assertGreaterEqual(len(df), 1)
         self.assertIn("signal_type", df.columns)
-        self.assertIn("ba_abbrev", df.columns)
+        self.assertIn("region", df.columns)
         self.assertIn("region_name", df.columns)
         self.assertIn("endpoint", df.columns)
         self.assertIn("model_date", df.columns)

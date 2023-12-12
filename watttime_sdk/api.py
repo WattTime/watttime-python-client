@@ -1,7 +1,7 @@
 from datetime import datetime, timedelta, date
 from dateutil.parser import parse
 from pytz import timezone, UTC
-from typing import List, Tuple, Dict, Union, Optional, Literal
+from typing import List, Tuple, Dict, Union, Optional, Literal, Any
 import os
 import time
 
@@ -297,7 +297,7 @@ class WattTimeForecast(WattTimeBase):
             Literal["co2_moer", "co2_aoer", "health_damage"]
         ] = "co2_moer",
         model_date: Optional[Union[str, date]] = None,
-    ) -> List:
+    ) -> List[Dict[str, Any]]:
         if not self._is_token_valid():
             self._login()
         url = "{}/v3/forecast/historical".format(self.url_base)
@@ -337,12 +337,13 @@ class WattTimeForecast(WattTimeBase):
         ] = "co2_moer",
         model_date: Optional[Union[str, date]] = None,
     ) -> pd.DataFrame:
-        j = self.get_historical_forecast_json(
+        json_list = self.get_historical_forecast_json(
             start, end, region, signal_type, model_date
         )
         out = pd.DataFrame()
-        for entry in j:
-            _df = pd.json_normalize(entry, record_path=["data", "forecast"])
-            _df = _df.assign(generated_at=pd.to_datetime(entry["generated_at"]))
-            out = pd.concat([out, _df])
+        for json in json_list:
+            for entry in json['data']:
+                _df = pd.json_normalize(entry, record_path=["forecast"])
+                _df = _df.assign(generated_at=pd.to_datetime(entry["generated_at"]))
+                out = pd.concat([out, _df])
         return out

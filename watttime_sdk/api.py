@@ -4,6 +4,7 @@ from pytz import timezone, UTC
 from typing import List, Tuple, Dict, Union, Optional, Literal, Any
 import os
 import time
+from pathlib import Path
 
 import requests
 import pandas as pd
@@ -182,8 +183,13 @@ class WattTimeHistorical(WattTimeBase):
                     None
         """
         df = self.get_historical_pandas(start, end, region, signal_type, model_date)
+        
+        out_dir = Path(__file__).parents[1] / "csvs"
+        out_dir.mkdir(exist_ok=True)
+        
         df.to_csv(
-            f"{region}_{signal_type}_{start.date()}_{end.date()}.csv", index=False
+            out_dir / f"{region}_{signal_type}_{start.date()}_{end.date()}.csv",
+            index=False
         )
 
 

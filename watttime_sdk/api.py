@@ -144,7 +144,7 @@ class WattTimeHistorical(WattTimeBase):
         Args:
             See .get_hist_jsons() for shared arguments.
             include_meta (bool, optional): adds additional columns to the output dataframe,
-                containing the metadata information. Note that metadata is returned for each response,
+                containing the metadata information. Note that metadata is returned for each API response,
                 not for each point_time.
 
         Returns:
@@ -187,10 +187,12 @@ class WattTimeHistorical(WattTimeBase):
         out_dir = Path(__file__).parents[1] / "csvs"
         out_dir.mkdir(exist_ok=True)
         
+        start, end = self._parse_dates(start, end)
         df.to_csv(
             out_dir / f"{region}_{signal_type}_{start.date()}_{end.date()}.csv",
             index=False
         )
+        print(f"file written to {region}_{signal_type}_{start.date()}_{end.date()}.csv")
 
 
 class WattTimeMyAccess(WattTimeBase):
@@ -290,9 +292,21 @@ class WattTimeForecast(WattTimeBase):
             Literal["co2_moer", "co2_aoer", "health_damage"]
         ] = "co2_moer",
         model_date: Optional[Union[str, date]] = None,
+        include_meta: bool = False,
     ) -> pd.DataFrame:
+        """Return a pd.DataFrame with point_time, and values.
+
+        Args:
+            See .get_forecast_json() for shared arguments.
+            include_meta (bool, optional): adds additional columns to the output dataframe,
+                containing the metadata information. Note that metadata is returned for each API response,
+                not for each point_time.
+
+        Returns:
+            pd.DataFrame: _description_
+        """
         j = self.get_forecast_json(region, signal_type, model_date)
-        return pd.json_normalize(j, record_path="data", meta=["meta"])
+        return pd.json_normalize(j, record_path="data", meta=["meta"] if include_meta else [])
 
     def get_historical_forecast_json(
         self,

@@ -106,7 +106,3 @@ hist_forecasts = wt_forecast.get_historical_forecast_json(
     signal_type = 'health_damage'
 )
 ```
-
-# Contributing
-
-We encourage users to fork and contribute pull requests to this repository if they find themselves requiring additional capabilities or data formats. Users may also submit technical issues here relating to the code contained within this SDK, however for questions about WattTime's API, data availability, or access please direct questions to [support@watttime.org](support@watttime.org). You may also [view the status of WattTime's API here](https://status.watttime.org/).

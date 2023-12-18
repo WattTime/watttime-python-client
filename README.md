@@ -99,6 +99,6 @@ hist_forecasts = wt_forecast.get_historical_forecast_json(
     start = '2022-12-01 00:00+00:00',
     end = '2022-12-31 23:59+00:00',
     region = 'CAISO_NORTH',
-    signal_type = 'healdh_damage'
+    signal_type = 'health_damage'
 )
 ```

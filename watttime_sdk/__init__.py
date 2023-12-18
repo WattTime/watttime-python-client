@@ -1,1 +1,1 @@
-from watttime_sdk.api import *
+from watttime_client.api import *

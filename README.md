@@ -68,7 +68,6 @@ You could also combine these classes to iterate through all regions where you ha
 
 ```python
 from watttime_client import WattTimeMyAccess, WattTimeHistorical
-from watttime_sdk import WattTimeMyAccess, WattTimeHistorical
 import pandas as pd
 
 wt_myaccess = WattTimeMyAccess(username, password)

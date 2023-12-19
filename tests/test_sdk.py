@@ -160,7 +160,7 @@ class TestWattTimeHistorical(unittest.TestCase):
         end = parse("2022-01-02 00:00Z")
         self.historical.get_historical_csv(start, end, REGION)
 
-        fp = Path(__file__).parents[1] / "csvs" / f"{REGION}_co2_moer_{start.date()}_{end.date()}.csv"
+        fp = Path.home() / "watttime_historical_csvs" / f"{REGION}_co2_moer_{start.date()}_{end.date()}.csv"
         assert fp.exists()
         fp.unlink()
 

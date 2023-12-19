@@ -188,11 +188,9 @@ class WattTimeHistorical(WattTimeBase):
         out_dir.mkdir(exist_ok=True)
         
         start, end = self._parse_dates(start, end)
-        df.to_csv(
-            out_dir / f"{region}_{signal_type}_{start.date()}_{end.date()}.csv",
-            index=False
-        )
-        print(f"file written to {region}_{signal_type}_{start.date()}_{end.date()}.csv")
+        fp = out_dir / f"{region}_{signal_type}_{start.date()}_{end.date()}.csv"
+        df.to_csv(fp, index=False)
+        print(f"file written to {fp}")
 
 
 class WattTimeMyAccess(WattTimeBase):

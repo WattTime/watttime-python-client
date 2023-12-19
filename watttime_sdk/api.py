@@ -184,7 +184,7 @@ class WattTimeHistorical(WattTimeBase):
         """
         df = self.get_historical_pandas(start, end, region, signal_type, model_date)
         
-        out_dir = Path(__file__).parents[1] / "csvs"
+        out_dir = Path.home() / "watttime_historical_csvs"
         out_dir.mkdir(exist_ok=True)
         
         start, end = self._parse_dates(start, end)

@@ -54,7 +54,7 @@ moers = wt_hist.get_historical_pandas(
     signal_type = 'co2_moer' # ['co2_moer', 'co2_aoer', 'health_damage', etc.]
 )
 
-# save data as a csv -> csvs/<region>_<signal_type>_<start>_<end>.csv
+# save data as a csv -> ~/watttime_historical_csvs/<region>_<signal_type>_<start>_<end>.csv
 wt_hist.get_historical_csv(
     start = '2022-01-01 00:00Z', # ISO 8601 format, UTC
     end = '2023-01-01 00:00Z', # ISO 8601 format, UTC

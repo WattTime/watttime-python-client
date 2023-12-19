@@ -8,6 +8,7 @@ from watttime_sdk import (
     WattTimeMyAccess,
     WattTimeForecast,
 )
+from pathlib import Path
 
 import pandas as pd
 import requests
@@ -153,7 +154,15 @@ class TestWattTimeHistorical(unittest.TestCase):
         self.assertIn("point_time", df.columns)
         self.assertIn("value", df.columns)
         self.assertIn("meta", df.columns)
+        
+    def test_get_historical_csv(self):
+        start = parse("2022-01-01 00:00Z")
+        end = parse("2022-01-02 00:00Z")
+        self.historical.get_historical_csv(start, end, REGION)
 
+        fp = Path.home() / "watttime_historical_csvs" / f"{REGION}_co2_moer_{start.date()}_{end.date()}.csv"
+        assert fp.exists()
+        fp.unlink()
 
 class TestWattTimeMyAccess(unittest.TestCase):
     def setUp(self):

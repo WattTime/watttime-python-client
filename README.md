@@ -29,7 +29,7 @@ wt_myaccess = WattTimeMyAccess()
 Users may first want to query the `/v3/my-access` endpoint using the `WattTimeMyAccess` class to get a dataframe of regions and signal types available to them:
 
 ```python
-from watttime_sdk import WattTimeMyAccess
+from watttime_client import WattTimeMyAccess
 
 wt_myaccess = WattTimeMyAccess(username, password)
 
@@ -41,8 +41,9 @@ wt_myaccess.get_access_pandas()
 ```
 
 Once you confirm your access, you may wish to request data for a particular balancing authority:
+
 ```python
-from watttime_sdk import WattTimeHistorical
+from watttime_client import WattTimeHistorical
 
 wt_hist = WattTimeHistorical(username, password)
 
@@ -64,8 +65,9 @@ wt_hist.get_historical_csv(
 ```
 
 You could also combine these classes to iterate through all regions where you have access to data:
+
 ```python
-from watttime_sdk import WattTimeMyAccess, WattTimeHistorical
+from watttime_client import WattTimeMyAccess, WattTimeHistorical
 import pandas as pd
 
 wt_myaccess = WattTimeMyAccess(username, password)
@@ -86,8 +88,9 @@ for region in moer_regions:
 ```
 
 You can also use the SDK to request a current forecast for some signal types, such as co2_moer and health_damage:
+
 ```python
-from watttime_sdk import WattTimeForecast
+from watttime_client import WattTimeForecast
 
 wt_forecast = WattTimeForecast(username, password)
 forecast = wt_forecast.get_forecast_json(

@@ -2,7 +2,7 @@ import unittest
 from datetime import datetime, timedelta
 from dateutil.parser import parse
 from pytz import timezone, UTC
-from watttime_sdk import (
+from watttime_client import (
     WattTimeBase,
     WattTimeHistorical,
     WattTimeMyAccess,

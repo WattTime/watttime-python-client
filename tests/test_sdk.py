@@ -9,6 +9,7 @@ from watttime import (
     WattTimeHistorical,
     WattTimeMyAccess,
     WattTimeForecast,
+    WattTimeMaps,
 )
 from pathlib import Path
 
@@ -299,6 +300,44 @@ class TestWattTimeForecast(unittest.TestCase):
         self.assertIn("point_time", df.columns)
         self.assertIn("value", df.columns)
         self.assertIn("generated_at", df.columns)
+
+
+class TestWattTimeMaps(unittest.TestCase):
+    def setUp(self):
+        self.maps = WattTimeMaps()
+
+    def test_get_maps_json_moer(self):
+        moer = self.maps.get_maps_json(signal_type="co2_moer")
+        self.assertEqual(moer["type"], "FeatureCollection")
+        self.assertEqual(moer["meta"]["signal_type"], "co2_moer")
+        self.assertGreater(
+            parse(moer["meta"]["last_updated"]), parse("2023-01-01 00:00Z")
+        )
+        self.assertGreater(len(moer["features"]), 100)  # 172 as of 2023-12-01
+
+    def test_get_maps_json_aoer(self):
+        aoer = self.maps.get_maps_json(signal_type="co2_aoer")
+        self.assertEqual(aoer["type"], "FeatureCollection")
+        self.assertEqual(aoer["meta"]["signal_type"], "co2_aoer")
+        self.assertGreater(
+            parse(aoer["meta"]["last_updated"]), parse("2023-01-01 00:00Z")
+        )
+        self.assertGreater(len(aoer["features"]), 50)  # 87 as of 2023-12-01
+
+    def test_get_maps_json_health(self):
+        health = self.maps.get_maps_json(signal_type="health_damage")
+        self.assertEqual(health["type"], "FeatureCollection")
+        self.assertEqual(health["meta"]["signal_type"], "health_damage")
+        self.assertGreater(
+            parse(health["meta"]["last_updated"]), parse("2022-01-01 00:00Z")
+        )
+        self.assertGreater(len(health["features"]), 100)  # 114 as of 2023-12-01
+        
+    def test_region_from_loc(self):
+        region = self.maps.region_from_loc(latitude=39.7522, longitude=-105.0, signal_type='co2_moer')
+        self.assertEqual(region["region"], "PSCO")
+        self.assertEqual(region["region_full_name"], "Public Service Co of Colorado")
+        self.assertEqual(region["signal_type"], "co2_moer")
 
 
 if __name__ == "__main__":

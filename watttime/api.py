@@ -41,6 +41,7 @@ class WattTimeBase:
             auth=requests.auth.HTTPBasicAuth(self.username, self.password),
             timeout=20,
         )
+        rsp.raise_for_status()
         self.token = rsp.json().get("token", None)
         self.token_valid_until = datetime.now() + timedelta(minutes=30)
         if not self.token:
@@ -160,6 +161,7 @@ class WattTimeBase:
             "signal_type": signal_type,
         }
         rsp = requests.get(url, headers=headers, params=params)
+        rsp.raise_for_status()
         return rsp.json()
 
 
@@ -208,10 +210,11 @@ class WattTimeHistorical(WattTimeBase):
         for c in chunks:
             params["start"], params["end"] = c
             rsp = requests.get(url, headers=headers, params=params)
-            if rsp.status_code == 200:
+            try:
+                rsp.raise_for_status()
                 j = rsp.json()
                 responses.append(j)
-            else:
+            except Exception as e:
                 raise Exception(f"\nAPI Response Error: {rsp.status_code}, {rsp.text}")
 
             if len(j["meta"]["warnings"]):
@@ -302,6 +305,7 @@ class WattTimeMyAccess(WattTimeBase):
         url = "{}/v3/my-access".format(self.url_base)
         headers = {"Authorization": "Bearer " + self.token}
         rsp = requests.get(url, headers=headers)
+        rsp.raise_for_status()
         return rsp.json()
 
     def get_access_pandas(self) -> pd.DataFrame:
@@ -373,6 +377,7 @@ class WattTimeForecast(WattTimeBase):
         url = "{}/v3/forecast".format(self.url_base)
         headers = {"Authorization": "Bearer " + self.token}
         rsp = requests.get(url, headers=headers, params=params)
+        rsp.raise_for_status()
         return rsp.json()
 
     def get_forecast_pandas(
@@ -444,10 +449,11 @@ class WattTimeForecast(WattTimeBase):
         for c in chunks:
             params["start"], params["end"] = c
             rsp = requests.get(url, headers=headers, params=params)
-            if rsp.status_code == 200:
+            try:
+                rsp.raise_for_status()
                 j = rsp.json()
                 responses.append(j)
-            else:
+            except Exception as e:
                 raise Exception(f"\nAPI Response Error: {rsp.status_code}, {rsp.text}")
 
             if len(j["meta"]["warnings"]):
@@ -516,4 +522,5 @@ class WattTimeMaps(WattTimeBase):
         headers = {"Authorization": "Bearer " + self.token}
         params = {"signal_type": signal_type}
         rsp = requests.get(url, headers=headers, params=params)
+        rsp.raise_for_status()
         return rsp.json()

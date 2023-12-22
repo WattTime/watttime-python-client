@@ -1,7 +1,9 @@
 import unittest
+import unittest.mock as mock
 from datetime import datetime, timedelta
 from dateutil.parser import parse
 from pytz import timezone, UTC
+import os
 from watttime import (
     WattTimeBase,
     WattTimeHistorical,
@@ -14,6 +16,30 @@ import pandas as pd
 import requests
 
 REGION = "CAISO_NORTH"
+
+
+def mocked_register(*args, **kwargs):
+    url = args[0]
+
+    class MockResponse:
+        def __init__(self, json_data, status_code):
+            self.json_data = json_data
+            self.status_code = status_code
+
+        def json(self):
+            return self.json_data
+
+    if (
+        (url == "https://api.watttime.org/register")
+        & (kwargs["json"]["email"] == os.getenv("WATTTIME_EMAIL"))
+        & (kwargs["json"]["username"] == os.getenv("WATTTIME_USER"))
+        & (kwargs["json"]["password"] == os.getenv("WATTTIME_PASSWORD"))
+    ):
+        return MockResponse(
+            {"ok": "User created", "user": kwargs["json"]["username"]}, 200
+        )
+    else:
+        raise MockResponse({"error": "Failed to create user"}, 400)
 
 
 class TestWattTimeBase(unittest.TestCase):
@@ -91,6 +117,12 @@ class TestWattTimeBase(unittest.TestCase):
         self.assertIsInstance(parsed_end, datetime)
         self.assertEqual(parsed_end.tzinfo, UTC)
 
+    @mock.patch("requests.post", side_effect=mocked_register)
+    def test_mock_register(self, mock_post):
+        resp = self.base.register(email=os.getenv("WATTTIME_EMAIL"))
+        self.assertEqual(resp.status_code, 200)
+        self.assertEqual(len(mock_post.call_args_list), 1)
+
 
 class TestWattTimeHistorical(unittest.TestCase):
     def setUp(self):
@@ -154,15 +186,20 @@ class TestWattTimeHistorical(unittest.TestCase):
         self.assertIn("point_time", df.columns)
         self.assertIn("value", df.columns)
         self.assertIn("meta", df.columns)
-        
+
     def test_get_historical_csv(self):
         start = parse("2022-01-01 00:00Z")
         end = parse("2022-01-02 00:00Z")
         self.historical.get_historical_csv(start, end, REGION)
 
-        fp = Path.home() / "watttime_historical_csvs" / f"{REGION}_co2_moer_{start.date()}_{end.date()}.csv"
+        fp = (
+            Path.home()
+            / "watttime_historical_csvs"
+            / f"{REGION}_co2_moer_{start.date()}_{end.date()}.csv"
+        )
         assert fp.exists()
         fp.unlink()
+
 
 class TestWattTimeMyAccess(unittest.TestCase):
     def setUp(self):

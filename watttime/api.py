@@ -70,6 +70,19 @@ class WattTimeBase:
         # API response is inclusive, avoid overlap in chunks
         chunks = [(s, e - timedelta(minutes=5)) for s, e in chunks[0:-1]] + [chunks[-1]]
         return chunks
+    
+    def register(self, email: str, organization: Optional[str] = None) -> requests.Response:
+        """Register for the WattTime API, if you do not already have an account."""
+        url = f"{self.url_base}/register"
+        params = {
+            'username': self.username,
+            'password': self.password,
+            'email': email,
+            'org': organization,
+        }
+             
+        rsp = requests.post(url, json=params, timeout=20)
+        return rsp
 
 
 class WattTimeHistorical(WattTimeBase):

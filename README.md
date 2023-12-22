@@ -1,7 +1,7 @@
 # About
 This SDK is meant to help users with basic queries to WattTime’s API (version 3), and to get data returned in specific formats (e.g., JSON, pandas, csv).
 
-Users must first [register for access to the WattTime API here](https://watttime.org/docs-dev/data-plans/).
+Users may register for access to the WattTime API through this client, however the basic user scoping given will only allow newly registered users to access data for the `CAISO_NORTH` region. Additionally, data may not be available for all signal types for newly registered users.
 
 Full documentation of WattTime's API, along with response samples and information about [available endpoints is also available](https://docs.watttime.org/).
 
@@ -11,7 +11,16 @@ The SDK can be installed as a python package from the PyPi repository, we recomm
 pip install watttime
 ```
 
-Once registered for the WattTime API, you may set your credentials as environment variables to avoid passing these during class initialization:
+If you are not registered for the WattTime API, you can do so using the SDK:
+```
+from watttime import WattTimeMyAccess
+
+wt = WattTimeMyAccess(username=<USERNAME>, password=<PASSWORD>)
+wt.register(email=<EMAIL>, organization=<ORGANIZATION>)
+
+```
+
+If you are already registered for the WattTime API, you may set your credentials as environment variables to avoid passing these during class initialization:
 ```
 # linux or mac
 export WATTTIME_USER=<your WattTime API username>

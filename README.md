@@ -6,10 +6,9 @@ Users must first [register for access to the WattTime API here](https://watttime
 Full documentation of WattTime's API, along with response samples and information about [available endpoints is also available](https://docs.watttime.org/).
 
 # Configuration
-The SDK can be installed as a python package, we recommend using an environment manager such as [miniconda](https://docs.conda.io/projects/miniconda/en/latest/) or [venv](https://docs.python.org/3/library/venv.html).
+The SDK can be installed as a python package from the PyPi repository, we recommend using an environment manager such as [miniconda](https://docs.conda.io/projects/miniconda/en/latest/) or [venv](https://docs.python.org/3/library/venv.html).
 ```
-git clone git@github.com:WattTime/watttime-python-client.git
-pip install watttime-python-client/
+pip install watttime
 ```
 
 Once registered for the WattTime API, you may set your credentials as environment variables to avoid passing these during class initialization:

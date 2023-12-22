@@ -15,13 +15,26 @@ class WattTimeBase:
     url_base = "https://api.watttime.org"
 
     def __init__(self, username: Optional[str] = None, password: Optional[str] = None):
+        """
+        Initializes a new instance of the class.
+
+        Parameters:
+            username (Optional[str]): The username to use for authentication. If not provided, the value will be retrieved from the environment variable "WATTTIME_USER".
+            password (Optional[str]): The password to use for authentication. If not provided, the value will be retrieved from the environment variable "WATTTIME_PASSWORD".
+        """
         self.username = username or os.getenv("WATTTIME_USER")
         self.password = password or os.getenv("WATTTIME_PASSWORD")
         self.token = None
         self.token_valid_until = None
 
     def _login(self):
-        """Login to the WattTime API, which provides a JWT valid for 30 minutes."""
+        """
+        Login to the WattTime API, which provides a JWT valid for 30 minutes
+
+        Raises:
+            Exception: If the login fails and the credentials are incorrect.
+        """
+
         url = f"{self.url_base}/login"
         rsp = requests.get(
             url,
@@ -41,6 +54,16 @@ class WattTimeBase:
     def _parse_dates(
         self, start: Union[str, datetime], end: Union[str, datetime]
     ) -> Tuple[datetime, datetime]:
+        """
+        Parse the given start and end dates.
+
+        Args:
+            start (Union[str, datetime]): The start date to parse. It can be either a string or a datetime object.
+            end (Union[str, datetime]): The end date to parse. It can be either a string or a datetime object.
+
+        Returns:
+            Tuple[datetime, datetime]: A tuple containing the parsed start and end dates as datetime objects.
+        """
         if isinstance(start, str):
             start = parse(start)
         if isinstance(end, str):
@@ -61,7 +84,17 @@ class WattTimeBase:
     def _get_chunks(
         self, start: datetime, end: datetime, chunk_size: timedelta = timedelta(days=30)
     ) -> List[Tuple[datetime, datetime]]:
-        """Internal function turns a start and end into 30-day chunks"""
+        """
+        Generate a list of tuples representing chunks of time within a given time range.
+
+        Args:
+            start (datetime): The start datetime of the time range.
+            end (datetime): The end datetime of the time range.
+            chunk_size (timedelta, optional): The size of each chunk. Defaults to timedelta(days=30).
+
+        Returns:
+            List[Tuple[datetime, datetime]]: A list of tuples representing the chunks of time.
+        """
         chunks = []
         while start < end:
             chunk_end = min(end, start + chunk_size)
@@ -72,10 +105,18 @@ class WattTimeBase:
         chunks = [(s, e - timedelta(minutes=5)) for s, e in chunks[0:-1]] + [chunks[-1]]
         return chunks
 
-    def register(
-        self, email: str, organization: Optional[str] = None
-    ) -> requests.Response:
-        """Register for the WattTime API, if you do not already have an account."""
+    def register(self, email: str, organization: Optional[str] = None) -> None:
+        """
+        Register a user with the given email and organization.
+
+        Parameters:
+            email (str): The email of the user.
+            organization (Optional[str], optional): The organization the user belongs to. Defaults to None.
+
+        Returns:
+            None: An error will be raised if registration was unsuccessful.
+        """
+
         url = f"{self.url_base}/register"
         params = {
             "username": self.username,
@@ -94,18 +135,18 @@ class WattTimeBase:
         longitude: Union[str, float],
         signal_type: Optional[
             Literal["co2_moer", "co2_aoer", "health_damage"]
-        ] = "co2_moer"
+        ] = "co2_moer",
     ) -> Dict[str, str]:
         """
         Retrieve the region information based on the given latitude and longitude.
-        
+
         Args:
             latitude (Union[str, float]): The latitude of the location.
             longitude (Union[str, float]): The longitude of the location.
             signal_type (Optional[Literal["co2_moer", "co2_aoer", "health_damage"]], optional):
                 The type of signal to be used for the region classification.
                 Defaults to "co2_moer".
-        
+
         Returns:
             Dict[str, str]: A dictionary containing the region information with keys "region" and "region_full_name".
         """
@@ -113,7 +154,11 @@ class WattTimeBase:
             self._login()
         url = f"{self.url_base}/v3/region-from-loc"
         headers = {"Authorization": "Bearer " + self.token}
-        params = {"latitude": str(latitude), "longitude": str(longitude), "signal_type":signal_type}
+        params = {
+            "latitude": str(latitude),
+            "longitude": str(longitude),
+            "signal_type": signal_type,
+        }
         rsp = requests.get(url, headers=headers, params=params)
         return rsp.json()
 
@@ -185,7 +230,8 @@ class WattTimeHistorical(WattTimeBase):
         model_date: Optional[Union[str, date]] = None,
         include_meta: bool = False,
     ):
-        """Return a pd.DataFrame with point_time, and values.
+        """
+        Return a pd.DataFrame with point_time, and values.
 
         Args:
             See .get_hist_jsons() for shared arguments.
@@ -215,18 +261,18 @@ class WattTimeHistorical(WattTimeBase):
         model_date: Optional[Union[str, date]] = None,
     ):
         """
-                Retrieves historical data from a specified start date to an end date and saves it as a CSV file.
-                CSV naming scheme is like "CAISO_NORTH_co2_moer_2022-01-01_2022-01-07.csv"
-        +
-                Args:
-                    start (Union[str, datetime]): The start date for retrieving historical data. It can be a string in the format "YYYY-MM-DD" or a datetime object.
-                    end (Union[str, datetime]): The end date for retrieving historical data. It can be a string in the format "YYYY-MM-DD" or a datetime object.
-                    region (str): The region for which historical data is requested.
-                    signal_type (Optional[Literal["co2_moer", "co2_aoer", "health_damage"]]): The type of signal for which historical data is requested. Default is "co2_moer".
-                    model_date (Optional[Union[str, date]]): The date of the model for which historical data is requested. It can be a string in the format "YYYY-MM-DD" or a date object. Default is None.
+        Retrieves historical data from a specified start date to an end date and saves it as a CSV file.
+        CSV naming scheme is like "CAISO_NORTH_co2_moer_2022-01-01_2022-01-07.csv"
 
-                Returns:
-                    None
+        Args:
+            start (Union[str, datetime]): The start date for retrieving historical data. It can be a string in the format "YYYY-MM-DD" or a datetime object.
+            end (Union[str, datetime]): The end date for retrieving historical data. It can be a string in the format "YYYY-MM-DD" or a datetime object.
+            region (str): The region for which historical data is requested.
+            signal_type (Optional[Literal["co2_moer", "co2_aoer", "health_damage"]]): The type of signal for which historical data is requested. Default is "co2_moer".
+            model_date (Optional[Union[str, date]]): The date of the model for which historical data is requested. It can be a string in the format "YYYY-MM-DD" or a date object. Default is None.
+
+        Returns:
+            None, results are saved to a csv file in the user's home directory.
         """
         df = self.get_historical_pandas(start, end, region, signal_type, model_date)
 
@@ -338,7 +384,8 @@ class WattTimeForecast(WattTimeBase):
         model_date: Optional[Union[str, date]] = None,
         include_meta: bool = False,
     ) -> pd.DataFrame:
-        """Return a pd.DataFrame with point_time, and values.
+        """
+        Return a pd.DataFrame with point_time, and values.
 
         Args:
             See .get_forecast_json() for shared arguments.
@@ -364,6 +411,22 @@ class WattTimeForecast(WattTimeBase):
         ] = "co2_moer",
         model_date: Optional[Union[str, date]] = None,
     ) -> List[Dict[str, Any]]:
+        """
+        Retrieves the historical forecast data from the API as a list of dictionaries.
+
+        Args:
+            start (Union[str, datetime]): The start date of the historical forecast. Can be a string or a datetime object.
+            end (Union[str, datetime]): The end date of the historical forecast. Can be a string or a datetime object.
+            region (str): The region for which to retrieve the forecast data.
+            signal_type (Optional[Literal["co2_moer", "co2_aoer", "health_damage"]]): The type of signal to retrieve. Defaults to "co2_moer".
+            model_date (Optional[Union[str, date]]): The date of the model version to use. Defaults to None.
+
+        Returns:
+            List[Dict[str, Any]]: A list of dictionaries representing the forecast data.
+
+        Raises:
+            Exception: If there is an API response error.
+        """
         if not self._is_token_valid():
             self._login()
         url = "{}/v3/forecast/historical".format(self.url_base)
@@ -403,6 +466,20 @@ class WattTimeForecast(WattTimeBase):
         ] = "co2_moer",
         model_date: Optional[Union[str, date]] = None,
     ) -> pd.DataFrame:
+        """
+        Retrieves the historical forecast data as a pandas DataFrame.
+
+        Args:
+            start (Union[str, datetime]): The start date or datetime for the historical forecast.
+            end (Union[str, datetime]): The end date or datetime for the historical forecast.
+            region (str): The region for which the historical forecast data is retrieved.
+            signal_type (Optional[Literal["co2_moer", "co2_aoer", "health_damage"]], optional): 
+                The type of signal for the historical forecast data. Defaults to "co2_moer".
+            model_date (Optional[Union[str, date]], optional): The model date for the historical forecast data. Defaults to None.
+
+        Returns:
+            pd.DataFrame: A pandas DataFrame containing the historical forecast data.
+        """
         json_list = self.get_historical_forecast_json(
             start, end, region, signal_type, model_date
         )
@@ -416,27 +493,27 @@ class WattTimeForecast(WattTimeBase):
 
 
 class WattTimeMaps(WattTimeBase):
-     def get_maps_json(
-         self,
-         signal_type: Optional[
-             Literal["co2_moer", "co2_aoer", "health_damage"]
-         ] = "co2_moer",
-     ):
-         """
-         Retrieves JSON data for the maps API.
-    
-         Args:
-             signal_type (Optional[str]): The type of signal to retrieve data for.
-                 Valid options are "co2_moer", "co2_aoer", and "health_damage".
-                 Defaults to "co2_moer".
-    
-         Returns:
-             dict: The JSON response from the API.
-         """
-         if not self._is_token_valid():
-             self._login()
-         url = "{}/v3/maps".format(self.url_base)
-         headers = {"Authorization": "Bearer " + self.token}
-         params = {"signal_type": signal_type}
-         rsp = requests.get(url, headers=headers, params=params)
-         return rsp.json()
+    def get_maps_json(
+        self,
+        signal_type: Optional[
+            Literal["co2_moer", "co2_aoer", "health_damage"]
+        ] = "co2_moer",
+    ):
+        """
+        Retrieves JSON data for the maps API.
+
+        Args:
+            signal_type (Optional[str]): The type of signal to retrieve data for.
+                Valid options are "co2_moer", "co2_aoer", and "health_damage".
+                Defaults to "co2_moer".
+
+        Returns:
+            dict: The JSON response from the API.
+        """
+        if not self._is_token_valid():
+            self._login()
+        url = "{}/v3/maps".format(self.url_base)
+        headers = {"Authorization": "Bearer " + self.token}
+        params = {"signal_type": signal_type}
+        rsp = requests.get(url, headers=headers, params=params)
+        return rsp.json()

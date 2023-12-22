@@ -29,6 +29,9 @@ def mocked_register(*args, **kwargs):
 
         def json(self):
             return self.json_data
+        
+        def raise_for_status(self):
+            assert self.status_code == 200
 
     if (
         (url == "https://api.watttime.org/register")
@@ -121,7 +124,6 @@ class TestWattTimeBase(unittest.TestCase):
     @mock.patch("requests.post", side_effect=mocked_register)
     def test_mock_register(self, mock_post):
         resp = self.base.register(email=os.getenv("WATTTIME_EMAIL"))
-        self.assertEqual(resp.status_code, 200)
         self.assertEqual(len(mock_post.call_args_list), 1)
 
 

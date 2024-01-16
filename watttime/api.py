@@ -237,7 +237,6 @@ class WattTimeMyAccess(WattTimeBase):
                                 "region": reg_dict["region"],
                                 "region_name": reg_dict["region_full_name"],
                                 "endpoint": end_dict["endpoint"],
-                                "model_date": model_dict["model"],
                                 **model_dict,
                             }
                         )

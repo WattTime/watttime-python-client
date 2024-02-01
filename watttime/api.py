@@ -222,7 +222,7 @@ class WattTimeMyAccess(WattTimeBase):
                 - region: The abbreviation of the region.
                 - region_name: The full name of the region.
                 - endpoint: The endpoint.
-                - model_date: The date of the model.
+                - model: The date identifier of the model.
                 - Any additional columns from the model_dict.
         """
         j = self.get_access_json()

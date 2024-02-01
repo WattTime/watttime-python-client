@@ -75,7 +75,6 @@ class WattTimeBase:
     def register(
         self, email: str, organization: Optional[str] = None
     ) -> requests.Response:
-        """Register for the WattTime API, if you do not already have an account."""
         url = f"{self.url_base}/register"
         params = {
             "username": self.username,
@@ -89,36 +88,6 @@ class WattTimeBase:
         print(
             f"Successfully registered {self.username}, please check {email} for a verification email"
         )
-
-    @cache
-    def region_from_loc(
-        self,
-        latitude: Union[str, float],
-        longitude: Union[str, float],
-        signal_type: Optional[
-            Literal["co2_moer", "co2_aoer", "health_damage"]
-        ] = "co2_moer"
-    ) -> Dict[str, str]:
-        """
-        Retrieve the region information based on the given latitude and longitude.
-        
-        Args:
-            latitude (Union[str, float]): The latitude of the location.
-            longitude (Union[str, float]): The longitude of the location.
-            signal_type (Optional[Literal["co2_moer", "co2_aoer", "health_damage"]], optional):
-                The type of signal to be used for the region classification.
-                Defaults to "co2_moer".
-        
-        Returns:
-            Dict[str, str]: A dictionary containing the region information with keys "region" and "region_full_name".
-        """
-        if not self._is_token_valid():
-            self._login()
-        url = f"{self.url_base}/v3/region-from-loc"
-        headers = {"Authorization": "Bearer " + self.token}
-        params = {"latitude": str(latitude), "longitude": str(longitude), "signal_type":signal_type}
-        rsp = requests.get(url, headers=headers, params=params)
-        return rsp.json()
 
 
 class WattTimeHistorical(WattTimeBase):

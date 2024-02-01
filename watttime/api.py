@@ -71,6 +71,23 @@ class WattTimeBase:
         chunks = [(s, e - timedelta(minutes=5)) for s, e in chunks[0:-1]] + [chunks[-1]]
         return chunks
 
+    def register(
+        self, email: str, organization: Optional[str] = None
+    ) -> requests.Response:
+        url = f"{self.url_base}/register"
+        params = {
+            "username": self.username,
+            "password": self.password,
+            "email": email,
+            "org": organization,
+        }
+
+        rsp = requests.post(url, json=params, timeout=20)
+        rsp.raise_for_status()
+        print(
+            f"Successfully registered {self.username}, please check {email} for a verification email"
+        )
+
 
 class WattTimeHistorical(WattTimeBase):
     def get_historical_jsons(
@@ -183,10 +200,10 @@ class WattTimeHistorical(WattTimeBase):
                     None
         """
         df = self.get_historical_pandas(start, end, region, signal_type, model_date)
-        
+
         out_dir = Path.home() / "watttime_historical_csvs"
         out_dir.mkdir(exist_ok=True)
-        
+
         start, end = self._parse_dates(start, end)
         fp = out_dir / f"{region}_{signal_type}_{start.date()}_{end.date()}.csv"
         df.to_csv(fp, index=False)
@@ -304,7 +321,9 @@ class WattTimeForecast(WattTimeBase):
             pd.DataFrame: _description_
         """
         j = self.get_forecast_json(region, signal_type, model_date)
-        return pd.json_normalize(j, record_path="data", meta=["meta"] if include_meta else [])
+        return pd.json_normalize(
+            j, record_path="data", meta=["meta"] if include_meta else []
+        )
 
     def get_historical_forecast_json(
         self,
@@ -360,7 +379,7 @@ class WattTimeForecast(WattTimeBase):
         )
         out = pd.DataFrame()
         for json in json_list:
-            for entry in json['data']:
+            for entry in json["data"]:
                 _df = pd.json_normalize(entry, record_path=["forecast"])
                 _df = _df.assign(generated_at=pd.to_datetime(entry["generated_at"]))
                 out = pd.concat([out, _df])

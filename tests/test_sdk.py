@@ -250,7 +250,6 @@ class TestWattTimeMyAccess(unittest.TestCase):
         self.assertIn("region", df.columns)
         self.assertIn("region_name", df.columns)
         self.assertIn("endpoint", df.columns)
-        self.assertIn("model_date", df.columns)
         self.assertIn("model", df.columns)
         self.assertIn("data_start", df.columns)
         self.assertIn("train_start", df.columns)

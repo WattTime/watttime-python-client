@@ -262,6 +262,26 @@ class TestWattTimeForecast(unittest.TestCase):
         self.assertIn("point_time", df.columns)
         self.assertIn("value", df.columns)
         self.assertIn("generated_at", df.columns)
+        
+    def test_horizon_hours(self):
+        json = self.forecast.get_forecast_json(region=REGION, horizon_hours=0)
+        self.assertIsInstance(json, dict)
+        self.assertIn("meta", json)
+        self.assertEqual(len(json["data"]), 1)
+        self.assertIn("point_time", json["data"][0])
+        
+        json2 = self.forecast.get_forecast_json(region=REGION, horizon_hours=24)
+        self.assertIsInstance(json2, dict)
+        self.assertIn("meta", json2)
+        self.assertEqual(len(json2["data"]), 288)
+        self.assertIn("point_time", json2["data"][0])
+                
+        json3 = self.forecast.get_forecast_json(region=REGION, horizon_hours=72)
+        self.assertIsInstance(json3, dict)
+        self.assertIn("meta", json3)
+        self.assertEqual(len(json3["data"]), 864)
+        self.assertIn("point_time", json3["data"][0])
+
 
 
 if __name__ == "__main__":

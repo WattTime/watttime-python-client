@@ -183,10 +183,10 @@ class WattTimeHistorical(WattTimeBase):
                     None
         """
         df = self.get_historical_pandas(start, end, region, signal_type, model_date)
-        
+
         out_dir = Path.home() / "watttime_historical_csvs"
         out_dir.mkdir(exist_ok=True)
-        
+
         start, end = self._parse_dates(start, end)
         fp = out_dir / f"{region}_{signal_type}_{start.date()}_{end.date()}.csv"
         df.to_csv(fp, index=False)
@@ -253,6 +253,7 @@ class WattTimeForecast(WattTimeBase):
             Literal["co2_moer", "co2_aoer", "health_damage"]
         ] = "co2_moer",
         model_date: Optional[Union[str, date]] = None,
+        horizon_hours: int = 24,
     ) -> Dict:
         """
         Retrieves the most recent forecast data in JSON format based on the given region, signal type, and model date.
@@ -266,13 +267,18 @@ class WattTimeForecast(WattTimeBase):
                 Valid options are "co2_moer", "co2_aoer", and "health_damage".
             model_date (str or date, optional): The date of the model version to use for the forecast data.
                 If not provided, the most recent model version will be used.
+            horizon_hours (int, optional): The number of hours to forecast. Defaults to 24. Minimum of 0 provides a "nowcast" created with the forecast, maximum of 72.
 
         Returns:
             List[dict]: A list of dictionaries representing the forecast data in JSON format.
         """
         if not self._is_token_valid():
             self._login()
-        params = {"region": region, "signal_type": signal_type}
+        params = {
+            "region": region,
+            "signal_type": signal_type,
+            "horizon_hours": horizon_hours,
+        }
 
         # No model_date will default to the most recent model version available
         if model_date is not None:
@@ -291,6 +297,7 @@ class WattTimeForecast(WattTimeBase):
         ] = "co2_moer",
         model_date: Optional[Union[str, date]] = None,
         include_meta: bool = False,
+        horizon_hours: int = 24,
     ) -> pd.DataFrame:
         """Return a pd.DataFrame with point_time, and values.
 
@@ -303,8 +310,10 @@ class WattTimeForecast(WattTimeBase):
         Returns:
             pd.DataFrame: _description_
         """
-        j = self.get_forecast_json(region, signal_type, model_date)
-        return pd.json_normalize(j, record_path="data", meta=["meta"] if include_meta else [])
+        j = self.get_forecast_json(region, signal_type, model_date, horizon_hours)
+        return pd.json_normalize(
+            j, record_path="data", meta=["meta"] if include_meta else []
+        )
 
     def get_historical_forecast_json(
         self,
@@ -315,13 +324,35 @@ class WattTimeForecast(WattTimeBase):
             Literal["co2_moer", "co2_aoer", "health_damage"]
         ] = "co2_moer",
         model_date: Optional[Union[str, date]] = None,
+        horizon_hours: int = 24,
     ) -> List[Dict[str, Any]]:
+        """
+        Retrieves the historical forecast data from the API as a list of dictionaries.
+
+        Args:
+            start (Union[str, datetime]): The start date of the historical forecast. Can be a string or a datetime object.
+            end (Union[str, datetime]): The end date of the historical forecast. Can be a string or a datetime object.
+            region (str): The region for which to retrieve the forecast data.
+            signal_type (Optional[Literal["co2_moer", "co2_aoer", "health_damage"]]): The type of signal to retrieve. Defaults to "co2_moer".
+            model_date (Optional[Union[str, date]]): The date of the model version to use. Defaults to None.
+            horizon_hours (int, optional): The number of hours to forecast. Defaults to 24. Minimum of 0 provides a "nowcast" created with the forecast, maximum of 72.
+
+        Returns:
+            List[Dict[str, Any]]: A list of dictionaries representing the forecast data.
+
+        Raises:
+            Exception: If there is an API response error.
+        """
         if not self._is_token_valid():
             self._login()
         url = "{}/v3/forecast/historical".format(self.url_base)
         headers = {"Authorization": "Bearer " + self.token}
         responses = []
-        params = {"region": region, "signal_type": signal_type}
+        params = {
+            "region": region,
+            "signal_type": signal_type,
+            horizon_hours: horizon_hours,
+        }
 
         start, end = self._parse_dates(start, end)
         chunks = self._get_chunks(start, end, chunk_size=timedelta(days=1))
@@ -354,13 +385,23 @@ class WattTimeForecast(WattTimeBase):
             Literal["co2_moer", "co2_aoer", "health_damage"]
         ] = "co2_moer",
         model_date: Optional[Union[str, date]] = None,
+        horizon_hours: int = 24,
     ) -> pd.DataFrame:
+        """
+        Retrieves the historical forecast data as a pandas DataFrame.
+
+        Args:
+            See .get_historical_forecast_json() for shared arguments.
+
+        Returns:
+            pd.DataFrame: A pandas DataFrame containing the historical forecast data.
+        """
         json_list = self.get_historical_forecast_json(
-            start, end, region, signal_type, model_date
+            start, end, region, signal_type, model_date, horizon_hours
         )
         out = pd.DataFrame()
         for json in json_list:
-            for entry in json['data']:
+            for entry in json["data"]:
                 _df = pd.json_normalize(entry, record_path=["forecast"])
                 _df = _df.assign(generated_at=pd.to_datetime(entry["generated_at"]))
                 out = pd.concat([out, _df])

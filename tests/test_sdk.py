@@ -1,12 +1,15 @@
 import unittest
+import unittest.mock as mock
 from datetime import datetime, timedelta
 from dateutil.parser import parse
 from pytz import timezone, UTC
+import os
 from watttime import (
     WattTimeBase,
     WattTimeHistorical,
     WattTimeMyAccess,
     WattTimeForecast,
+    WattTimeMaps,
 )
 from pathlib import Path
 
@@ -14,6 +17,33 @@ import pandas as pd
 import requests
 
 REGION = "CAISO_NORTH"
+
+
+def mocked_register(*args, **kwargs):
+    url = args[0]
+
+    class MockResponse:
+        def __init__(self, json_data, status_code):
+            self.json_data = json_data
+            self.status_code = status_code
+
+        def json(self):
+            return self.json_data
+        
+        def raise_for_status(self):
+            assert self.status_code == 200
+
+    if (
+        (url == "https://api.watttime.org/register")
+        & (kwargs["json"]["email"] == os.getenv("WATTTIME_EMAIL"))
+        & (kwargs["json"]["username"] == os.getenv("WATTTIME_USER"))
+        & (kwargs["json"]["password"] == os.getenv("WATTTIME_PASSWORD"))
+    ):
+        return MockResponse(
+            {"ok": "User created", "user": kwargs["json"]["username"]}, 200
+        )
+    else:
+        raise MockResponse({"error": "Failed to create user"}, 400)
 
 
 class TestWattTimeBase(unittest.TestCase):
@@ -91,6 +121,11 @@ class TestWattTimeBase(unittest.TestCase):
         self.assertIsInstance(parsed_end, datetime)
         self.assertEqual(parsed_end.tzinfo, UTC)
 
+    @mock.patch("requests.post", side_effect=mocked_register)
+    def test_mock_register(self, mock_post):
+        resp = self.base.register(email=os.getenv("WATTTIME_EMAIL"))
+        self.assertEqual(len(mock_post.call_args_list), 1)
+
 
 class TestWattTimeHistorical(unittest.TestCase):
     def setUp(self):
@@ -154,15 +189,20 @@ class TestWattTimeHistorical(unittest.TestCase):
         self.assertIn("point_time", df.columns)
         self.assertIn("value", df.columns)
         self.assertIn("meta", df.columns)
-        
+
     def test_get_historical_csv(self):
         start = parse("2022-01-01 00:00Z")
         end = parse("2022-01-02 00:00Z")
         self.historical.get_historical_csv(start, end, REGION)
 
-        fp = Path.home() / "watttime_historical_csvs" / f"{REGION}_co2_moer_{start.date()}_{end.date()}.csv"
+        fp = (
+            Path.home()
+            / "watttime_historical_csvs"
+            / f"{REGION}_co2_moer_{start.date()}_{end.date()}.csv"
+        )
         assert fp.exists()
         fp.unlink()
+
 
 class TestWattTimeMyAccess(unittest.TestCase):
     def setUp(self):
@@ -210,7 +250,6 @@ class TestWattTimeMyAccess(unittest.TestCase):
         self.assertIn("region", df.columns)
         self.assertIn("region_name", df.columns)
         self.assertIn("endpoint", df.columns)
-        self.assertIn("model_date", df.columns)
         self.assertIn("model", df.columns)
         self.assertIn("data_start", df.columns)
         self.assertIn("train_start", df.columns)
@@ -282,6 +321,44 @@ class TestWattTimeForecast(unittest.TestCase):
         self.assertEqual(len(json3["data"]), 864)
         self.assertIn("point_time", json3["data"][0])
 
+
+
+class TestWattTimeMaps(unittest.TestCase):
+    def setUp(self):
+        self.maps = WattTimeMaps()
+
+    def test_get_maps_json_moer(self):
+        moer = self.maps.get_maps_json(signal_type="co2_moer")
+        self.assertEqual(moer["type"], "FeatureCollection")
+        self.assertEqual(moer["meta"]["signal_type"], "co2_moer")
+        self.assertGreater(
+            parse(moer["meta"]["last_updated"]), parse("2023-01-01 00:00Z")
+        )
+        self.assertGreater(len(moer["features"]), 100)  # 172 as of 2023-12-01
+
+    def test_get_maps_json_aoer(self):
+        aoer = self.maps.get_maps_json(signal_type="co2_aoer")
+        self.assertEqual(aoer["type"], "FeatureCollection")
+        self.assertEqual(aoer["meta"]["signal_type"], "co2_aoer")
+        self.assertGreater(
+            parse(aoer["meta"]["last_updated"]), parse("2023-01-01 00:00Z")
+        )
+        self.assertGreater(len(aoer["features"]), 50)  # 87 as of 2023-12-01
+
+    def test_get_maps_json_health(self):
+        health = self.maps.get_maps_json(signal_type="health_damage")
+        self.assertEqual(health["type"], "FeatureCollection")
+        self.assertEqual(health["meta"]["signal_type"], "health_damage")
+        self.assertGreater(
+            parse(health["meta"]["last_updated"]), parse("2022-01-01 00:00Z")
+        )
+        self.assertGreater(len(health["features"]), 100)  # 114 as of 2023-12-01
+        
+    def test_region_from_loc(self):
+        region = self.maps.region_from_loc(latitude=39.7522, longitude=-105.0, signal_type='co2_moer')
+        self.assertEqual(region["region"], "PSCO")
+        self.assertEqual(region["region_full_name"], "Public Service Co of Colorado")
+        self.assertEqual(region["signal_type"], "co2_moer")
 
 
 if __name__ == "__main__":

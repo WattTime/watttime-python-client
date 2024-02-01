@@ -127,7 +127,10 @@ class WattTimeBase:
         }
 
         rsp = requests.post(url, json=params, timeout=20)
-        return rsp
+        rsp.raise_for_status()
+        print(
+            f"Successfully registered {self.username}, please check {email} for a verification email"
+        )
 
     @cache
     def region_from_loc(

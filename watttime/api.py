@@ -225,8 +225,9 @@ class WattTimeHistorical(WattTimeBase):
         
         # the API should not let this happen, but ensure for sanity  
         unique_models = set([r['meta']['model']['date'] for r in responses])
+        chosen_model = model_date or max(unique_models)
         if len(unique_models) > 1:
-            responses = [r for r in responses if r['meta']['model']['date'] == max(unique_models)]
+            responses = [r for r in responses if r['meta']['model']['date'] == chosen_model]
 
         return responses
 

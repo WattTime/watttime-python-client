@@ -222,12 +222,14 @@ class WattTimeHistorical(WattTimeBase):
 
             if len(j["meta"]["warnings"]):
                 print("\n", "Warnings Returned:", params, j["meta"])
-        
-        # the API should not let this happen, but ensure for sanity  
-        unique_models = set([r['meta']['model']['date'] for r in responses])
+
+        # the API should not let this happen, but ensure for sanity
+        unique_models = set([r["meta"]["model"]["date"] for r in responses])
         chosen_model = model_date or max(unique_models)
         if len(unique_models) > 1:
-            responses = [r for r in responses if r['meta']['model']['date'] == chosen_model]
+            responses = [
+                r for r in responses if r["meta"]["model"]["date"] == chosen_model
+            ]
 
         return responses
 
@@ -260,9 +262,9 @@ class WattTimeHistorical(WattTimeBase):
         df = pd.json_normalize(
             responses, record_path="data", meta=["meta"] if include_meta else []
         )
-        
-        df['point_time'] = pd.to_datetime(df['point_time'])
-        
+
+        df["point_time"] = pd.to_datetime(df["point_time"])
+
         return df
 
     def get_historical_csv(

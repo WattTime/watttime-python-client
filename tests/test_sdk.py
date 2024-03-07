@@ -189,6 +189,8 @@ class TestWattTimeHistorical(unittest.TestCase):
         self.assertIn("point_time", df.columns)
         self.assertIn("value", df.columns)
         self.assertIn("meta", df.columns)
+        
+        assert pd.api.types.is_datetime64_any_dtype(df["point_time"].dtype)
 
     def test_get_historical_csv(self):
         start = parse("2022-01-01 00:00Z")
@@ -202,6 +204,40 @@ class TestWattTimeHistorical(unittest.TestCase):
         )
         assert fp.exists()
         fp.unlink()
+        
+    def test_multi_model_range(self):
+        """If model is not specified, we should only return the most recent model data"""
+        myaccess = WattTimeMyAccess()
+        access = myaccess.get_access_pandas()
+        access = access.loc[
+            (access['signal_type'] == 'co2_moer') &
+            (access['region'] == REGION)
+        ].sort_values('model', ascending=False)
+        assert len(access) > 1
+        
+        # start request one month before data_start of most recent model
+        start = access['data_start'].values[0] - pd.Timedelta(days=30)
+        end = access['data_start'].values[0] + pd.Timedelta(days=30)
+        df = self.historical.get_historical_pandas(start, end, REGION, include_meta=True)
+        
+        # should not span into an older model
+        self.assertEqual(
+            df.iloc[0]['meta']['model']['date'],
+            access.iloc[0]['model']
+        )
+        
+        self.assertEqual(
+            df.iloc[-1]['meta']['model']['date'],
+            access.iloc[0]['model']
+        )
+        
+        # first point_time should be data_start from my-acces
+        self.assertAlmostEqual(
+            df.iloc[0]['point_time'],
+            access.iloc[0]['data_start'].tz_localize('UTC'),
+            delta=pd.Timedelta(days=1)
+        )
+        
 
 
 class TestWattTimeMyAccess(unittest.TestCase):
@@ -256,6 +292,10 @@ class TestWattTimeMyAccess(unittest.TestCase):
         self.assertIn("train_end", df.columns)
         self.assertIn("type", df.columns)
         self.assertGreaterEqual(len(df), 1)
+        
+        assert pd.api.types.is_datetime64_any_dtype(df['data_start'])
+        assert pd.api.types.is_datetime64_any_dtype(df['train_start'])
+        assert pd.api.types.is_datetime64_any_dtype(df['train_end'])
 
 
 class TestWattTimeForecast(unittest.TestCase):

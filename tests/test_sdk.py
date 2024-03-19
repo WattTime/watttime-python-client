@@ -29,7 +29,7 @@ def mocked_register(*args, **kwargs):
 
         def json(self):
             return self.json_data
-        
+
         def raise_for_status(self):
             assert self.status_code == 200
 
@@ -190,6 +190,8 @@ class TestWattTimeHistorical(unittest.TestCase):
         self.assertIn("value", df.columns)
         self.assertIn("meta", df.columns)
 
+        assert pd.api.types.is_datetime64_any_dtype(df["point_time"].dtype)
+
     def test_get_historical_csv(self):
         start = parse("2022-01-01 00:00Z")
         end = parse("2022-01-02 00:00Z")
@@ -202,6 +204,34 @@ class TestWattTimeHistorical(unittest.TestCase):
         )
         assert fp.exists()
         fp.unlink()
+
+    def test_multi_model_range(self):
+        """If model is not specified, we should only return the most recent model data"""
+        myaccess = WattTimeMyAccess()
+        access = myaccess.get_access_pandas()
+        access = access.loc[
+            (access["signal_type"] == "co2_moer") & (access["region"] == REGION)
+        ].sort_values("model", ascending=False)
+        assert len(access) > 1
+
+        # start request one month before data_start of most recent model
+        start = access["data_start"].values[0] - pd.Timedelta(days=30)
+        end = access["data_start"].values[0] + pd.Timedelta(days=30)
+        df = self.historical.get_historical_pandas(
+            start, end, REGION, include_meta=True
+        )
+
+        # should not span into an older model
+        self.assertEqual(df.iloc[0]["meta"]["model"]["date"], access.iloc[0]["model"])
+
+        self.assertEqual(df.iloc[-1]["meta"]["model"]["date"], access.iloc[0]["model"])
+
+        # first point_time should be data_start from my-acces
+        self.assertAlmostEqual(
+            df.iloc[0]["point_time"],
+            access.iloc[0]["data_start"].tz_localize("UTC"),
+            delta=pd.Timedelta(days=1),
+        )
 
 
 class TestWattTimeMyAccess(unittest.TestCase):
@@ -257,6 +287,10 @@ class TestWattTimeMyAccess(unittest.TestCase):
         self.assertIn("type", df.columns)
         self.assertGreaterEqual(len(df), 1)
 
+        assert pd.api.types.is_datetime64_any_dtype(df["data_start"])
+        assert pd.api.types.is_datetime64_any_dtype(df["train_start"])
+        assert pd.api.types.is_datetime64_any_dtype(df["train_end"])
+
 
 class TestWattTimeForecast(unittest.TestCase):
     def setUp(self):
@@ -301,26 +335,25 @@ class TestWattTimeForecast(unittest.TestCase):
         self.assertIn("point_time", df.columns)
         self.assertIn("value", df.columns)
         self.assertIn("generated_at", df.columns)
-        
+
     def test_horizon_hours(self):
         json = self.forecast.get_forecast_json(region=REGION, horizon_hours=0)
         self.assertIsInstance(json, dict)
         self.assertIn("meta", json)
         self.assertEqual(len(json["data"]), 1)
         self.assertIn("point_time", json["data"][0])
-        
+
         json2 = self.forecast.get_forecast_json(region=REGION, horizon_hours=24)
         self.assertIsInstance(json2, dict)
         self.assertIn("meta", json2)
         self.assertEqual(len(json2["data"]), 288)
         self.assertIn("point_time", json2["data"][0])
-                
+
         json3 = self.forecast.get_forecast_json(region=REGION, horizon_hours=72)
         self.assertIsInstance(json3, dict)
         self.assertIn("meta", json3)
         self.assertEqual(len(json3["data"]), 864)
         self.assertIn("point_time", json3["data"][0])
-
 
 
 class TestWattTimeMaps(unittest.TestCase):
@@ -353,9 +386,11 @@ class TestWattTimeMaps(unittest.TestCase):
             parse(health["meta"]["last_updated"]), parse("2022-01-01 00:00Z")
         )
         self.assertGreater(len(health["features"]), 100)  # 114 as of 2023-12-01
-        
+
     def test_region_from_loc(self):
-        region = self.maps.region_from_loc(latitude=39.7522, longitude=-105.0, signal_type='co2_moer')
+        region = self.maps.region_from_loc(
+            latitude=39.7522, longitude=-105.0, signal_type="co2_moer"
+        )
         self.assertEqual(region["region"], "PSCO")
         self.assertEqual(region["region_full_name"], "Public Service Co of Colorado")
         self.assertEqual(region["signal_type"], "co2_moer")

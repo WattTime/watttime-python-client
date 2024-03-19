@@ -223,6 +223,14 @@ class WattTimeHistorical(WattTimeBase):
             if len(j["meta"]["warnings"]):
                 print("\n", "Warnings Returned:", params, j["meta"])
 
+        # the API should not let this happen, but ensure for sanity
+        unique_models = set([r["meta"]["model"]["date"] for r in responses])
+        chosen_model = model_date or max(unique_models)
+        if len(unique_models) > 1:
+            responses = [
+                r for r in responses if r["meta"]["model"]["date"] == chosen_model
+            ]
+
         return responses
 
     def get_historical_pandas(
@@ -254,6 +262,9 @@ class WattTimeHistorical(WattTimeBase):
         df = pd.json_normalize(
             responses, record_path="data", meta=["meta"] if include_meta else []
         )
+
+        df["point_time"] = pd.to_datetime(df["point_time"])
+
         return df
 
     def get_historical_csv(
@@ -340,7 +351,14 @@ class WattTimeMyAccess(WattTimeBase):
                             }
                         )
 
-        return pd.DataFrame(out)
+        out = pd.DataFrame(out)
+        out = out.assign(
+            data_start=pd.to_datetime(out["data_start"]),
+            train_start=pd.to_datetime(out["train_start"]),
+            train_end=pd.to_datetime(out["train_end"]),
+        )
+
+        return out
 
 
 class WattTimeForecast(WattTimeBase):
@@ -451,7 +469,7 @@ class WattTimeForecast(WattTimeBase):
         params = {
             "region": region,
             "signal_type": signal_type,
-            horizon_hours: horizon_hours,
+            "horizon_hours": horizon_hours,
         }
 
         start, end = self._parse_dates(start, end)
@@ -495,7 +513,7 @@ class WattTimeForecast(WattTimeBase):
             start (Union[str, datetime]): The start date or datetime for the historical forecast.
             end (Union[str, datetime]): The end date or datetime for the historical forecast.
             region (str): The region for which the historical forecast data is retrieved.
-            signal_type (Optional[Literal["co2_moer", "co2_aoer", "health_damage"]], optional): 
+            signal_type (Optional[Literal["co2_moer", "co2_aoer", "health_damage"]], optional):
                 The type of signal for the historical forecast data. Defaults to "co2_moer".
             model_date (Optional[Union[str, date]], optional): The model date for the historical forecast data. Defaults to None.
             horizon_hours (int, optional): The number of hours to forecast. Defaults to 24. Minimum of 0 provides a "nowcast" created with the forecast, maximum of 72.

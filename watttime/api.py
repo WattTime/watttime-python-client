@@ -1,14 +1,14 @@
-from datetime import datetime, timedelta, date
-from dateutil.parser import parse
-from pytz import timezone, UTC
-from typing import List, Tuple, Dict, Union, Optional, Literal, Any
 import os
 import time
-from pathlib import Path
+from datetime import date, datetime, timedelta
 from functools import cache
+from pathlib import Path
+from typing import Any, Dict, List, Literal, Optional, Tuple, Union
 
-import requests
 import pandas as pd
+import requests
+from dateutil.parser import parse
+from pytz import UTC, timezone
 
 
 class WattTimeBase:
@@ -218,7 +218,9 @@ class WattTimeHistorical(WattTimeBase):
                 j = rsp.json()
                 responses.append(j)
             except Exception as e:
-                raise Exception(f"\nAPI Response Error: {rsp.status_code}, {rsp.text}")
+                raise Exception(
+                    f"\nAPI Response Error: {rsp.status_code}, {rsp.text} [{rsp.headers.get('x-request-id')}]"
+                )
 
             if len(j["meta"]["warnings"]):
                 print("\n", "Warnings Returned:", params, j["meta"])
@@ -487,7 +489,9 @@ class WattTimeForecast(WattTimeBase):
                 j = rsp.json()
                 responses.append(j)
             except Exception as e:
-                raise Exception(f"\nAPI Response Error: {rsp.status_code}, {rsp.text}")
+                raise Exception(
+                    f"\nAPI Response Error: {rsp.status_code}, {rsp.text} [{rsp.headers.get('x-request-id')}]"
+                )
 
             if len(j["meta"]["warnings"]):
                 print("\n", "Warnings Returned:", params, j["meta"])

@@ -536,6 +536,50 @@ class WattTimeForecast(WattTimeBase):
                 out = pd.concat([out, _df])
         return out
 
+class WattTimeOptimizer(WattTimeForecast):
+    def get_optimal_usage_plan(
+        self,
+        region: str,
+        usage_window_start: datetime,
+        usage_window_end: datetime,
+        usage_time_required_minutes: float,
+        optimization_method: Optional[
+            Literal["basic"]
+        ] = "basic",
+    ) -> pd.DataFrame:
+        """
+        Args:
+            region (str): The region for which forecast data is requested.
+            usage_window_start (datetime): Start time of the window when we are allowed to consume power.
+            usage_window_end (datetime): End time of the window when we are allowed to consume power.
+            usage_time_required_minutes (float): Usage time required in minutes
+            optimization_method (str): Optimization Method. Defaults to basic
+
+        Returns:
+            pd.DataFrame: DataFrame representing the usage plan
+        """
+        # TODO: Implement sanity checks for window start and end
+
+        # TODO: Calculate horizon hours instead of just getting a large number of hours
+        forecast_df = self.get_forecast_pandas(region=region, signal_type="co2_moer", horizon_hours=72)
+        forecast_df = forecast_df.set_index("point_time")
+        forecast_df.index = pd.to_datetime(forecast_df.index)
+        print(f"Obtained Forecast with {len(forecast_df)} entries")
+
+        # TODO: Check that datetime object is tz-aware
+        relevant_forecast_df = forecast_df[usage_window_start:usage_window_end]
+        print(f"Filtered Forecast down to {len(relevant_forecast_df)} entries")
+
+        # TODO: Implement correctly.
+        # Currently is very rough and does not give the exact answer
+        result_df = relevant_forecast_df[[]]
+        result_df["usage"] = 0.0
+        for i in range(usage_time_required_minutes // 5):
+            result_df.loc[result_df.index[i], "usage"] = 5
+
+
+        return result_df
+
 
 class WattTimeMaps(WattTimeBase):
     def get_maps_json(

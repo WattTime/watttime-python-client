@@ -2,11 +2,10 @@
 
 import numpy as np 
 class Moer: 
-    def __init__(self, mu, isDiagonal=False, Sigma=None, sig2=0., ac1=None, ra=None): 
-        self.mu = np.array(mu).flatten()
-        self.ra = ra if ra is not None else 0.
+    def __init__(self, mu, isDiagonal=True, Sigma=None, sig2=0., ac1=0.): 
+        self.__mu = np.array(mu).flatten()
+        self.__T = self.__mu.shape[0]
         self.__diagonal = isDiagonal
-        self.__T = self.mu.shape[0]
         if isinstance(sig2, float): 
             sig2 = np.array([sig2] * self.__T)
         else: 
@@ -14,48 +13,42 @@ class Moer:
         if (not self.__diagonal): 
             if Sigma is not None: 
                 assert(Sigma.shape == (self.__T, self.__T))
-                self.Sigma = Sigma
-            elif ac1 is not None: 
+                self.__Sigma = Sigma
+            else: 
                 from scipy.linalg import toeplitz
                 x = ac1**np.arange(0,self.__T)
-                self.Sigma = toeplitz(x, x) * np.diag(sig2)
+                self.__Sigma = toeplitz(x, x) * np.diag(sig2)
         else: 
-            self.Sigma = sig2
-
-    def setRA(self, ra):
-        self.ra = ra
+            self.__Sigma = sig2
 
     def __len__(self):
         return self.__T
     
-    def isDiagonal(self):
+    def is_diagonal(self):
         return self.__diagonal
     
-    def getMarginalCost(self, xi, i): 
-        return self.mu[i] * xi
+    def get_emission_at(self, i, xi=1): 
+        return self.__mu[i] * xi
+    
+    def get_emission_interval(self, start, end, xi=1): 
+        return self.__mu[start:end] * xi
 
-    def getUnitUtil(self, xi, i, ra=None): 
-        if ra is None:
-            ra = self.ra
-        return self.getMarginalCost(xi, i) + ra * self.Sigma[i] * xi**2
+    def get_diagonal_util(self, xi, i, ra=0.): 
+        return self.get_emission_at(i, xi) + ra * self.__Sigma[i] * xi**2
     
-    def getMarginalUtil(self, xi, i, x_old=None, ra=None):
-        if ra is None:
-            ra = self.ra
+    def get_marginal_util(self, xi, i, x_old=None, ra=0.):
         if self.__diagonal: 
-            return self.getUnitUtil(xi, i, ra), x_old
+            return self.get_diagonal_util(xi, i, ra)
         else: 
-            return self.getMarginalCost(xi, i) + ra * (2 * xi * self.Sigma[i,:i]@x_old[:i] + self.Sigma[i,i] * xi**2), np.hstack((x_old, xi))
+            return self.get_emission_at(xi, i) + ra * (2 * xi * self.__Sigma[i,:i]@x_old[:i] + self.__Sigma[i,i] * xi**2), np.hstack((x_old, xi))
         
-    def getTotalCost(self, x): 
+    def get_total_emission(self, x): 
         x = np.array(x).flatten()
-        return np.dot(self.mu, x)
+        return np.dot(self.__mu[:x.shape[0]], x)
     
-    def getTotalUtil(self, x, ra=None): 
-        if ra is None:
-            ra = self.ra
+    def get_total_util(self, x, ra=0.): 
         x = np.array(x).flatten()
         if self.__diagonal: 
-            return self.getTotalCost(x) + self.ra * np.multiply(self.Sigma, x**2).sum()
+            return self.get_total_emission(x) + ra * np.multiply(self.__Sigma[:x.shape[0]], x**2).sum()
         else: 
-            return self.getTotalCost(x) + self.ra * x.reshape((1,-1))@self.Sigma@x
+            return self.get_total_emission(x) + ra * x.reshape((1,-1))@self.__Sigma[:x.shape[0],:x.shape[0]]@x

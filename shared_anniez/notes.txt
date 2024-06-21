@@ -10,3 +10,6 @@ Next steps:
 - more flexibility in measuring carbon cost. add layer that includes carbon cost and startup/shutdown cost, but no uncertainty
 - add framework for testing this on small data example
 - need to implement algorithm for nondiagonal errors covariance 
+
+
+- testing 

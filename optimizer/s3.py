@@ -12,6 +12,7 @@ AWS_S3_BUCKET = os.getenv("AWS_S3_BUCKET")
 AWS_ACCESS_KEY = os.getenv("AWS_ACCESS_KEY")
 AWS_SECRET_ACCESS_KEY = os.getenv("AWS_SECRET_ACCESS_KEY")
 
+
 class s3_utils:
     """
     Utilities to IO operations on Amazon S3.
@@ -29,7 +30,6 @@ class s3_utils:
         )
 
     def load_file(self, file: str):
-
         """
         Args:
             file: Filename, i.e. s3 Key
@@ -45,7 +45,7 @@ class s3_utils:
         response = self.S3.get_object(Bucket=AWS_S3_BUCKET, Key=file)
         return response["Body"].read()
 
-    def store_file(self, filesource: str, filedestination: str): # type: ignore
+    def store_file(self, filesource: str, filedestination: str):  # type: ignore
         """
         Args:
             filesource: Filename with path and extension
@@ -58,10 +58,11 @@ class s3_utils:
             s3.store_file("learn.txt","learn.txt")
 
         """
-        self.S3.upload_file(Filename=filesource, Bucket=AWS_S3_BUCKET, Key=filedestination)
+        self.S3.upload_file(
+            Filename=filesource, Bucket=AWS_S3_BUCKET, Key=filedestination
+        )
 
     def load_csvdataframe(self, file: str, bucket=AWS_S3_BUCKET):
-
         """
         Args:
             file: Filename, i.e. s3 Key
@@ -76,7 +77,6 @@ class s3_utils:
         data = self.load_file(file=file)
         return pd.read_csv(io.BytesIO(data))
 
-    
     def store_csvdataframe(
         self, dataframe: pd.DataFrame, file: str, bucket=AWS_S3_BUCKET
     ):
@@ -91,11 +91,11 @@ class s3_utils:
             s3.store_csvdataframe(dataframe,"files/data.csv")
         """
 
-        csv_buffer=io.StringIO()
+        csv_buffer = io.StringIO()
         dataframe.to_csv(csv_buffer, index=False)
         response = self.S3.put_object(
-                Bucket=bucket, Key=file, Body=csv_buffer.getvalue()
-            )
+            Bucket=bucket, Key=file, Body=csv_buffer.getvalue()
+        )
         status = response.get("ResponseMetadata", {}).get("HTTPStatusCode")
 
         if status == 200:

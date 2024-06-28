@@ -2,10 +2,6 @@
 import numpy as np
 from .moer import Moer
 
-def initNP(shape,val=np.nan): 
-    a = np.empty(shape)
-    a.fill(val)
-    return a
 TOL = 1e-4
 class OptCharger: 
     def __init__(
@@ -50,11 +46,11 @@ class OptCharger:
 
     def __greedy_fit(self, totalCharge:int, totalTime:int, moer:Moer): 
         print("Greedy fit!")  
-        tc = totalCharge
+        chargeToDo = totalCharge
         cs, t = [], 0
-        while (tc > 0) and (t < totalTime): 
-            c = max(min(self.maxChargeRate, tc), self.minChargeRate)
-            tc -= c
+        while (chargeToDo > 0) and (t < totalTime): 
+            c = max(min(self.maxChargeRate, chargeToDo), self.minChargeRate)
+            chargeToDo -= c
             cs.append(c)
             t += 1
         self.__optimalChargingSchedule = cs + [0]*(totalTime - t)
@@ -73,11 +69,11 @@ class OptCharger:
         '''
         print("Simplified fit!")
         sorted_times = [x for _, x in sorted(zip(moer.get_emission_interval(0,totalTime),range(totalTime)))]
-        tc = totalCharge
+        chargeToDo = totalCharge
         cs, schedule, t = [0] * totalTime, [0] * totalTime, 0
-        while (tc > 0) and (t < totalTime): 
-            c = max(min(self.maxChargeRate, tc), self.minChargeRate)
-            tc -= c
+        while (chargeToDo > 0) and (t < totalTime): 
+            c = max(min(self.maxChargeRate, chargeToDo), self.minChargeRate)
+            chargeToDo -= c
             cs[sorted_times[t]] = c
             schedule[sorted_times[t]] = 1
             t += 1
@@ -92,9 +88,10 @@ class OptCharger:
         This is the most complex version of the algorithm 
         '''
         print("Full fit!")
-        maxUtil = initNP((totalCharge+1,2))
+        # This is a matrix with size = number of charge states x number of actions
+        maxUtil = np.full((totalCharge+1,2), np.nan)
         maxUtil[0,0] = 0.
-        pathHistory = initNP((totalTime,totalCharge+1,2,2),0).astype(int)
+        pathHistory = np.full((totalTime,totalCharge+1,2,2), 0, dtype=int)
         for t in range(totalTime): 
             if t in constraints: 
                 minCharge, maxCharge = constraints[t]
@@ -103,7 +100,7 @@ class OptCharger:
             else: 
                 minCharge, maxCharge = 0, totalCharge
             # print("=== Time step", t, "===")
-            newMaxUtil = initNP(maxUtil.shape)
+            newMaxUtil = np.full(maxUtil.shape, np.nan)
             for c in range(minCharge,maxCharge+1): 
                 ## update (c,0)
                 # print("-- charge", c, "| charging off --")
@@ -122,13 +119,13 @@ class OptCharger:
                 # print("-- charge", c, "| charging on --")
                 initVal = True
                 for ct in range(self.minChargeRate,min(c,self.maxChargeRate)+1):
-                    if (not np.isnan(maxUtil[c-ct,0])): 
+                    if not np.isnan(maxUtil[c-ct,0]): 
                         newUtil = maxUtil[c-ct,0] - moer.get_marginal_util(ct,t) - self.startEmissionOverhead - self.keepEmissionOverhead 
                         if initVal or (newUtil > newMaxUtil[c,1]): 
                             newMaxUtil[c,1] = newUtil
                             pathHistory[t,c,1,:] = [c-ct,0]
                         initVal = False
-                    if (not np.isnan(maxUtil[c-ct,1])): 
+                    if not np.isnan(maxUtil[c-ct,1]): 
                         newUtil = maxUtil[c-ct,1] - moer.get_marginal_util(ct,t) - self.keepEmissionOverhead
                         if initVal or (newUtil > newMaxUtil[c,1]): 
                             newMaxUtil[c,1] = newUtil
@@ -137,23 +134,26 @@ class OptCharger:
             maxUtil = newMaxUtil
             # print(maxUtil)
 
-        initVal = True
-        if not np.isnan(maxUtil[c,0]): 
-            max_util = maxUtil[c,0]
+        solution_found = False
+        if not np.isnan(maxUtil[maxCharge,0]): 
+            max_util = maxUtil[maxCharge,0]
             m_final = 0
-            initVal = False
-        if not np.isnan(maxUtil[c,1]): 
-            newUtil = maxUtil[c,1] - self.stopEmissionOverhead
+            solution_found = True
+        if not np.isnan(maxUtil[maxCharge,1]): 
+            newUtil = maxUtil[maxCharge,1] - self.stopEmissionOverhead
             if initVal or (newUtil > max_util): 
                 max_util = newUtil
                 m_final = 1
-            initVal = False
-        if initVal: 
+            solution_found = True
+        if not solution_found:
+            ## TODO: In this case we should still return the best possible plan
+            ## which would probably to just charge for the entire window
             raise Exception("Solution not found!")
-        curr_state, t_curr = [c, m_final], totalTime-1
+        curr_state, t_curr = [c, m_final], totalTime - 1
+        # This gives the schedule in reverse
         schedule = []        
         schedule.append(curr_state)
-        while (t_curr >= 0): 
+        while t_curr >= 0: 
             curr_state = pathHistory[t_curr, curr_state[0], curr_state[1], :]
             schedule.append(curr_state)
             t_curr -= 1
@@ -163,7 +163,7 @@ class OptCharger:
         self.__collect_results(moer)
     
     def fit(self, totalCharge:int, totalTime:int, moer:Moer, constraints:dict = {}, ra:float = 0., asap:bool = False): 
-        assert(len(moer) >= totalTime)
+        assert len(moer) >= totalTime
         if (totalCharge > totalTime * self.maxChargeRate): 
             raise Exception(f"Impossible to charge {totalCharge} within {totalTime} intervals.")
         if asap: 

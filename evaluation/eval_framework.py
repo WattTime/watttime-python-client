@@ -93,7 +93,7 @@ def generate_synthetic_user_data(
 ) -> pd.DataFrame:
 
     power_output_efficiency = round(random.uniform(0.5, 0.9), 3)
-    power_output_max_rate = random.choice([11, 7.4, 22]) / power_output_efficiency
+    power_output_max_rate = random.choice([11, 7.4, 22]) * power_output_efficiency
     rate_per_second = np.divide(power_output_max_rate, 3600)
     total_capacity = round(random.uniform(21, 123))
     mean_length_charge = round(random.uniform(20000, 30000))
@@ -147,17 +147,17 @@ def generate_synthetic_user_data(
     ) / pd.Timedelta(seconds=1)
 
     # what happened first? did the user unplug or did it reach 95%
-    user_df["session_charge"] = user_df[
+    user_df["charged_kWh_actual"] = user_df[
         ["total_seconds_to_95", "length_plugged_in"]
     ].min(axis=1) * (rate_per_second)
-    user_df["final_perc_charged"] = user_df.session_charge.apply(
+    user_df["final_perc_charged"] = user_df.charged_kWh_actual.apply(
         lambda x: x / total_capacity
     )
     user_df["final_perc_charged"] = user_df.final_perc_charged + user_df.initial_charge
     user_df['final_charge_time'] = user_df[['full_charge_time', 'unplug_time']].min(axis=1)
     user_df["uncharged"] = np.where(user_df["final_perc_charged"] < 0.80, True, False)
     user_df["total_capacity"] = total_capacity
-    user_df["power_output_max_rate"] = power_output_max_rate
+    user_df["power_output_rate"] = power_output_max_rate
 
     return user_df
 

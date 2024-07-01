@@ -12,12 +12,12 @@ AWS_SECRET_ACCESS_KEY = os.getenv("AWS_SECRET_ACCESS_KEY")
 
 s3 = s3u.s3_utils()
 key = 'PJM_NJ_co2_moer_2024-01-01_2024-02-01.csv'
-print(s3.load_csvdataframe(file=key).head())
+#print(s3.store_csvdataframe(file=key).head())
 
 '''
 
 s3.store_file(
-    filesource="/home/jennifer.badolato/watttime_historical_csvs/PJM_NJ_co2_moer_2024-01-01_2024-02-01.csv",
+    filesource="",
     filedestination="PJM_NJ_co2_moer_2024-01-01_2024-02-01.csv"
 )
 

@@ -34,17 +34,15 @@ def get_historical_multigrid_regions(
     end = '2024-06-01',
     region_list: List[str] = us_region_list,
     signal_type: str = 'co2_moer',
-    include_meta = False
 ):
-    wt_hist = WattTimeHistorical(username, password)
+    wt_forecast = WattTimeForecast(username, password)
     dfs = []
     for region in region_list:
-        df_r = wt_hist.get_historical_forecast_pandas(
+        df_r = wt_forecast.get_historical_forecast_pandas(
             start = start,
             end = end,
             region = region,
             signal_type = signal_type,
-            include_meta = include_meta
             )
         df_r["region"] = region
         dfs.append(df_r)

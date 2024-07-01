@@ -7,11 +7,8 @@ import pandas as pd
 import os
 
 AWS_S3_BUCKET = os.getenv("AWS_S3_BUCKET")
-print(AWS_S3_BUCKET)
 AWS_ACCESS_KEY = os.getenv("AWS_ACCESS_KEY")
-print(AWS_ACCESS_KEY)
 AWS_SECRET_ACCESS_KEY = os.getenv("AWS_SECRET_ACCESS_KEY")
-print(AWS_SECRET_ACCESS_KEY)
 
 s3 = s3u.s3_utils()
 key = 'PJM_NJ_co2_moer_2024-01-01_2024-02-01.csv'

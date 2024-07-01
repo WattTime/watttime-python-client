@@ -58,6 +58,8 @@ def generate_random_plug_time(date):
 
     random_datetime_utc = pytz.utc.localize(random_datetime)
 
+    #print(start_time, " ", end_time, " ", random_datetime, " ", random_datetime_utc)
+
     return random_datetime_utc
 
 
@@ -83,7 +85,6 @@ def generate_random_unplug_time(random_plug_time, mean, stddev):
         new_datetime = pd.Timestamp(new_datetime)
     return new_datetime
 
-
 def generate_synthetic_user_data(
     distinct_date_list: List[Any],
     max_percent_capacity: float = 0.95,
@@ -93,15 +94,14 @@ def generate_synthetic_user_data(
 
     power_output_efficiency = round(random.uniform(0.5, 0.9), 3)
     power_output_max_rate = random.choice([11, 7.4, 22]) / power_output_efficiency
-    power_output_max_rate = power_output_max_rate / power_output_efficiency
     rate_per_second = np.divide(power_output_max_rate, 3600)
     total_capacity = round(random.uniform(21, 123))
     mean_length_charge = round(random.uniform(20000, 30000))
     std_length_charge = round(random.uniform(6800, 8000))
 
-    print(
-        f"working on user with {total_capacity} total_capacity, {power_output_max_rate} rate of charge, and ({mean_length_charge/3600},{std_length_charge/3600}) charging behavior."
-    )
+    #print(
+     #   f"working on user with {total_capacity} total_capacity, {power_output_max_rate} rate of charge, and ({mean_length_charge/3600},{std_length_charge/3600}) charging behavior."
+    #)
 
     # This generates a dataset with a unique date per user
     user_df = (
@@ -154,6 +154,7 @@ def generate_synthetic_user_data(
         lambda x: x / total_capacity
     )
     user_df["final_perc_charged"] = user_df.final_perc_charged + user_df.initial_charge
+    user_df['final_charge_time'] = user_df[['full_charge_time', 'unplug_time']].min(axis=1)
     user_df["uncharged"] = np.where(user_df["final_perc_charged"] < 0.80, True, False)
     user_df["total_capacity"] = total_capacity
     user_df["power_output_max_rate"] = power_output_max_rate

@@ -16,9 +16,7 @@ from watttime import (
     WattTimeMaps,
 )
 import os
-import optimizer.dataset as od
 from typing import List, Any
-from evaluation.config import MOER_REGION_LIST
 
 username = os.getenv("WATTTIME_USER")
 password = os.getenv("WATTTIME_PASSWORD")
@@ -30,18 +28,41 @@ distinct_date_list = [
     for date in pd.date_range(start, end, freq="d", tz=pytz.UTC).values
 ]
 
-
-def generate_random_plug_time(date):
+def convert_to_utc(local_time_str, local_tz_str):
     """
-    Generate a random datetime ona the given date, uniformly distributed between 5pm and 9 pm.
+    Convert a time expressed in any local time to UTC.
 
     Parameters:
-    date (datetime.date): The date on which to generate the random time.
+    local_time_str (str): The local time as a pd.Timestamp.
+    local_tz_str (str): The timezone of the local time as a string, e.g., 'America/New_York'.
 
     Returns:
-    - datetime: A datetime object for the given date with a random time between 5 PM and 9 PM
+    str: The time in UTC as a datetime object in the format 'YYYY-MM-DD HH:MM:SS'.
     """
-    #  Define the start and end times for the interval (5 PM to 9PM)
+    # Parse the local time string to a datetime object
+    local_time = datetime.strptime(local_time_str.strftime('%Y-%m-%d %H:%M:%S'), '%Y-%m-%d %H:%M:%S')
+
+    # Set the local timezone
+    local_tz = pytz.timezone(local_tz_str)
+
+    # Localize the local time to the local timezone
+    local_time = local_tz.localize(local_time)
+
+    # Return the UTC time as a datetime 
+    return local_time.astimezone(pytz.utc)
+
+
+def generate_random_plug_time(date, timezone):
+    """
+    Generate a random datetime on the given date, uniformly distributed between 5 PM and 9 PM in UTC.
+
+    Parameters:
+    date (datetime.date): The date for which to generate the random time.
+
+    Returns:
+    datetime: A datetime object representing the generated random time on the given date, localized to UTC.
+    """
+    # Define the start and end times for the interval (5 PM to 9 PM)
     start_time = datetime.combine(
         date, datetime.strptime("17:00:00", "%H:%M:%S").time()
     )
@@ -51,17 +72,15 @@ def generate_random_plug_time(date):
     total_seconds = int((end_time - start_time).total_seconds())
 
     # Generate a random number of seconds within the interval
-    total_seconds = random.randint(0, total_seconds)
+    random_seconds = random.randint(0, total_seconds)
 
     # Add the random seconds to the start time to get the random datetime
-    random_datetime = start_time + timedelta(seconds=total_seconds)
+    random_datetime = start_time + timedelta(seconds=random_seconds)
 
+    # Localize the random datetime to UTC
     random_datetime_utc = pytz.utc.localize(random_datetime)
 
-    #print(start_time, " ", end_time, " ", random_datetime, " ", random_datetime_utc)
-
     return random_datetime_utc
-
 
 def generate_random_unplug_time(random_plug_time, mean, stddev):
     """
@@ -86,10 +105,11 @@ def generate_random_unplug_time(random_plug_time, mean, stddev):
     return new_datetime
 
 def generate_synthetic_user_data(
+    timezone: str,
     distinct_date_list: List[Any],
     max_percent_capacity: float = 0.95,
     user_charge_tolerance: float = 0.8,
-    power_output_efficiency: float = 0.75,
+    power_output_efficiency: float = 0.75
 ) -> pd.DataFrame:
 
     power_output_efficiency = round(random.uniform(0.5, 0.9), 3)
@@ -122,7 +142,7 @@ def generate_synthetic_user_data(
         + str(std_length_charge)
     )
 
-    user_df["plug_in_time"] = user_df["distinct_dates"].apply(generate_random_plug_time)
+    user_df["plug_in_time"] = user_df["distinct_dates"].apply(generate_random_plug_time(timezone=timezone))
     user_df["unplug_time"] = user_df["plug_in_time"].apply(
         lambda x: generate_random_unplug_time(x, mean_length_charge, std_length_charge)
     )

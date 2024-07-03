@@ -42,7 +42,9 @@ def convert_to_utc(local_time_str, local_tz_str):
     str: The time in UTC as a datetime object in the format 'YYYY-MM-DD HH:MM:SS'.
     """
     # Parse the local time string to a datetime object
-    local_time = datetime.strptime(local_time_str.strftime('%Y-%m-%d %H:%M:%S'), '%Y-%m-%d %H:%M:%S')
+    local_time = datetime.strptime(
+        local_time_str.strftime("%Y-%m-%d %H:%M:%S"), "%Y-%m-%d %H:%M:%S"
+    )
 
     # Set the local timezone
     local_tz = pytz.timezone(local_tz_str)
@@ -50,7 +52,7 @@ def convert_to_utc(local_time_str, local_tz_str):
     # Localize the local time to the local timezone
     local_time = local_tz.localize(local_time)
 
-    # Return the UTC time as a datetime 
+    # Return the UTC time as a datetime
     return local_time.astimezone(pytz.utc)
 
 
@@ -84,6 +86,7 @@ def generate_random_plug_time(date):
 
     return random_datetime_utc
 
+
 def generate_random_unplug_time(random_plug_time, mean, stddev):
     """
     Adds a number of sconds drawn from a normal distribution to the given datetime.
@@ -106,11 +109,12 @@ def generate_random_unplug_time(random_plug_time, mean, stddev):
         new_datetime = pd.Timestamp(new_datetime)
     return new_datetime
 
+
 def generate_synthetic_user_data(
     distinct_date_list: List[Any],
     max_percent_capacity: float = 0.95,
     user_charge_tolerance: float = 0.8,
-    power_output_efficiency: float = 0.75
+    power_output_efficiency: float = 0.75,
 ) -> pd.DataFrame:
 
     power_output_efficiency = round(random.uniform(0.5, 0.9), 3)
@@ -120,9 +124,9 @@ def generate_synthetic_user_data(
     mean_length_charge = round(random.uniform(20000, 30000))
     std_length_charge = round(random.uniform(6800, 8000))
 
-    #print(
-     #   f"working on user with {total_capacity} total_capacity, {power_output_max_rate} rate of charge, and ({mean_length_charge/3600},{std_length_charge/3600}) charging behavior."
-    #)
+    # print(
+    #   f"working on user with {total_capacity} total_capacity, {power_output_max_rate} rate of charge, and ({mean_length_charge/3600},{std_length_charge/3600}) charging behavior."
+    # )
 
     # This generates a dataset with a unique date per user
     user_df = (
@@ -175,7 +179,9 @@ def generate_synthetic_user_data(
         lambda x: x / total_capacity
     )
     user_df["final_perc_charged"] = user_df.final_perc_charged + user_df.initial_charge
-    user_df['final_charge_time'] = user_df[['full_charge_time', 'unplug_time']].min(axis=1)
+    user_df["final_charge_time"] = user_df[["full_charge_time", "unplug_time"]].min(
+        axis=1
+    )
     user_df["uncharged"] = np.where(user_df["final_perc_charged"] < 0.80, True, False)
     user_df["total_capacity"] = total_capacity
     user_df["power_output_rate"] = power_output_max_rate
@@ -185,7 +191,7 @@ def generate_synthetic_user_data(
 
 def execute_synth_data_process(
     distinct_date_list: List[Any], number_of_users: int = 1000
-    ):
+):
     dfs = []
     for i in tqdm(range(number_of_users)):
         df_temp = generate_synthetic_user_data(distinct_date_list=distinct_date_list)

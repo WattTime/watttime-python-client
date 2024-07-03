@@ -28,6 +28,8 @@ distinct_date_list = [
     for date in pd.date_range(start, end, freq="d", tz=pytz.UTC).values
 ]
 
+
+# TODO -> embed utc conversion into generate plug in time. 5pm will then correspond to 5pm localtime + later converted to utc
 def convert_to_utc(local_time_str, local_tz_str):
     """
     Convert a time expressed in any local time to UTC.
@@ -52,7 +54,7 @@ def convert_to_utc(local_time_str, local_tz_str):
     return local_time.astimezone(pytz.utc)
 
 
-def generate_random_plug_time(date, timezone):
+def generate_random_plug_time(date):
     """
     Generate a random datetime on the given date, uniformly distributed between 5 PM and 9 PM in UTC.
 
@@ -105,7 +107,6 @@ def generate_random_unplug_time(random_plug_time, mean, stddev):
     return new_datetime
 
 def generate_synthetic_user_data(
-    timezone: str,
     distinct_date_list: List[Any],
     max_percent_capacity: float = 0.95,
     user_charge_tolerance: float = 0.8,
@@ -142,7 +143,7 @@ def generate_synthetic_user_data(
         + str(std_length_charge)
     )
 
-    user_df["plug_in_time"] = user_df["distinct_dates"].apply(generate_random_plug_time(timezone=timezone))
+    user_df["plug_in_time"] = user_df["distinct_dates"].apply(generate_random_plug_time)
     user_df["unplug_time"] = user_df["plug_in_time"].apply(
         lambda x: generate_random_unplug_time(x, mean_length_charge, std_length_charge)
     )
@@ -184,7 +185,7 @@ def generate_synthetic_user_data(
 
 def execute_synth_data_process(
     distinct_date_list: List[Any], number_of_users: int = 1000
-) -> pd.DataFrame:
+    ):
     dfs = []
     for i in tqdm(range(number_of_users)):
         df_temp = generate_synthetic_user_data(distinct_date_list=distinct_date_list)

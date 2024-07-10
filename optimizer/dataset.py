@@ -67,3 +67,29 @@ def get_historical_csvs_multigrid_regions(
             signal_type = signal_type,
             include_meta = include_meta
             )
+
+def get_historical_actuals_multigrid_regions(
+        username:str,
+        password: str,
+        start: str,
+        end: str,
+        region_list: List[str],
+        signal_type: str = 'co2_moer',
+        include_meta = False
+):
+    wt_hist = WattTimeHistorical(username, password)
+
+    dfs = []
+    for region in us_region_list:
+            df_r = wt_hist.get_historical_pandas(
+                start = start,
+                end = end,
+                region = region,
+                signal_type = signal_type,
+            )
+            df_r["region"] = region
+            dfs.append(df_r)
+    
+    df = pd.concat(dfs)
+    return df
+        

@@ -1,5 +1,6 @@
 import os
 import time
+import math
 from datetime import date, datetime, timedelta
 from functools import cache
 from pathlib import Path
@@ -543,6 +544,7 @@ class WattTimeOptimizer(WattTimeForecast):
         usage_window_start: datetime,
         usage_window_end: datetime,
         usage_time_required_minutes: float,
+        usage_time_uncertainty_minutes: Optional[float] = 0,
         optimization_method: Optional[
             Literal["basic"]
         ] = "basic",
@@ -559,21 +561,25 @@ class WattTimeOptimizer(WattTimeForecast):
             pd.DataFrame: DataFrame representing the usage plan
         """
         OPT_INTERVAL = 5
-        # TODO: Implement sanity checks for window start and end
+        MAX_PREDICTION_HOURS = 72
         datetime_now = datetime.now(UTC)
+        # TODO: Consider some other sanity checks
         assert usage_window_end > datetime_now, "Error, Window end is before current datetime"
+        def is_tz_aware(dt):
+            return dt.tzinfo is not None and dt.tzinfo.utcoffset(dt) is not None
+        assert is_tz_aware(usage_window_start), "Start time is not tz-aware"
+        assert is_tz_aware(usage_window_end), "End time is not tz-aware"
+        assert usage_window_end - datetime_now < timedelta(hours = MAX_PREDICTION_HOURS), "End time is too far in the future"
 
-        # TODO: Calculate horizon hours instead of just getting a large number of hours
-        forecast_df = self.get_forecast_pandas(region=region, signal_type="co2_moer", horizon_hours=72)
+        forecast_df = self.get_forecast_pandas(region=region, signal_type="co2_moer", horizon_hours = MAX_PREDICTION_HOURS)
         forecast_df = forecast_df.set_index("point_time")
         forecast_df.index = pd.to_datetime(forecast_df.index)
         print(f"Obtained Forecast with {len(forecast_df)} entries")
 
-        # TODO: Check that datetime object is tz-aware
         relevant_forecast_df = forecast_df[usage_window_start:usage_window_end]
         relevant_forecast_df = relevant_forecast_df.rename(columns={"value":"pred_moer"})
         print(f"Filtered Forecast down to {len(relevant_forecast_df)} entries")
-        result_df = relevant_forecast_df[[]]
+        result_df = relevant_forecast_df[["pred_moer"]]
 
         if optimization_method == "basic":
             result_df["usage"] = 0.0
@@ -581,26 +587,31 @@ class WattTimeOptimizer(WattTimeForecast):
                 result_df.loc[result_df.index[i], "usage"] = OPT_INTERVAL
         elif optimization_method == "dp":
             moer_values = relevant_forecast_df["pred_moer"].values
-            print(moer_values)
             m = moer.Moer(
             mu = moer_values, 
             isDiagonal = True,
             sig2 = 1.0,
             )
-            print(len(m))
 
             model = optCharger.OptCharger(
                 minChargeRate = 0,
                 maxChargeRate = 1,
             )
-            model.fit(totalCharge = usage_time_required_minutes // OPT_INTERVAL,
+
+            total_charge_units = usage_time_required_minutes // OPT_INTERVAL
+            buffer_time = 1 * usage_time_uncertainty_minutes
+            buffer_periods = int(math.ceil(buffer_time / OPT_INTERVAL))
+            # TODO: Check if there is any off-by-1 error here
+            buffer_enforce_time = max(total_charge_units, len(moer_values) - buffer_periods)
+
+            model.fit(totalCharge = total_charge_units,
                       totalTime = len(moer_values),
                       moer = m, 
-                      asap=False,
+                      asap = False,
+                      constraints = {buffer_enforce_time:(total_charge_units, None)},
                       )
             model.summary()
             optimizer_result = model.get_schedule()
-            print(optimizer_result)
             result_df["usage"] = [x * float(OPT_INTERVAL) for x in optimizer_result]
         else:
             raise Exception("Unknown optimization method")

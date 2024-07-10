@@ -12,7 +12,7 @@ class Moer:
             sig2 = np.array(sig2).flatten()
         if (not self.__diagonal): 
             if Sigma is not None: 
-                assert(Sigma.shape == (self.__T, self.__T))
+                assert Sigma.shape == (self.__T, self.__T)
                 self.__Sigma = Sigma
             else: 
                 from scipy.linalg import toeplitz

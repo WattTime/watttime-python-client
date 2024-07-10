@@ -17,6 +17,7 @@ from watttime import (
 )
 import os
 from typing import List, Any
+from datetime import datetime, timedelta
 
 username = os.getenv("WATTTIME_USER")
 password = os.getenv("WATTTIME_PASSWORD")
@@ -28,8 +29,6 @@ distinct_date_list = [
     for date in pd.date_range(start, end, freq="d", tz=pytz.UTC).values
 ]
 
-
-# TODO -> embed utc conversion into generate plug in time. 5pm will then correspond to 5pm localtime + later converted to utc
 def convert_to_utc(local_time_str, local_tz_str):
     """
     Convert a time expressed in any local time to UTC.
@@ -55,7 +54,7 @@ def convert_to_utc(local_time_str, local_tz_str):
     # Return the UTC time as a datetime
     return local_time.astimezone(pytz.utc)
 
-
+# TODO -> remove utc conversion from generate plug in time. Date will be assigned a timezone and converted to utc as part of the evaluation process
 def generate_random_plug_time(date):
     """
     Generate a random datetime on the given date, uniformly distributed between 5 PM and 9 PM in UTC.
@@ -199,3 +198,64 @@ def execute_synth_data_process(
     df_all = pd.concat(dfs)
     df_all.reset_index(inplace=True)
     return df_all
+
+def add_one_day(date):
+    """
+    Add one day to the given datetime object.
+
+    Parameters:
+    date (datetime): The datetime object to which one day will be added.
+
+    Returns:
+    datetime: A new datetime object with one day added.
+    """
+    return date + timedelta(days=1)
+
+def generate_random_dates(year):
+    """
+    Generate a list of tuples containing two random dates from each week in the given year.
+
+    Parameters:
+    year (int): The year for which to generate the random dates.
+
+    Returns:
+    list: A list of tuples, each containing two random dates from the same week.
+    """
+    random_dates = []
+    start_date = datetime(year, 1, 1)
+
+    # Find the first Monday of the year
+    while start_date.weekday() != 0:
+        start_date += timedelta(days=1)
+
+    while start_date.year == year:
+        # Calculate the end date of the current week
+        end_date = start_date + timedelta(days=6)
+
+        # Generate two random dates within the current week
+        random_date1 = start_date + timedelta(days=random.randint(0, 6))
+        random_date2 = start_date + timedelta(days=random.randint(0, 6))
+
+        # Ensure the dates are within the same week
+        if random_date1.weekday() > random_date2.weekday():
+            random_date1, random_date2 = random_date2, random_date1
+
+        random_dates.append((random_date1, random_date2))
+
+        # Move to the next week
+        start_date += timedelta(days=7)
+
+    return random_dates
+
+def unpack_tuples(tuples_list):
+    """
+    Unpack a list of tuples into a single list containing all elements.
+
+    Parameters:
+    tuples_list (list): The list of tuples to unpack.
+
+    Returns:
+    list: A list containing all elements from the tuples.
+    """
+    unpacked_list = [item for tup in tuples_list for item in tup]
+    return unpacked_list

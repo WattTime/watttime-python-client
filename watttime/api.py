@@ -546,8 +546,8 @@ class WattTimeOptimizer(WattTimeForecast):
         usage_time_required_minutes: float,
         usage_time_uncertainty_minutes: Optional[float] = 0,
         optimization_method: Optional[
-            Literal["basic"]
-        ] = "basic",
+            Literal["baseline", "simple", "sophisticated"]
+        ] = "baseline",
     ) -> pd.DataFrame:
         """
         Args:
@@ -563,13 +563,13 @@ class WattTimeOptimizer(WattTimeForecast):
         OPT_INTERVAL = 5
         MAX_PREDICTION_HOURS = 72
         datetime_now = datetime.now(UTC)
-        # TODO: Consider some other sanity checks
         assert usage_window_end > datetime_now, "Error, Window end is before current datetime"
         def is_tz_aware(dt):
             return dt.tzinfo is not None and dt.tzinfo.utcoffset(dt) is not None
         assert is_tz_aware(usage_window_start), "Start time is not tz-aware"
         assert is_tz_aware(usage_window_end), "End time is not tz-aware"
         assert usage_window_end - datetime_now < timedelta(hours = MAX_PREDICTION_HOURS), "End time is too far in the future"
+        assert optimization_method in ("baseline", "simple", "sophisticated"), "Unsupported optimization method:" + optimization_method
 
         forecast_df = self.get_forecast_pandas(region=region, signal_type="co2_moer", horizon_hours = MAX_PREDICTION_HOURS)
         forecast_df = forecast_df.set_index("point_time")
@@ -580,42 +580,42 @@ class WattTimeOptimizer(WattTimeForecast):
         relevant_forecast_df = relevant_forecast_df.rename(columns={"value":"pred_moer"})
         print(f"Filtered Forecast down to {len(relevant_forecast_df)} entries")
         result_df = relevant_forecast_df[["pred_moer"]]
+        moer_values = relevant_forecast_df["pred_moer"].values
 
-        if optimization_method == "basic":
-            result_df["usage"] = 0.0
-            for i in range(usage_time_required_minutes // OPT_INTERVAL):
-                result_df.loc[result_df.index[i], "usage"] = OPT_INTERVAL
-        elif optimization_method == "dp":
-            moer_values = relevant_forecast_df["pred_moer"].values
-            m = moer.Moer(
-            mu = moer_values, 
-            isDiagonal = True,
-            sig2 = 1.0,
-            )
+        asap = optimization_method == "baseline"
+        emissionOverhead = optimization_method == "sophisticated"
 
-            model = optCharger.OptCharger(
-                minChargeRate = 0,
-                maxChargeRate = 1,
-            )
+        m = moer.Moer(
+        mu = moer_values, 
+        isDiagonal = True,
+        sig2 = 0.0,
+        )
 
-            total_charge_units = usage_time_required_minutes // OPT_INTERVAL
+        model = optCharger.OptCharger(
+            minChargeRate = 0,
+            maxChargeRate = 1,
+            emissionOverhead = emissionOverhead,
+        )
+
+        total_charge_units = usage_time_required_minutes // OPT_INTERVAL
+        if optimization_method == "sophisticated":
             buffer_time = 1 * usage_time_uncertainty_minutes
             buffer_periods = int(math.ceil(buffer_time / OPT_INTERVAL))
             # TODO: Check if there is any off-by-1 error here
             buffer_enforce_time = max(total_charge_units, len(moer_values) - buffer_periods)
-
-            model.fit(totalCharge = total_charge_units,
-                      totalTime = len(moer_values),
-                      moer = m, 
-                      asap = False,
-                      constraints = {buffer_enforce_time:(total_charge_units, None)},
-                      )
-            model.summary()
-            optimizer_result = model.get_schedule()
-            result_df["usage"] = [x * float(OPT_INTERVAL) for x in optimizer_result]
+            constraints = {buffer_enforce_time:(total_charge_units, None)}
         else:
-            raise Exception("Unknown optimization method")
+            constraints = {}
 
+        model.fit(totalCharge = total_charge_units,
+                    totalTime = len(moer_values),
+                    moer = m, 
+                    asap = asap,
+                    constraints = constraints,
+                    )
+        model.summary()
+        optimizer_result = model.get_schedule()
+        result_df["usage"] = [x * float(OPT_INTERVAL) for x in optimizer_result]
 
         return result_df
 

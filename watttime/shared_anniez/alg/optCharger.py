@@ -29,6 +29,9 @@ class OptCharger:
             self.emissionOverhead = (startEmissionOverhead > TOL) or (keepEmissionOverhead > TOL) or (stopEmissionOverhead > TOL) 
         else: 
             self.emissionOverhead = False
+            self.startEmissionOverhead = 0.0
+            self.keepEmissionOverhead = 0.0
+            self.stopEmissionOverhead = 0.0
         self.__optimalChargingEmission = None
         self.__optimalTotalEmission = None
         self.__optimalChargingSchedule = None
@@ -67,7 +70,7 @@ class OptCharger:
         - sort intervals by MOER
         - keep charging until we fill up 
         '''
-        print("Simplified fit!")
+        print("Simple fit!")
         sorted_times = [x for _, x in sorted(zip(moer.get_emission_interval(0,totalTime),range(totalTime)))]
         chargeToDo = totalCharge
         cs, schedule, t = [0] * totalTime, [0] * totalTime, 0
@@ -87,7 +90,7 @@ class OptCharger:
         '''
         This is the most complex version of the algorithm 
         '''
-        print("Full fit!")
+        print("Diagonal fit!")
         # This is a matrix with size = number of charge states x number of actions
         maxUtil = np.full((totalCharge+1,2), np.nan)
         maxUtil[0,0] = 0.

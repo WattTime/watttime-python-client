@@ -27,7 +27,6 @@ s3 = s3u.s3_utils()
 key = '.csv'
 generated_data = s3.load_csvdataframe(file=key)
 
-
 def intervalize_power_rate(kW_value: float, convert_to_MW = True):
     five_min_rate = kW_value / 12
     if convert_to_MW:

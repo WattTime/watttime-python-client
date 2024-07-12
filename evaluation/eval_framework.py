@@ -10,11 +10,10 @@ from tqdm import tqdm
 from datetime import datetime, timedelta
 import random
 from watttime import (
-    WattTimeMyAccess,
     WattTimeHistorical,
-    WattTimeForecast,
-    WattTimeMaps,
+    WattTimeForecast
 )
+
 import os
 from typing import List, Any
 from datetime import datetime, timedelta

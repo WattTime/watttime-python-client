@@ -7,9 +7,9 @@ class OptCharger:
     def __init__(
         self, 
         # contiguousWindow = False, 
-        fixedChargeRate:int = None, 
-        minChargeRate:int = None, 
-        maxChargeRate:int = None,
+        fixedChargeRate:float = None, 
+        minChargeRate:float = None, 
+        maxChargeRate:float = None,
         emissionOverhead:bool = True, 
         startEmissionOverhead:float = 0.,
         keepEmissionOverhead:float = 0.,
@@ -44,7 +44,7 @@ class OptCharger:
             np.sum(yDiff==-1) * self.stopEmissionOverhead
         )
 
-    def __greedy_fit(self, totalCharge:int, totalTime:int, moer:Moer): 
+    def __greedy_fit(self, totalCharge:float, totalTime:int, moer:Moer): 
         print("Greedy fit!")  
         chargeToDo = totalCharge
         cs, t = [], 0
@@ -58,7 +58,7 @@ class OptCharger:
         print(self.__optimalChargingSchedule, totalTime)
         self.__collect_results(moer)
 
-    def __simple_fit(self, totalCharge:int, totalTime:int, moer:Moer):  
+    def __simple_fit(self, totalCharge:float, totalTime:int, moer:Moer):  
         '''
         Assuming  
         - no extra costs 
@@ -162,7 +162,7 @@ class OptCharger:
         self.__optimalOnOffSchedule = optimalPath[:,1]
         self.__collect_results(moer)
     
-    def fit(self, totalCharge:int, totalTime:int, moer:Moer, constraints:dict = {}, ra:float = 0., asap:bool = False): 
+    def fit(self, totalCharge:float, totalTime:int, moer:Moer, constraints:dict = {}, ra:float = 0., asap:bool = False): 
         assert len(moer) >= totalTime
         if (totalCharge > totalTime * self.maxChargeRate): 
             raise Exception(f"Impossible to charge {totalCharge} within {totalTime} intervals.")

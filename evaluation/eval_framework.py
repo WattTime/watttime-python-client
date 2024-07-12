@@ -25,8 +25,8 @@ password = os.getenv("WATTTIME_PASSWORD")
 start = "2024-02-15 00:00Z"
 end = "2024-02-16 00:00Z"
 distinct_date_list = [
-    pd.Timestamp(date).replace(tzinfo=pytz.UTC)
-    for date in pd.date_range(start, end, freq="d", tz=pytz.UTC).values
+    pd.Timestamp(date)
+    for date in pd.date_range(start, end, freq="d").values
 ]
 
 def convert_to_utc(local_time_str, local_tz_str):
@@ -54,16 +54,16 @@ def convert_to_utc(local_time_str, local_tz_str):
     # Return the UTC time as a datetime
     return local_time.astimezone(pytz.utc)
 
-# TODO -> remove utc conversion from generate plug in time. Date will be assigned a timezone and converted to utc as part of the evaluation process
+
 def generate_random_plug_time(date):
     """
-    Generate a random datetime on the given date, uniformly distributed between 5 PM and 9 PM in UTC.
+    Generate a random datetime on the given date, uniformly distributed between 5 PM and 9 PM.
 
     Parameters:
     date (datetime.date): The date for which to generate the random time.
 
     Returns:
-    datetime: A datetime object representing the generated random time on the given date, localized to UTC.
+    datetime: A datetime object representing the generated random time on the given date.
     """
     # Define the start and end times for the interval (5 PM to 9 PM)
     start_time = datetime.combine(
@@ -80,10 +80,7 @@ def generate_random_plug_time(date):
     # Add the random seconds to the start time to get the random datetime
     random_datetime = start_time + timedelta(seconds=random_seconds)
 
-    # Localize the random datetime to UTC
-    random_datetime_utc = pytz.utc.localize(random_datetime)
-
-    return random_datetime_utc
+    return random_datetime
 
 
 def generate_random_unplug_time(random_plug_time, mean, stddev):

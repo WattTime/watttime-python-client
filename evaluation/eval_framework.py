@@ -245,6 +245,12 @@ def generate_random_dates(year):
 
         # Move to the next week
         start_date += timedelta(days=7)
+    
+    random_dates = remove_duplicates(
+        unpack_tuples(
+            generate_random_dates(year)
+            )
+        )
 
     return random_dates
 
@@ -276,13 +282,4 @@ def remove_duplicates(input_list):
             seen.add(item)
             output_list.append(item)
     return output_list
-
-def year_of_distinct_dates(year):
-    random_dates = remove_duplicates(
-        unpack_tuples(
-            generate_random_dates(year)
-            )
-        )
-    return random_dates
-
 

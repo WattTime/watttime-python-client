@@ -95,7 +95,7 @@ def generate_random_unplug_time(random_plug_time, mean, stddev):
     REturns
     -pd.Timestamp: the new datetime after adding the random seconds
     """
-    random_seconds = np.random.normal(loc=mean, scale=stddev)
+    random_seconds = abs(np.random.normal(loc=mean, scale=stddev)) # ensure the delta is positive
 
     # convert to timedelta
     random_timedelta = timedelta(seconds=random_seconds)

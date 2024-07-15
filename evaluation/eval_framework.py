@@ -18,6 +18,8 @@ import os
 from typing import List, Any
 from datetime import datetime, timedelta
 
+from evaluation.config import TZ_DICTIONARY
+
 username = os.getenv("WATTTIME_USER")
 password = os.getenv("WATTTIME_PASSWORD")
 
@@ -27,6 +29,14 @@ distinct_date_list = [
     pd.Timestamp(date)
     for date in pd.date_range(start, end, freq="d").values
 ]
+
+def intervalize_power_rate(kW_value: float, convert_to_MW = True):
+    five_min_rate = kW_value / 12
+    if convert_to_MW:
+        five_min_rate = five_min_rate / 1000
+    else:
+        five_min_rate
+    return five_min_rate
 
 def convert_to_utc(local_time_str, local_tz_str):
     """
@@ -181,6 +191,10 @@ def generate_synthetic_user_data(
     user_df["total_capacity"] = total_capacity
     user_df["power_output_rate"] = power_output_max_rate
 
+    user_df["total_intervals_plugged_in"] = user_df["length_plugged_in"] / 300 # number of seconds in 5 minutes
+    user_df["charge_MWh_needed"] = user_df["total_capacity"] * (0.95 - user_df["initial_charge"]) / 1000
+    user_df["MWh_fraction"] = user_df["power_output_rate"].apply(intervalize_power_rate)
+
     return user_df
 
 def execute_synth_data_process(
@@ -280,3 +294,15 @@ def remove_duplicates(input_list):
             output_list.append(item)
     return output_list
 
+def get_timezone_from_dict(dictionary = TZ_DICTIONARY, key):
+    """
+    Returns the value from the dictionary based on the given key.
+
+    Parameters:
+    - dictionary: The dictionary from which to retrieve the value.
+    - key: The key whose corresponding value is to be retrieved.
+
+    Returns:
+    - The value corresponding to the given key if the key exists, otherwise None.
+    """
+    return dictionary.get(key)

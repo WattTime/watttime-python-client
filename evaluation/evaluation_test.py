@@ -10,10 +10,10 @@ from datetime import datetime, timedelta
 from watttime import WattTimeForecast
 
 import optimizer.s3 as s3u
+import evaluation.eval_framework as efu
 
 import watttime.shared_anniez.alg.optCharger as optC
 import watttime.shared_anniez.alg.moer as Moer
-
 
 
 region = "PJM_NJ"
@@ -24,16 +24,9 @@ actual_data = WattTimeHistorical(username, password)
 hist_data = WattTimeForecast(username, password)
 
 s3 = s3u.s3_utils()
-key = '.csv'
+key = '20240713_1k_synth_users.csv'
 generated_data = s3.load_csvdataframe(file=key)
 
-def intervalize_power_rate(kW_value: float, convert_to_MW = True):
-    five_min_rate = kW_value / 12
-    if convert_to_MW:
-        five_min_rate = five_min_rate / 1000
-    else:
-        five_min_rate
-    return five_min_rate
 
 # Get per-row historical fcsts at 'plug in time'
 def get_historical_fcst_data(
@@ -41,7 +34,14 @@ def get_historical_fcst_data(
     horizon,
     region
     ):
-    plug_in_time = pd.Timestamp(plug_in_time) # this needs to be in utc from local
+
+    time_zone = efu.get_timezone_from_dict(region)
+    plug_in_time = pd.Timestamp(
+        evu.convert_to_utc(
+            plug_in_time,
+            time_zone
+            )
+        )
     horizon = math.ceil(horizon / 12)
     return hist_data.get_historical_forecast_pandas(
         start=plug_in_time - pd.Timedelta(minutes=5), 
@@ -69,19 +69,12 @@ def get_schedule_and_cost(
     )
     return charger
 
-generated_data["MWh_fraction"] = generated_data["power_output_rate"].apply(intervalize_power_rate)
-
-generated_data["plug_in_time" ]= pd.to_datetime(generated_data["plug_in_time"])
-generated_data["unplug_time" ]= pd.to_datetime(generated_data["unplug_time"])
-
-generated_data["charge_MWh_needed"] = generated_data["total_capacity"] * (0.95 - generated_data["initial_charge"]) / 1000
-
-generated_data["total_intervals_plugged_in"] = generated_data["length_plugged_in"] / 300 # number of seconds in 5 minutes
-
+# generated_data["plug_in_time" ]= pd.to_datetime(generated_data["plug_in_time"])
+# generated_data["unplug_time" ]= pd.to_datetime(generated_data["unplug_time"])
 
 synth_data['moer_data'] = synth_data.apply(
     lambda x: get_historical_fcst_data(
-    x.plug_in_time, # this needs to be converted to utc from local time
+    x.plug_in_time,
     x.total_intervals_plugged_in,
     region = region
     ), axis = 1

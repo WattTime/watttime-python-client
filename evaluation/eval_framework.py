@@ -10,11 +10,10 @@ from tqdm import tqdm
 from datetime import datetime, timedelta
 import random
 from watttime import (
-    WattTimeMyAccess,
     WattTimeHistorical,
-    WattTimeForecast,
-    WattTimeMaps,
+    WattTimeForecast
 )
+
 import os
 from typing import List, Any
 from datetime import datetime, timedelta
@@ -184,7 +183,6 @@ def generate_synthetic_user_data(
 
     return user_df
 
-
 def execute_synth_data_process(
     distinct_date_list: List[Any], number_of_users: int = 1000
 ):
@@ -220,18 +218,21 @@ def generate_random_dates(year):
     """
     random_dates = []
     start_date = datetime(year, 1, 1)
+    end_date = datetime.now() - timedelta(days=1)  # Last possible day is yesterday's date
 
     # Find the first Monday of the year
     while start_date.weekday() != 0:
         start_date += timedelta(days=1)
 
-    while start_date.year == year:
+    while start_date.year == year and start_date <= end_date:
         # Calculate the end date of the current week
-        end_date = start_date + timedelta(days=6)
+        week_end_date = start_date + timedelta(days=6)
+        if week_end_date > end_date:
+            week_end_date = end_date
 
         # Generate two random dates within the current week
-        random_date1 = start_date + timedelta(days=random.randint(0, 6))
-        random_date2 = start_date + timedelta(days=random.randint(0, 6))
+        random_date1 = start_date + timedelta(days=random.randint(0, (week_end_date - start_date).days))
+        random_date2 = start_date + timedelta(days=random.randint(0, (week_end_date - start_date).days))
 
         # Ensure the dates are within the same week
         if random_date1.weekday() > random_date2.weekday():
@@ -241,6 +242,12 @@ def generate_random_dates(year):
 
         # Move to the next week
         start_date += timedelta(days=7)
+    
+    random_dates = remove_duplicates(
+        unpack_tuples(
+            generate_random_dates(year)
+            )
+        )
 
     return random_dates
 
@@ -256,3 +263,20 @@ def unpack_tuples(tuples_list):
     """
     unpacked_list = [item for tup in tuples_list for item in tup]
     return unpacked_list
+
+
+def remove_duplicates(input_list):
+    """
+    Removes duplicate items from a list while maintaining the order of the first occurrences.
+
+    :param input_list: List of items that may contain duplicates.
+    :return: A new list with duplicates removed.
+    """
+    seen = set()
+    output_list = []
+    for item in input_list:
+        if item not in seen:
+            seen.add(item)
+            output_list.append(item)
+    return output_list
+

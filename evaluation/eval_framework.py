@@ -1,6 +1,8 @@
 #!/usr/bin/env python
 # coding: utf-8
 
+import os
+from typing import List, Any
 import numpy as np
 import pandas as pd
 import datetime
@@ -8,17 +10,12 @@ import random
 import pytz
 from tqdm import tqdm
 from datetime import datetime, timedelta
-import random
-from watttime import (
-    WattTimeHistorical,
-    WattTimeForecast
-)
-
-import os
-from typing import List, Any
-from datetime import datetime, timedelta
+from watttime import WattTimeHistorical, WattTimeForecast
 
 from evaluation.config import TZ_DICTIONARY
+
+import watttime.shared_anniez.alg.optCharger as optC
+import watttime.shared_anniez.alg.moer as Moer
 
 username = os.getenv("WATTTIME_USER")
 password = os.getenv("WATTTIME_PASSWORD")
@@ -26,17 +23,18 @@ password = os.getenv("WATTTIME_PASSWORD")
 start = "2024-02-15 00:00Z"
 end = "2024-02-16 00:00Z"
 distinct_date_list = [
-    pd.Timestamp(date)
-    for date in pd.date_range(start, end, freq="d").values
+    pd.Timestamp(date) for date in pd.date_range(start, end, freq="d").values
 ]
 
-def intervalize_power_rate(kW_value: float, convert_to_MW = True):
+
+def intervalize_power_rate(kW_value: float, convert_to_MW=True):
     five_min_rate = kW_value / 12
     if convert_to_MW:
         five_min_rate = five_min_rate / 1000
     else:
         five_min_rate
     return five_min_rate
+
 
 def convert_to_utc(local_time_str, local_tz_str):
     """
@@ -104,7 +102,9 @@ def generate_random_unplug_time(random_plug_time, mean, stddev):
     REturns
     -pd.Timestamp: the new datetime after adding the random seconds
     """
-    random_seconds = abs(np.random.normal(loc=mean, scale=stddev)) # ensure the delta is positive
+    random_seconds = abs(
+        np.random.normal(loc=mean, scale=stddev)
+    )  # ensure the delta is positive
 
     # convert to timedelta
     random_timedelta = timedelta(seconds=random_seconds)
@@ -191,12 +191,17 @@ def generate_synthetic_user_data(
     user_df["total_capacity"] = total_capacity
     user_df["power_output_rate"] = power_output_max_rate
 
-    user_df["total_intervals_plugged_in"] = user_df["length_plugged_in"] / 300 # number of seconds in 5 minutes
-    user_df["charge_MWh_needed"] = user_df["total_capacity"] * (0.95 - user_df["initial_charge"]) / 1000
+    user_df["total_intervals_plugged_in"] = (
+        user_df["length_plugged_in"] / 300
+    )  # number of seconds in 5 minutes
+    user_df["charge_MWh_needed"] = (
+        user_df["total_capacity"] * (0.95 - user_df["initial_charge"]) / 1000
+    )
     user_df["charged_MWh_actual"] = user_df["charged_kWh_actual"] / 1000
     user_df["MWh_fraction"] = user_df["power_output_rate"].apply(intervalize_power_rate)
 
     return user_df
+
 
 def execute_synth_data_process(
     distinct_date_list: List[Any], number_of_users: int = 1000
@@ -208,6 +213,7 @@ def execute_synth_data_process(
     df_all = pd.concat(dfs)
     df_all.reset_index(inplace=True)
     return df_all
+
 
 def add_one_day(date):
     """
@@ -221,6 +227,7 @@ def add_one_day(date):
     """
     return date + timedelta(days=1)
 
+
 def generate_random_dates(year):
     """
     Generate a list of tuples containing two random dates from each week in the given year.
@@ -233,7 +240,9 @@ def generate_random_dates(year):
     """
     random_dates = []
     start_date = datetime(year, 1, 1)
-    end_date = datetime.now() - timedelta(days=1)  # Last possible day is yesterday's date
+    end_date = datetime.now() - timedelta(
+        days=1
+    )  # Last possible day is yesterday's date
 
     # Find the first Monday of the year
     while start_date.weekday() != 0:
@@ -248,8 +257,12 @@ def generate_random_dates(year):
 
         print(week_end_date)
         # Generate two random dates within the current week
-        random_date1 = start_date + timedelta(days=random.randint(0, (week_end_date - start_date).days))
-        random_date2 = start_date + timedelta(days=random.randint(0, (week_end_date - start_date).days))
+        random_date1 = start_date + timedelta(
+            days=random.randint(0, (week_end_date - start_date).days)
+        )
+        random_date2 = start_date + timedelta(
+            days=random.randint(0, (week_end_date - start_date).days)
+        )
 
         # Ensure the dates are within the same week
         if random_date1.weekday() > random_date2.weekday():
@@ -259,14 +272,11 @@ def generate_random_dates(year):
 
         # Move to the next week
         start_date += timedelta(days=7)
-    
-    random_dates = remove_duplicates(
-        unpack_tuples(
-            generate_random_dates(year)
-            )
-        )
+
+    random_dates = remove_duplicates(unpack_tuples(generate_random_dates(year)))
 
     return random_dates
+
 
 def unpack_tuples(tuples_list):
     """
@@ -297,7 +307,8 @@ def remove_duplicates(input_list):
             output_list.append(item)
     return output_list
 
-def get_timezone_from_dict(key, dictionary = TZ_DICTIONARY):
+
+def get_timezone_from_dict(key, dictionary=TZ_DICTIONARY):
     """
     Returns the value from the dictionary based on the given key.
 
@@ -312,42 +323,30 @@ def get_timezone_from_dict(key, dictionary = TZ_DICTIONARY):
 
 
 # Get per-row historical fcsts at 'plug in time'
-def get_historical_fcst_data(
-    plug_in_time, 
-    horizon,
-    region
-    ):
+def get_historical_fcst_data(plug_in_time, horizon, region):
 
     time_zone = get_timezone_from_dict(region)
-    plug_in_time = pd.Timestamp(
-        convert_to_utc(
-            plug_in_time,
-            time_zone
-            )
-        )
+    plug_in_time = pd.Timestamp(convert_to_utc(plug_in_time, time_zone))
     horizon = math.ceil(horizon / 12)
     return hist_data.get_historical_forecast_pandas(
-        start=plug_in_time - pd.Timedelta(minutes=5), 
-        end=plug_in_time, 
+        start=plug_in_time - pd.Timedelta(minutes=5),
+        end=plug_in_time,
         horizon_hours=horizon,
-        region=region
+        region=region,
     )
+
 
 # Set up OptCharger based on moer fcsts and get info on projected schedule
 def get_schedule_and_cost(
-    charge_rate_per_window, 
-    charge_needed, 
-    total_time_horizon, 
-    moer_data,
-    asap = False
-    ):
-    charger = optC.OptCharger(charge_rate_per_window) # charge rate needs to be an int
-    moer = Moer.Moer(moer_data['value'])
+    charge_rate_per_window, charge_needed, total_time_horizon, moer_data, asap=False
+):
+    charger = optC.OptCharger(charge_rate_per_window)  # charge rate needs to be an int
+    moer = Moer.Moer(moer_data["value"])
 
     charger.fit(
-        totalCharge=charge_needed, # also currently an int value
-        totalTime = total_time_horizon,
+        totalCharge=charge_needed,  # also currently an int value
+        totalTime=total_time_horizon,
         moer=moer,
-        asap=asap
+        asap=asap,
     )
     return charger

@@ -193,6 +193,7 @@ def generate_synthetic_user_data(
 
     user_df["total_intervals_plugged_in"] = user_df["length_plugged_in"] / 300 # number of seconds in 5 minutes
     user_df["charge_MWh_needed"] = user_df["total_capacity"] * (0.95 - user_df["initial_charge"]) / 1000
+    user_df["charged_MWh_actual"] = user_df["charged_kWh_actual"] / 1000
     user_df["MWh_fraction"] = user_df["power_output_rate"].apply(intervalize_power_rate)
 
     return user_df
@@ -237,6 +238,7 @@ def generate_random_dates(year):
     # Find the first Monday of the year
     while start_date.weekday() != 0:
         start_date += timedelta(days=1)
+        print(start_date)
 
     while start_date.year == year and start_date <= end_date:
         # Calculate the end date of the current week
@@ -244,6 +246,7 @@ def generate_random_dates(year):
         if week_end_date > end_date:
             week_end_date = end_date
 
+        print(week_end_date)
         # Generate two random dates within the current week
         random_date1 = start_date + timedelta(days=random.randint(0, (week_end_date - start_date).days))
         random_date2 = start_date + timedelta(days=random.randint(0, (week_end_date - start_date).days))
@@ -294,7 +297,7 @@ def remove_duplicates(input_list):
             output_list.append(item)
     return output_list
 
-def get_timezone_from_dict(dictionary = TZ_DICTIONARY, key):
+def get_timezone_from_dict(key, dictionary = TZ_DICTIONARY):
     """
     Returns the value from the dictionary based on the given key.
 
@@ -306,3 +309,45 @@ def get_timezone_from_dict(dictionary = TZ_DICTIONARY, key):
     - The value corresponding to the given key if the key exists, otherwise None.
     """
     return dictionary.get(key)
+
+
+# Get per-row historical fcsts at 'plug in time'
+def get_historical_fcst_data(
+    plug_in_time, 
+    horizon,
+    region
+    ):
+
+    time_zone = get_timezone_from_dict(region)
+    plug_in_time = pd.Timestamp(
+        convert_to_utc(
+            plug_in_time,
+            time_zone
+            )
+        )
+    horizon = math.ceil(horizon / 12)
+    return hist_data.get_historical_forecast_pandas(
+        start=plug_in_time - pd.Timedelta(minutes=5), 
+        end=plug_in_time, 
+        horizon_hours=horizon,
+        region=region
+    )
+
+# Set up OptCharger based on moer fcsts and get info on projected schedule
+def get_schedule_and_cost(
+    charge_rate_per_window, 
+    charge_needed, 
+    total_time_horizon, 
+    moer_data,
+    asap = False
+    ):
+    charger = optC.OptCharger(charge_rate_per_window) # charge rate needs to be an int
+    moer = Moer.Moer(moer_data['value'])
+
+    charger.fit(
+        totalCharge=charge_needed, # also currently an int value
+        totalTime = total_time_horizon,
+        moer=moer,
+        asap=asap
+    )
+    return charger

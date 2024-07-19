@@ -228,10 +228,45 @@ def add_one_day(date):
     """
     return date + timedelta(days=1)
 
+def get_date_from_week_and_day(year,week_number,day_number):
+    """
+    Return the date corresponding to the year, week number,
+    and day number provided. It assumes the first week of 
+    the year is the first week that fully starts that year; 
+    and the last week of the year can splill into next year 
+    (i.e. if monday is dec 31, then the week goes all the 
+    way to Sunday January 6th of the next year. 
+
+    The function also checks that all the dates returned 
+    are before today. I.e. it cannot return dates in 
+    the future. 
+
+    Arguments:
+    year -- the year we want sampled
+    week_number -- The week number (1-52)
+    day_number -- The day number (1-7 where 1 is Monday)
+
+    Returns:
+    The corresponding date as a datetime.date object
+    """
+    # Calculate the first day of the year
+    first_day_of_year = datetime.date(year,1,1)
+
+    #Calculate the first Monday of the eyar (ISO calendar)
+    first_monday = first_day_of_year + datetime.timedelta(days=(7- first_day_of_year.isoweekday()) + 1)
+
+    #Calculate the target date
+    target_date = first_monday + datetime.timedelta(weeks=week_number -1, days=day_number -1)
+
+    #if the first day of the year is Monday, adjust the target date
+    if first_day_of_year.isoweekday() ==1:
+        target_date -= datetime.timedelta(days=7)
+
+    return target_date
 
 def generate_random_dates(year):
     """
-    Generate a list of tuples containing two random dates from each week in the given year.
+    Generate a list of containing two random dates from each week in the given year.
 
     Parameters:
     year (int): The year for which to generate the random dates.
@@ -240,57 +275,17 @@ def generate_random_dates(year):
     list: A list of tuples, each containing two random dates from the same week.
     """
     random_dates = []
-    start_date = datetime(year, 1, 1)
-    end_date = datetime.now() - timedelta(
-        days=1
-    )  # Last possible day is yesterday's date
 
-    # Find the first Monday of the year
-    while start_date.weekday() != 0:
-        start_date += timedelta(days=1)
-        print(start_date)
-
-    while start_date.year == year and start_date <= end_date:
-        # Calculate the end date of the current week
-        week_end_date = start_date + timedelta(days=6)
-        if week_end_date > end_date:
-            week_end_date = end_date
-
-        print(week_end_date)
-        # Generate two random dates within the current week
-        random_date1 = start_date + timedelta(
-            days=random.randint(0, (week_end_date - start_date).days)
-        )
-        random_date2 = start_date + timedelta(
-            days=random.randint(0, (week_end_date - start_date).days)
-        )
-
-        # Ensure the dates are within the same week
-        if random_date1.weekday() > random_date2.weekday():
-            random_date1, random_date2 = random_date2, random_date1
-
-        random_dates.append((random_date1, random_date2))
-
-        # Move to the next week
-        start_date += timedelta(days=7)
-
-    random_dates = remove_duplicates(unpack_tuples(generate_random_dates(year)))
-
+    for i in range(1,53):
+        days = random.sample(range(1,8),2)
+        days.sort()
+        random_dates.append(get_date_from_week_and_day(year,i,days[0]))
+        random_dates.append(get_date_from_week_and_day(year,i,days[1]))
+    
+    random_dates = [date for date in random_dates if date<datetime.date.today()]
+    random_dates = remove_duplicates(random_dates)
+    
     return random_dates
-
-
-def unpack_tuples(tuples_list):
-    """
-    Unpack a list of tuples into a single list containing all elements.
-
-    Parameters:
-    tuples_list (list): The list of tuples to unpack.
-
-    Returns:
-    list: A list containing all elements from the tuples.
-    """
-    unpacked_list = [item for tup in tuples_list for item in tup]
-    return unpacked_list
 
 
 def remove_duplicates(input_list):

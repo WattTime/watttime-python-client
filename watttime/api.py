@@ -1,5 +1,6 @@
 import os
 import time
+import math
 from datetime import date, datetime, timedelta
 from functools import cache
 from pathlib import Path
@@ -9,7 +10,7 @@ import pandas as pd
 import requests
 from dateutil.parser import parse
 from pytz import UTC, timezone
-
+from watttime.shared_anniez.alg import optCharger, moer
 
 class WattTimeBase:
     url_base = "https://api.watttime.org"
@@ -535,6 +536,88 @@ class WattTimeForecast(WattTimeBase):
                 _df = _df.assign(generated_at=pd.to_datetime(entry["generated_at"]))
                 out = pd.concat([out, _df])
         return out
+
+class WattTimeOptimizer(WattTimeForecast):
+    def get_optimal_usage_plan(
+        self,
+        region: str,
+        usage_window_start: datetime,
+        usage_window_end: datetime,
+        usage_time_required_minutes: float,
+        usage_time_uncertainty_minutes: Optional[float] = 0,
+        optimization_method: Optional[
+            Literal["baseline", "simple", "sophisticated"]
+        ] = "baseline",
+    ) -> pd.DataFrame:
+        """
+        Args:
+            region (str): The region for which forecast data is requested.
+            usage_window_start (datetime): Start time of the window when we are allowed to consume power.
+            usage_window_end (datetime): End time of the window when we are allowed to consume power.
+            usage_time_required_minutes (float): Usage time required in minutes
+            optimization_method (str): Optimization Method. Defaults to basic
+
+        Returns:
+            pd.DataFrame: DataFrame representing the usage plan
+        """
+        OPT_INTERVAL = 5
+        MAX_PREDICTION_HOURS = 72
+        datetime_now = datetime.now(UTC)
+        assert usage_window_end > datetime_now, "Error, Window end is before current datetime"
+        def is_tz_aware(dt):
+            return dt.tzinfo is not None and dt.tzinfo.utcoffset(dt) is not None
+        assert is_tz_aware(usage_window_start), "Start time is not tz-aware"
+        assert is_tz_aware(usage_window_end), "End time is not tz-aware"
+        assert usage_window_end - datetime_now < timedelta(hours = MAX_PREDICTION_HOURS), "End time is too far in the future"
+        assert optimization_method in ("baseline", "simple", "sophisticated"), "Unsupported optimization method:" + optimization_method
+
+        forecast_df = self.get_forecast_pandas(region=region, signal_type="co2_moer", horizon_hours = MAX_PREDICTION_HOURS)
+        forecast_df = forecast_df.set_index("point_time")
+        forecast_df.index = pd.to_datetime(forecast_df.index)
+        print(f"Obtained Forecast with {len(forecast_df)} entries")
+
+        relevant_forecast_df = forecast_df[usage_window_start:usage_window_end]
+        relevant_forecast_df = relevant_forecast_df.rename(columns={"value":"pred_moer"})
+        print(f"Filtered Forecast down to {len(relevant_forecast_df)} entries")
+        result_df = relevant_forecast_df[["pred_moer"]]
+        moer_values = relevant_forecast_df["pred_moer"].values
+
+        asap = optimization_method == "baseline"
+        emissionOverhead = optimization_method == "sophisticated"
+
+        m = moer.Moer(
+        mu = moer_values, 
+        isDiagonal = True,
+        sig2 = 0.0,
+        )
+
+        model = optCharger.OptCharger(
+            minChargeRate = 0,
+            maxChargeRate = 1,
+            emissionOverhead = emissionOverhead,
+        )
+
+        total_charge_units = usage_time_required_minutes // OPT_INTERVAL
+        if optimization_method == "sophisticated":
+            buffer_time = 1 * usage_time_uncertainty_minutes
+            buffer_periods = int(math.ceil(buffer_time / OPT_INTERVAL))
+            # TODO: Check if there is any off-by-1 error here
+            buffer_enforce_time = max(total_charge_units, len(moer_values) - buffer_periods)
+            constraints = {buffer_enforce_time:(total_charge_units, None)}
+        else:
+            constraints = {}
+
+        model.fit(totalCharge = total_charge_units,
+                    totalTime = len(moer_values),
+                    moer = m, 
+                    asap = asap,
+                    constraints = constraints,
+                    )
+        model.summary()
+        optimizer_result = model.get_schedule()
+        result_df["usage"] = [x * float(OPT_INTERVAL) for x in optimizer_result]
+
+        return result_df
 
 
 class WattTimeMaps(WattTimeBase):

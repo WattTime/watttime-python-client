@@ -11,6 +11,7 @@ import pytz
 from tqdm import tqdm
 from datetime import datetime, timedelta
 from watttime import WattTimeHistorical, WattTimeForecast
+import math
 
 from evaluation.config import TZ_DICTIONARY
 
@@ -328,6 +329,8 @@ def get_historical_fcst_data(plug_in_time, horizon, region):
     time_zone = get_timezone_from_dict(region)
     plug_in_time = pd.Timestamp(convert_to_utc(plug_in_time, time_zone))
     horizon = math.ceil(horizon / 12)
+
+    hist_data = WattTimeForecast(username, password)
     return hist_data.get_historical_forecast_pandas(
         start=plug_in_time - pd.Timedelta(minutes=5),
         end=plug_in_time,

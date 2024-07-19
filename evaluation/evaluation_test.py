@@ -1,6 +1,6 @@
 
 import os
-os.chdir("/home/jennifer.badolato/watttime-python-client-aer-algo")
+os.chdir(f"/home/{os.getlogin()}/watttime-python-client-aer-algo")
 
 import math
 import numpy as np
@@ -49,11 +49,10 @@ synth_data['moer_data'] = synth_data.apply(
     ), axis = 1
 )
 
-
 synth_data['charger_simple']= synth_data.apply(
     lambda x: efu.get_schedule_and_cost(
         x.MWh_fraction,
-        x.charged_MWh_actual,
+        x.charged_kWh_actual / 1000,
         math.ceil(x.total_intervals_plugged_in), # will throw an error if the plug in time is too shart to reach full charge, should soften to a warning
         x.moer_data,
         asap = False

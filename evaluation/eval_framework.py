@@ -338,6 +338,19 @@ def get_historical_fcst_data(plug_in_time, horizon, region):
         region=region,
     )
 
+def get_historical_actual_data(plug_in_time, horizon, region):
+
+    time_zone = get_timezone_from_dict(region)
+    plug_in_time = pd.Timestamp(convert_to_utc(plug_in_time, time_zone))
+    horizon = math.ceil(horizon / 12)
+
+    hist_data = WattTimeHistorical(username, password)
+    return hist_data.get_historical_pandas(
+        start=plug_in_time - pd.Timedelta(minutes=5),
+        end=plug_in_time + pd.Timedelta(hours=horizon),
+        region=region,
+    )
+
 
 # Set up OptCharger based on moer fcsts and get info on projected schedule
 def get_schedule_and_cost(

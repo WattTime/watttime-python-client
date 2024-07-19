@@ -49,6 +49,14 @@ synth_data['moer_data'] = synth_data.apply(
     ), axis = 1
 )
 
+synth_data['moer_data_actual'] = synth_data.apply(
+    lambda x: efu.get_historical_actual_data(
+    x.plug_in_time,
+    math.ceil(x.total_intervals_plugged_in),
+    region = region
+    ), axis = 1
+)
+
 synth_data['charger_simple']= synth_data.apply(
     lambda x: efu.get_schedule_and_cost(
         x.MWh_fraction,
@@ -60,18 +68,35 @@ synth_data['charger_simple']= synth_data.apply(
         axis = 1
         )
 
+synth_data['charger_simple_actual']= synth_data.apply(
+    lambda x: efu.get_schedule_and_cost(
+        x.MWh_fraction,
+        x.charged_kWh_actual / 1000,
+        math.ceil(x.total_intervals_plugged_in), # will throw an error if the plug in time is too shart to reach full charge, should soften to a warning
+        x.moer_data_actual,
+        asap = False
+        ), 
+        axis = 1
+        )
+
 
 synth_data['simple_fit_results'] = synth_data['charger_simple'].apply(
     lambda  x: x.get_total_cost()
     )
 
+synth_data['simple_fit_results_actual'] = synth_data['charger_simple_actual'].apply(
+    lambda  x: x.get_total_cost()
+    )
 
-synth_data['simple_fit_results']
 
-# TO DO - actuals for comparison against greedy / simple
-# Idea: pass the charging schedules, filter, matrix multiplication (np.dot) to get actuals comparison
+print(synth_data['simple_fit_results'])
+print(synth_data['simple_fit_results_actual'])
+
+# TO DO: this currently optimizes twice, which is unecessary
+# I would refactor out 
 
 # make this a function
+
 '''
 moer_actuals = actual_data.get_historical_pandas(
     start=generated_data.plug_in_time.min(),

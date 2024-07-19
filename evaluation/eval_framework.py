@@ -5,11 +5,10 @@ import os
 from typing import List, Any
 import numpy as np
 import pandas as pd
-import datetime
 import random
 import pytz
 from tqdm import tqdm
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, date
 from watttime import WattTimeHistorical, WattTimeForecast
 import math
 
@@ -250,17 +249,17 @@ def get_date_from_week_and_day(year,week_number,day_number):
     The corresponding date as a datetime.date object
     """
     # Calculate the first day of the year
-    first_day_of_year = datetime.date(year,1,1)
+    first_day_of_year = date(year,1,1)
 
     #Calculate the first Monday of the eyar (ISO calendar)
-    first_monday = first_day_of_year + datetime.timedelta(days=(7- first_day_of_year.isoweekday()) + 1)
+    first_monday = first_day_of_year + timedelta(days=(7- first_day_of_year.isoweekday()) + 1)
 
     #Calculate the target date
-    target_date = first_monday + datetime.timedelta(weeks=week_number -1, days=day_number -1)
+    target_date = first_monday + timedelta(weeks=week_number -1, days=day_number -1)
 
     #if the first day of the year is Monday, adjust the target date
     if first_day_of_year.isoweekday() ==1:
-        target_date -= datetime.timedelta(days=7)
+        target_date -= timedelta(days=7)
 
     return target_date
 
@@ -272,17 +271,15 @@ def generate_random_dates(year):
     year (int): The year for which to generate the random dates.
 
     Returns:
-    list: A list of tuples, each containing two random dates from the same week.
+    list: A list of dates.
     """
     random_dates = []
-
     for i in range(1,53):
         days = random.sample(range(1,8),2)
         days.sort()
         random_dates.append(get_date_from_week_and_day(year,i,days[0]))
-        random_dates.append(get_date_from_week_and_day(year,i,days[1]))
-    
-    random_dates = [date for date in random_dates if date<datetime.date.today()]
+        random_dates.append(get_date_from_week_and_day(year,i,days[1]))  
+    random_dates = [date for date in random_dates if date < date.today()]
     random_dates = remove_duplicates(random_dates)
     
     return random_dates

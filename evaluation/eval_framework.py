@@ -1,22 +1,21 @@
 #!/usr/bin/env python
 # coding: utf-8
 
+import os
+from typing import List, Any
 import numpy as np
 import pandas as pd
-import datetime
 import random
 import pytz
 from tqdm import tqdm
-from datetime import datetime, timedelta
-import random
-from watttime import (
-    WattTimeHistorical,
-    WattTimeForecast
-)
+from datetime import datetime, timedelta, date
+from watttime import WattTimeHistorical, WattTimeForecast
+import math
 
-import os
-from typing import List, Any
-from datetime import datetime, timedelta
+from evaluation.config import TZ_DICTIONARY
+
+import watttime.shared_anniez.alg.optCharger as optC
+import watttime.shared_anniez.alg.moer as Moer
 
 username = os.getenv("WATTTIME_USER")
 password = os.getenv("WATTTIME_PASSWORD")
@@ -24,9 +23,18 @@ password = os.getenv("WATTTIME_PASSWORD")
 start = "2024-02-15 00:00Z"
 end = "2024-02-16 00:00Z"
 distinct_date_list = [
-    pd.Timestamp(date)
-    for date in pd.date_range(start, end, freq="d").values
+    pd.Timestamp(date) for date in pd.date_range(start, end, freq="d").values
 ]
+
+
+def intervalize_power_rate(kW_value: float, convert_to_MW=True):
+    five_min_rate = kW_value / 12
+    if convert_to_MW:
+        five_min_rate = five_min_rate / 1000
+    else:
+        five_min_rate
+    return five_min_rate
+
 
 def convert_to_utc(local_time_str, local_tz_str):
     """
@@ -94,7 +102,9 @@ def generate_random_unplug_time(random_plug_time, mean, stddev):
     REturns
     -pd.Timestamp: the new datetime after adding the random seconds
     """
-    random_seconds = abs(np.random.normal(loc=mean, scale=stddev)) # ensure the delta is positive
+    random_seconds = abs(
+        np.random.normal(loc=mean, scale=stddev)
+    )  # ensure the delta is positive
 
     # convert to timedelta
     random_timedelta = timedelta(seconds=random_seconds)
@@ -181,7 +191,17 @@ def generate_synthetic_user_data(
     user_df["total_capacity"] = total_capacity
     user_df["power_output_rate"] = power_output_max_rate
 
+    user_df["total_intervals_plugged_in"] = (
+        user_df["length_plugged_in"] / 300
+    )  # number of seconds in 5 minutes
+    user_df["charge_MWh_needed"] = (
+        user_df["total_capacity"] * (0.95 - user_df["initial_charge"]) / 1000
+    )
+    user_df["charged_MWh_actual"] = user_df["charged_kWh_actual"] / 1000
+    user_df["MWh_fraction"] = user_df["power_output_rate"].apply(intervalize_power_rate)
+
     return user_df
+
 
 def execute_synth_data_process(
     distinct_date_list: List[Any], number_of_users: int = 1000
@@ -193,6 +213,7 @@ def execute_synth_data_process(
     df_all = pd.concat(dfs)
     df_all.reset_index(inplace=True)
     return df_all
+
 
 def add_one_day(date):
     """
@@ -206,63 +227,62 @@ def add_one_day(date):
     """
     return date + timedelta(days=1)
 
+def get_date_from_week_and_day(year,week_number,day_number):
+    """
+    Return the date corresponding to the year, week number,
+    and day number provided. It assumes the first week of 
+    the year is the first week that fully starts that year; 
+    and the last week of the year can splill into next year 
+    (i.e. if monday is dec 31, then the week goes all the 
+    way to Sunday January 6th of the next year. 
+
+    The function also checks that all the dates returned 
+    are before today. I.e. it cannot return dates in 
+    the future. 
+
+    Arguments:
+    year -- the year we want sampled
+    week_number -- The week number (1-52)
+    day_number -- The day number (1-7 where 1 is Monday)
+
+    Returns:
+    The corresponding date as a datetime.date object
+    """
+    # Calculate the first day of the year
+    first_day_of_year = date(year,1,1)
+
+    #Calculate the first Monday of the eyar (ISO calendar)
+    first_monday = first_day_of_year + timedelta(days=(7- first_day_of_year.isoweekday()) + 1)
+
+    #Calculate the target date
+    target_date = first_monday + timedelta(weeks=week_number -1, days=day_number -1)
+
+    #if the first day of the year is Monday, adjust the target date
+    if first_day_of_year.isoweekday() ==1:
+        target_date -= timedelta(days=7)
+
+    return target_date
+
 def generate_random_dates(year):
     """
-    Generate a list of tuples containing two random dates from each week in the given year.
+    Generate a list of containing two random dates from each week in the given year.
 
     Parameters:
     year (int): The year for which to generate the random dates.
 
     Returns:
-    list: A list of tuples, each containing two random dates from the same week.
+    list: A list of dates.
     """
     random_dates = []
-    start_date = datetime(year, 1, 1)
-    end_date = datetime.now() - timedelta(days=1)  # Last possible day is yesterday's date
-
-    # Find the first Monday of the year
-    while start_date.weekday() != 0:
-        start_date += timedelta(days=1)
-
-    while start_date.year == year and start_date <= end_date:
-        # Calculate the end date of the current week
-        week_end_date = start_date + timedelta(days=6)
-        if week_end_date > end_date:
-            week_end_date = end_date
-
-        # Generate two random dates within the current week
-        random_date1 = start_date + timedelta(days=random.randint(0, (week_end_date - start_date).days))
-        random_date2 = start_date + timedelta(days=random.randint(0, (week_end_date - start_date).days))
-
-        # Ensure the dates are within the same week
-        if random_date1.weekday() > random_date2.weekday():
-            random_date1, random_date2 = random_date2, random_date1
-
-        random_dates.append((random_date1, random_date2))
-
-        # Move to the next week
-        start_date += timedelta(days=7)
+    for i in range(1,53):
+        days = random.sample(range(1,8),2)
+        days.sort()
+        random_dates.append(get_date_from_week_and_day(year,i,days[0]))
+        random_dates.append(get_date_from_week_and_day(year,i,days[1]))  
+    random_dates = [date for date in random_dates if date < date.today()]
+    random_dates = remove_duplicates(random_dates)
     
-    random_dates = remove_duplicates(
-        unpack_tuples(
-            generate_random_dates(year)
-            )
-        )
-
     return random_dates
-
-def unpack_tuples(tuples_list):
-    """
-    Unpack a list of tuples into a single list containing all elements.
-
-    Parameters:
-    tuples_list (list): The list of tuples to unpack.
-
-    Returns:
-    list: A list containing all elements from the tuples.
-    """
-    unpacked_list = [item for tup in tuples_list for item in tup]
-    return unpacked_list
 
 
 def remove_duplicates(input_list):
@@ -280,3 +300,61 @@ def remove_duplicates(input_list):
             output_list.append(item)
     return output_list
 
+
+def get_timezone_from_dict(key, dictionary=TZ_DICTIONARY):
+    """
+    Returns the value from the dictionary based on the given key.
+
+    Parameters:
+    - dictionary: The dictionary from which to retrieve the value.
+    - key: The key whose corresponding value is to be retrieved.
+
+    Returns:
+    - The value corresponding to the given key if the key exists, otherwise None.
+    """
+    return dictionary.get(key)
+
+
+# Get per-row historical fcsts at 'plug in time'
+def get_historical_fcst_data(plug_in_time, horizon, region):
+
+    time_zone = get_timezone_from_dict(region)
+    plug_in_time = pd.Timestamp(convert_to_utc(plug_in_time, time_zone))
+    horizon = math.ceil(horizon / 12)
+
+    hist_data = WattTimeForecast(username, password)
+    return hist_data.get_historical_forecast_pandas(
+        start=plug_in_time - pd.Timedelta(minutes=5),
+        end=plug_in_time,
+        horizon_hours=horizon,
+        region=region,
+    )
+
+def get_historical_actual_data(plug_in_time, horizon, region):
+
+    time_zone = get_timezone_from_dict(region)
+    plug_in_time = pd.Timestamp(convert_to_utc(plug_in_time, time_zone))
+    horizon = math.ceil(horizon / 12)
+
+    hist_data = WattTimeHistorical(username, password)
+    return hist_data.get_historical_pandas(
+        start=plug_in_time - pd.Timedelta(minutes=5),
+        end=plug_in_time + pd.Timedelta(hours=horizon),
+        region=region,
+    )
+
+
+# Set up OptCharger based on moer fcsts and get info on projected schedule
+def get_schedule_and_cost(
+    charge_rate_per_window, charge_needed, total_time_horizon, moer_data, asap=False
+):
+    charger = optC.OptCharger(charge_rate_per_window)  # charge rate needs to be an int
+    moer = Moer.Moer(moer_data["value"])
+
+    charger.fit(
+        totalCharge=charge_needed,  # also currently an int value
+        totalTime=total_time_horizon,
+        moer=moer,
+        asap=asap,
+    )
+    return charger

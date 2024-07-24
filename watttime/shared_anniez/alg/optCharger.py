@@ -153,7 +153,7 @@ class OptCharger:
             ## TODO: In this case we should still return the best possible plan
             ## which would probably to just charge for the entire window
             raise Exception("Solution not found!")
-        curr_state, t_curr = [c, m_final], totalTime - 1
+        curr_state, t_curr = [totalCharge, m_final], totalTime - 1
         # This gives the schedule in reverse
         schedule = []        
         schedule.append(curr_state)

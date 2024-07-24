@@ -17,6 +17,7 @@ model.fit(totalCharge=3, totalTime=8, moer=m, asap=False, constraints = {0:(1,No
 model.fit(totalCharge=3, totalTime=8, moer=m, asap=False, totalIntervals=1); model.summary()
 model.fit(totalCharge=3, totalTime=8, moer=m, asap=False, totalIntervals=1, emission_multiplier_fn=lambda x,y: [1.0,0.1,1.0][x]); model.summary()
 model.fit(totalCharge=3, totalTime=8, moer=m, asap=False, totalIntervals=1, constraints = {0:(1,None)}); model.summary()
+model.fit(totalCharge=3, totalTime=8, moer=m, asap=False, totalIntervals=2, constraints = {0:(1,None)}); model.summary()
 
 # print("Introducing emission overheads...")
 # model = optCharger.OptCharger(

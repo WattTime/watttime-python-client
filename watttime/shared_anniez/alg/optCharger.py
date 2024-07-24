@@ -48,7 +48,7 @@ class OptCharger:
         )
 
     def __greedy_fit(self, totalCharge:int, totalTime:int, moer:Moer): 
-        print("Greedy fit!")  
+        #print("Greedy fit!")  
         chargeToDo = totalCharge
         cs, t = [], 0
         while (chargeToDo > 0) and (t < totalTime): 
@@ -58,7 +58,7 @@ class OptCharger:
             t += 1
         self.__optimalChargingSchedule = cs + [0]*(totalTime - t)
         self.__optimalOnOffSchedule = [1]*t + [0]*(totalTime - t)
-        print(self.__optimalChargingSchedule, totalTime)
+        #print(self.__optimalChargingSchedule, totalTime)
         self.__collect_results(moer)
 
     def __simple_fit(self, totalCharge:int, totalTime:int, moer:Moer):  
@@ -70,7 +70,7 @@ class OptCharger:
         - sort intervals by MOER
         - keep charging until we fill up 
         '''
-        print("Simple fit!")
+        #print("Simple fit!")
         sorted_times = [x for _, x in sorted(zip(moer.get_emission_interval(0,totalTime),range(totalTime)))]
         chargeToDo = totalCharge
         cs, schedule, t = [0] * totalTime, [0] * totalTime, 0

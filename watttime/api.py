@@ -544,7 +544,7 @@ class WattTimeOptimizer(WattTimeForecast):
         usage_window_start: datetime,
         usage_window_end: datetime,
         usage_time_required_minutes: float,
-        usage_power: Union[float, pd.DataFrame],
+        usage_power_kw: Union[int, float, pd.DataFrame],
         usage_time_uncertainty_minutes: Optional[float] = 0,
         optimization_method: Optional[
             Literal["baseline", "simple", "sophisticated"]
@@ -557,8 +557,8 @@ class WattTimeOptimizer(WattTimeForecast):
             usage_window_start (datetime): Start time of the window when we are allowed to consume power.
             usage_window_end (datetime): End time of the window when we are allowed to consume power.
             usage_time_required_minutes (float): Usage time required in minutes
-            usage_power (pd.DataFrame or float): A float representing the power usage for constant power. Otherwise,
-                                                 pass in a DataFrame with the power used at x_min in the future
+            usage_power_kw (pd.DataFrame or float): A float representing the power usage for constant power. Otherwise,
+                                                    pass in a DataFrame with the power used at x_min in the future
             optimization_method (str): Optimization Method. Defaults to basic
             moer_data_override (pd.DataFrame): Pass in a generated moer DataFrame.
         Returns:
@@ -597,8 +597,7 @@ class WattTimeOptimizer(WattTimeForecast):
         )
 
         model = optCharger.OptCharger(
-            minChargeRate = 0,
-            maxChargeRate = 1,
+            fixedChargeRate = 1,
             emissionOverhead = emissionOverhead,
         )
 
@@ -613,10 +612,23 @@ class WattTimeOptimizer(WattTimeForecast):
         else:
             constraints = {}
 
-        # TODO: Pass in the power usage usage_power to the optimizer
+        if type(usage_power_kw) in (int, float):
+            # Convert to the MWh used in an optimization interval
+            emission_multiplier_fn = lambda sc,ec:float(usage_power_kw) * 0.001 * OPT_INTERVAL / 60.0
+        else:
+            usage_power_kw["time_step"] = usage_power_kw["time"] / OPT_INTERVAL
+            usage_power_kw_new_index = pd.DataFrame(index=list([float(x) for x in range(total_charge_units+1)]))
+            usage_power_kw = pd.merge_asof(usage_power_kw_new_index, usage_power_kw.set_index("time_step"),
+                                            left_index=True, right_index=True,
+                                            direction="backward", allow_exact_matches=True)
+            def emission_multiplier_fn(sc, ec):
+                value = usage_power_kw[sc:max(sc, ec-1e-12)]["power_kwh"].mean() * 0.001 * OPT_INTERVAL / 60.0
+                return value
+
         model.fit(totalCharge = total_charge_units,
                     totalTime = len(moer_values),
-                    moer = m, 
+                    moer = m,
+                    emission_multiplier_fn = emission_multiplier_fn,
                     asap = asap,
                     constraints = constraints,
                     )

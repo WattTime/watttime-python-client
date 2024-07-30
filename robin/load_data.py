@@ -3,9 +3,10 @@ from requests.auth import HTTPBasicAuth
 import pandas as pd
 from watttime import WattTimeForecast, WattTimeHistorical
 from tqdm import tqdm
+import os
 
-username = pd.read_json("~/vars.json", typ="series")["WATTTIME_API_USERNAME"] # os.getenv("WATTTIME_API_USERNAME")
-password = pd.read_json("~/vars.json", typ="series")["WATTTIME_API_PASSWORD"] # os.getenv("WATTTIME_API_PASSWORD")
+username = os.getenv("WATTTIME_USER")
+password = os.getenv("WATTTIME_PASSWORD")
 
 login_url = 'https://api.watttime.org/login'
 rsp = requests.get(login_url, auth=HTTPBasicAuth(username, password))

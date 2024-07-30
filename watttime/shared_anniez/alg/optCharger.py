@@ -49,7 +49,7 @@ class OptCharger:
         return lambda sc,ec: emission_multiplier_fn(sc,min(ec,totalCharge)) if (sc < totalCharge) else 1.0
 
     def __greedy_fit(self, totalCharge:int, totalTime:int, moer:Moer): 
-        print("== Baseline fit! ==")  
+        print("== Baseline fit! ==")
         chargeToDo = totalCharge
         cs, t = [], 0
         while (chargeToDo > 0) and (t < totalTime): 
@@ -59,7 +59,7 @@ class OptCharger:
             t += 1
         self.__optimalChargingSchedule = cs + [0]*(totalTime - t)
         self.__optimalOnOffSchedule = [1]*t + [0]*(totalTime - t)
-        print(self.__optimalChargingSchedule, totalTime)
+        #print(self.__optimalChargingSchedule, totalTime)
         self.__collect_results(moer)
 
     def __simple_fit(self, totalCharge:int, totalTime:int, moer:Moer):  

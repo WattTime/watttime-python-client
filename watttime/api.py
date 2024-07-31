@@ -635,6 +635,7 @@ class WattTimeOptimizer(WattTimeForecast):
         model.summary()
         optimizer_result = model.get_schedule()
         result_df["usage"] = [x * float(OPT_INTERVAL) for x in optimizer_result]
+        result_df["emissions_lb_co2e"] = model.get_charging_emissions_over_time()
 
         return result_df
 

@@ -46,6 +46,7 @@ class OptCharger:
                 power_rate = self.emission_multiplier_fn(old_charge_time_units, current_charge_time_units)
                 emission_multipliers.append(power_rate)
 
+        self.__optimalChargingEmissionsOverTime = moer.get_emissions(np.array(self.__optimalChargingSchedule) * np.array(emission_multipliers))
         self.__optimalChargingEmission = moer.get_total_emission(np.array(self.__optimalChargingSchedule) * np.array(emission_multipliers))
         y = np.hstack((0,self.__optimalOnOffSchedule,0))
         yDiff = y[1:] - y[:-1]
@@ -287,6 +288,9 @@ class OptCharger:
                 self.__contiguous_fit(totalCharge, totalTime, moer, OptCharger.__sanitize_emission_multiplier(emission_multiplier_fn, totalCharge), totalIntervals, ra, constraints)
         else: 
             raise Exception("Not implemented!")
+    
+    def get_charging_emissions_over_time(self) -> list: 
+        return self.__optimalChargingEmissionsOverTime
     
     def get_charging_emission(self) -> float: 
         return self.__optimalChargingEmission

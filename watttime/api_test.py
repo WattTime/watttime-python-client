@@ -78,4 +78,7 @@ usage_power_kw = usage_power_kw_df,
 optimization_method = "sophisticated"
 )
 
+print(dp_usage_plan_3)
+print(dp_usage_plan_3.sum())
+
 # print(basic_usage_plan.index[0], basic_usage_plan.index[-1], window_start_test, window_end_test)

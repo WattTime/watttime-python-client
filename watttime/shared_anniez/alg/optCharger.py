@@ -278,10 +278,10 @@ class OptCharger:
         if asap: 
             self.__greedy_fit(totalCharge, totalTime, moer)
         elif not self.emissionOverhead and ra<TOL and not constraints and totalIntervals <= 0:
+            if np.std([emission_multiplier_fn(sc,sc+1) for sc in list(range(totalCharge))]) > 0.0:
+                print("Warning: Using suboptimal simple algorithm, since emission function is non-constant")
             self.__simple_fit(totalCharge, totalTime, moer)
-        elif moer.is_diagonal(): 
-            if emission_multiplier_fn is None: 
-                emission_multiplier_fn =  lambda sc,ec: 1.
+        elif moer.is_diagonal():
             if totalIntervals <= 0: 
                 self.__diagonal_fit(totalCharge, totalTime, moer, OptCharger.__sanitize_emission_multiplier(emission_multiplier_fn, totalCharge), ra, constraints)
             else: 
@@ -289,16 +289,33 @@ class OptCharger:
         else: 
             raise Exception("Not implemented!")
     
-    def get_charging_emissions_over_time(self) -> list: 
+    def get_charging_emissions_over_time(self) -> list:
+        """
+        Returns:
+            list: The emissions due to charging at each interval in lbs. 
+        """
         return self.__optimalChargingEmissionsOverTime
     
     def get_charging_emission(self) -> float: 
+        """
+        Returns:
+            float: The summed emissions due to charging in lbs.
+                  This excludes penalty terms due to risk aversion
+        """
         return self.__optimalChargingEmission
     
     def get_total_emission(self) -> float: 
+        """
+        Returns:
+            float: The summed emissions due to charging and penalty terms in lbs.
+        """
         return self.__optimalTotalEmission
     
     def get_schedule(self) -> list: 
+        """
+        Returns:
+            list: The charging schedule as a list, in minutes to charge for each interval.
+        """
         return self.__optimalChargingSchedule
 
     def summary(self): 

@@ -66,7 +66,7 @@ optimization_method = "sophisticated"
 print("Using DP Plan with variable power rate")
 usage_power_kw_df = pd.DataFrame(
     [[0, 12], [20, 12], [40, 12], [100, 12], [219, 12], [220, 2.4], [320, 2.4]],
-    columns=["time", "power_kwh"]
+    columns=["time", "power_kw"]
 )
 
 dp_usage_plan_3 = wt_opt.get_optimal_usage_plan(

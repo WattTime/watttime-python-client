@@ -622,7 +622,7 @@ class WattTimeOptimizer(WattTimeForecast):
                                             left_index=True, right_index=True,
                                             direction="backward", allow_exact_matches=True)
             def emission_multiplier_fn(sc, ec):
-                value = usage_power_kw[sc:max(sc, ec-1e-12)]["power_kwh"].mean() * 0.001 * OPT_INTERVAL / 60.0
+                value = usage_power_kw[sc:max(sc, ec-1e-12)]["power_kw"].mean() * 0.001 * OPT_INTERVAL / 60.0
                 return value
 
         model.fit(totalCharge = total_charge_units,

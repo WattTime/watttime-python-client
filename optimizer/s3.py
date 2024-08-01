@@ -7,6 +7,7 @@ import boto3
 import pandas as pd
 import os
 import io
+import json
 
 AWS_S3_BUCKET = os.getenv("AWS_S3_BUCKET")
 AWS_ACCESS_KEY = os.getenv("AWS_ACCESS_KEY")
@@ -96,6 +97,22 @@ class s3_utils:
         response = self.S3.put_object(
             Bucket=bucket, Key=file, Body=csv_buffer.getvalue()
         )
+        status = response.get("ResponseMetadata", {}).get("HTTPStatusCode")
+
+        if status == 200:
+            print(f"Successful S3 put_object response. Status - {status}")
+        else:
+            print(f"Unsuccessful S3 put_object response. Status - {status}")
+
+    def store_dictionary(
+        self, dictionary, file: str, bucket=AWS_S3_BUCKET
+    ):
+        response = self.S3.put_object(
+            Body=dictionary,
+            Bucket=bucket,
+            Key=file
+        )
+        
         status = response.get("ResponseMetadata", {}).get("HTTPStatusCode")
 
         if status == 200:

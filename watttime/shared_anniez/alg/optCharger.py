@@ -49,7 +49,6 @@ class OptCharger:
         return lambda sc,ec: emission_multiplier_fn(sc,min(ec,totalCharge)) if (sc < totalCharge) else 1.0
 
     def __greedy_fit(self, totalCharge:int, totalTime:int, moer:Moer): 
-        print("== Baseline fit! ==")
         chargeToDo = totalCharge
         cs, t = [], 0
         while (chargeToDo > 0) and (t < totalTime): 
@@ -71,7 +70,6 @@ class OptCharger:
         - sort intervals by MOER
         - keep charging until we fill up 
         '''
-        print("== Simple fit! ==")
         sorted_times = [x for _, x in sorted(zip(moer.get_emission_interval(0,totalTime),range(totalTime)))]
         chargeToDo = totalCharge
         cs, schedule, t = [0] * totalTime, [0] * totalTime, 0
@@ -91,7 +89,6 @@ class OptCharger:
         '''
         This is the DP algorithm 
         '''
-        print("== Sophisticated fit! ==")
         # This is a matrix with size = number of charge states x number of actions {not charging = 0, charging = 1}
         maxUtil = np.full((totalCharge+1,2), np.nan)
         maxUtil[0,0] = 0.

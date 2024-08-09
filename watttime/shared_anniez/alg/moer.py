@@ -42,6 +42,10 @@ class Moer:
         else: 
             return self.get_emission_at(xi, i) + ra * (2 * xi * self.__Sigma[i,:i]@x_old[:i] + self.__Sigma[i,i] * xi**2), np.hstack((x_old, xi))
         
+    def get_emissions(self, x):
+        x = np.array(x).flatten()
+        return self.__mu[:x.shape[0]] * x
+
     def get_total_emission(self, x): 
         x = np.array(x).flatten()
         return np.dot(self.__mu[:x.shape[0]], x)

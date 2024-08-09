@@ -34,8 +34,21 @@ class OptCharger:
         self.__optimalTotalEmission = None
         self.__optimalChargingSchedule = None
     
-    def __collect_results(self, moer:Moer, emission_multipliers=1.): 
-        self.__optimalChargingEmission = moer.get_total_emission(np.array(self.__optimalChargingSchedule) * emission_multipliers)
+    def __collect_results(self, moer:Moer):
+        emission_multipliers = []
+        current_charge_time_units = 0
+        for i in range(len(self.__optimalChargingSchedule)):
+            if self.__optimalChargingSchedule[i] == 0:
+                emission_multipliers.append(0.0)
+            else:
+                old_charge_time_units = current_charge_time_units
+                current_charge_time_units += self.__optimalChargingSchedule[i]
+                power_rate = self.emission_multiplier_fn(old_charge_time_units, current_charge_time_units)
+                emission_multipliers.append(power_rate)
+
+        self.__optimalChargingEnergyOverTime = np.array(self.__optimalChargingSchedule) * np.array(emission_multipliers)
+        self.__optimalChargingEmissionsOverTime = moer.get_emissions(np.array(self.__optimalChargingSchedule) * np.array(emission_multipliers))
+        self.__optimalChargingEmission = moer.get_total_emission(np.array(self.__optimalChargingSchedule) * np.array(emission_multipliers))
         y = np.hstack((0,self.__optimalOnOffSchedule,0))
         yDiff = y[1:] - y[:-1]
         self.__optimalTotalEmission = (
@@ -123,7 +136,9 @@ class OptCharger:
                 # print("-- charge", c, "| charging on --")
                 initVal = True
                 for ct in range(self.minChargeRate,min(c,self.maxChargeRate)+1):
-                    if not np.isnan(maxUtil[c-ct,0]): 
+                    if not np.isnan(maxUtil[c-ct,0]):
+                        # moer.get_marginal_util gives lbs/MWh. emission function needs to be how many MWh the interval consumes
+                        # which would be power_in_kW * 0.001 * 5/60
                         newUtil = maxUtil[c-ct,0] - moer.get_marginal_util(ct,t,ra=ra) * emission_multiplier_fn(c-ct,c) - self.startEmissionOverhead - self.keepEmissionOverhead 
                         if initVal or (newUtil > newMaxUtil[c,1]): 
                             newMaxUtil[c,1] = newUtil
@@ -163,11 +178,8 @@ class OptCharger:
             t_curr -= 1
         optimalPath = np.array(schedule)[::-1,:]
         self.__optimalChargingSchedule = list(np.diff(optimalPath[:,0]))
-        emission_multipliers = [emission_multiplier_fn(x,y) for x,y in zip(
-            optimalPath[:-1,0], optimalPath[1:,0] 
-        )]
         self.__optimalOnOffSchedule = optimalPath[:,1]
-        self.__collect_results(moer, emission_multipliers)
+        self.__collect_results(moer)
 
     def __contiguous_fit(self, totalCharge:int, totalTime:int, moer:Moer, emission_multiplier_fn, totalIntervals:int = 1, ra:float = 0., constraints:dict = {}): 
         # maxUtil[{0..totalCharge},{0,1},{0..chargeIntervalCount}] = emission (with risk penalty)
@@ -251,23 +263,26 @@ class OptCharger:
         optimalPath = np.array(schedule)[::-1,:]
         self.__optimalChargingSchedule = list(np.diff(optimalPath[:,0]))
         print(optimalPath[:,0])
-        emission_multipliers = [emission_multiplier_fn(x,y) for x,y in zip(
-            optimalPath[:-1,0], optimalPath[1:,0] 
-        )]
         self.__optimalOnOffSchedule = optimalPath[:,1]
-        self.__collect_results(moer, emission_multipliers)
+        self.__collect_results(moer)
     
     def fit(self, totalCharge:int, totalTime:int, moer:Moer, totalIntervals:int = 0, constraints:dict = {}, ra:float = 0., asap:bool = False, emission_multiplier_fn = None): 
         assert len(moer) >= totalTime
+        if emission_multiplier_fn is None:
+            print("Warning: OptCharger did not get an emission_multiplier_fn. Assuming that device uses constant 1kW of power")
+            emission_multiplier_fn = lambda sc,ec:1.0
+        # Store emission_multiplier_fn for evaluation 
+        self.emission_multiplier_fn = emission_multiplier_fn
+
         if (totalCharge > totalTime * self.maxChargeRate): 
             raise Exception(f"Impossible to charge {totalCharge} within {totalTime} intervals.")
         if asap: 
             self.__greedy_fit(totalCharge, totalTime, moer)
-        elif not self.emissionOverhead and ra<TOL and not constraints and emission_multiplier_fn is None and totalIntervals <= 0:
+        elif not self.emissionOverhead and ra<TOL and not constraints and totalIntervals <= 0:
+            if np.std([emission_multiplier_fn(sc,sc+1) for sc in list(range(totalCharge))]) > 0.0:
+                print("Warning: Using suboptimal simple algorithm, since emission function is non-constant")
             self.__simple_fit(totalCharge, totalTime, moer)
-        elif moer.is_diagonal(): 
-            if emission_multiplier_fn is None: 
-                emission_multiplier_fn =  lambda sc,ec: 1.
+        elif moer.is_diagonal():
             if totalIntervals <= 0: 
                 self.__diagonal_fit(totalCharge, totalTime, moer, OptCharger.__sanitize_emission_multiplier(emission_multiplier_fn, totalCharge), ra, constraints)
             else: 
@@ -275,19 +290,46 @@ class OptCharger:
         else: 
             raise Exception("Not implemented!")
     
+    def get_energy_usage_over_time(self) -> list:
+        """
+        Returns:
+            list: The energy due to charging at each interval in MWh
+        """
+        return self.__optimalChargingEnergyOverTime
+    
+    def get_charging_emissions_over_time(self) -> list:
+        """
+        Returns:
+            list: The emissions due to charging at each interval in lbs. 
+        """
+        return self.__optimalChargingEmissionsOverTime
+    
     def get_charging_emission(self) -> float: 
+        """
+        Returns:
+            float: The summed emissions due to charging in lbs.
+                  This excludes penalty terms due to risk aversion
+        """
         return self.__optimalChargingEmission
     
     def get_total_emission(self) -> float: 
+        """
+        Returns:
+            float: The summed emissions due to charging and penalty terms in lbs.
+        """
         return self.__optimalTotalEmission
     
     def get_schedule(self) -> list: 
+        """
+        Returns:
+            list: The charging schedule as a list, in minutes to charge for each interval.
+        """
         return self.__optimalChargingSchedule
 
     def summary(self): 
         print("-- Model Summary --")
-        print("Expected charging emissions %.2f" % self.__optimalChargingEmission)
-        print("Expected total emissions %.2f" % self.__optimalTotalEmission)
+        print("Expected charging emissions: %.2f lbs" % self.__optimalChargingEmission)
+        print("Expected total emissions: %.2f lbs" % self.__optimalTotalEmission)
         print("Optimal charging schedule:", self.__optimalChargingSchedule)
         print('='*15)
 

@@ -9,7 +9,7 @@ import random
 import pytz
 from tqdm import tqdm
 from datetime import datetime, timedelta, date
-from watttime import WattTimeHistorical, WattTimeForecast
+from watttime import WattTimeHistorical, WattTimeForecast, WattTimeOptimizer
 import math
 
 from evaluation.config import TZ_DICTIONARY
@@ -358,3 +358,27 @@ def get_schedule_and_cost(
         asap=asap,
     )
     return charger
+
+# Set up OptCharger based on moer fcsts and get info on projected schedule
+def get_schedule_and_cost_v2(
+    usage_power_kw, time_needed, moer_data, optimization_method="sophisticated"
+):
+    wt_opt = WattTimeOptimizer(username,password)
+    usage_window_start = pd.to_datetime(moer_data["point_time"].iloc[0])
+    usage_window_end = pd.to_datetime(moer_data["point_time"].iloc[-1])
+    # print(usage_window_start, usage_window_end, usage_power_kw, time_needed)
+
+    dp_usage_plan = wt_opt.get_optimal_usage_plan(
+                    region=None,
+                    usage_window_start = usage_window_start,
+                    usage_window_end = usage_window_end,
+                    usage_time_required_minutes = time_needed,
+                    usage_power_kw = usage_power_kw,
+                    optimization_method = optimization_method,
+                    moer_data_override = moer_data
+                    )
+
+    if dp_usage_plan["emissions_co2e_lb"].sum() == 0.0:
+        print("Warning using 0.0 lb of CO2e:", usage_power_kw, usage_power_kw, time_needed, dp_usage_plan["usage"].sum())
+
+    return dp_usage_plan

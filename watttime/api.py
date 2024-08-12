@@ -566,13 +566,15 @@ class WattTimeOptimizer(WattTimeForecast):
         """
         OPT_INTERVAL = 5
         MAX_PREDICTION_HOURS = 72
-        datetime_now = datetime.now(UTC)
-        assert usage_window_end > datetime_now, "Error, Window end is before current datetime"
         def is_tz_aware(dt):
             return dt.tzinfo is not None and dt.tzinfo.utcoffset(dt) is not None
         assert is_tz_aware(usage_window_start), "Start time is not tz-aware"
         assert is_tz_aware(usage_window_end), "End time is not tz-aware"
-        assert usage_window_end - datetime_now < timedelta(hours = MAX_PREDICTION_HOURS), "End time is too far in the future"
+        # Perform these checks if we are using live data
+        if moer_data_override is None:
+            datetime_now = datetime.now(UTC)
+            assert usage_window_end > datetime_now, "Error, Window end is before current datetime"
+            assert usage_window_end - datetime_now < timedelta(hours = MAX_PREDICTION_HOURS), "End time is too far in the future"
         assert optimization_method in ("baseline", "simple", "sophisticated"), "Unsupported optimization method:" + optimization_method
 
         if moer_data_override is None:
@@ -632,11 +634,11 @@ class WattTimeOptimizer(WattTimeForecast):
                     asap = asap,
                     constraints = constraints,
                     )
-        model.summary()
+        # model.summary()
         optimizer_result = model.get_schedule()
         result_df["usage"] = [x * float(OPT_INTERVAL) for x in optimizer_result]
         result_df["emissions_co2e_lb"] = model.get_charging_emissions_over_time()
-        result_df["energy_usage_kwh"] = model.get_energy_usage_over_time()
+        result_df["energy_usage_mwh"] = model.get_energy_usage_over_time()
 
         return result_df
 

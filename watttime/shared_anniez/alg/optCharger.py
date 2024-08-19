@@ -13,7 +13,7 @@ class OptCharger:
         startEmissionOverhead:float = 0.,
         keepEmissionOverhead:float = 0.,
         stopEmissionOverhead:float = 0.,
-    ): 
+    ):
         if fixedChargeRate is not None: 
             self.minChargeRate = fixedChargeRate
             self.maxChargeRate = fixedChargeRate
@@ -276,8 +276,9 @@ class OptCharger:
         if asap: 
             self.__greedy_fit(totalCharge, totalTime, moer)
         elif not self.emissionOverhead and ra<TOL and not constraints and totalIntervals <= 0:
-            if np.std([emission_multiplier_fn(sc,sc+1) for sc in list(range(totalCharge))]) > 0.0:
-                print("Warning: Using suboptimal simple algorithm, since emission function is non-constant")
+            EMISSION_FN_TOL = 1e-9 # in kw
+            if np.std([emission_multiplier_fn(sc,sc+1) for sc in list(range(totalCharge))]) > EMISSION_FN_TOL:
+                print("Warning: Emissions function is non-constant. Using the simple algorithm is suboptimal.")
             self.__simple_fit(totalCharge, totalTime, moer)
         elif moer.is_diagonal():
             if totalIntervals <= 0: 

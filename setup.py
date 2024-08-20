@@ -8,5 +8,5 @@ setup(
     version="v1.2.1",
     packages=["watttime"],
     python_requires=">=3.8",
-    install_requires=["requests", "pandas>1.0.0", "python-dateutil"],
+    install_requires=["requests", "pandas>1.0.0", "python-dateutil","python-dotenv"],
 )

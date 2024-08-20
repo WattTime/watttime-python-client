@@ -128,7 +128,7 @@ class WattTimeBase:
             "org": organization,
         }
 
-        rsp = requests.post(url, json=params, timeout=20)
+        rsp = requests.post(url, json=params, verify=self.certificate_location, timeout=20)
         rsp.raise_for_status()
         print(
             f"Successfully registered {self.username}, please check {email} for a verification email"
@@ -165,7 +165,7 @@ class WattTimeBase:
             "longitude": str(longitude),
             "signal_type": signal_type,
         }
-        rsp = requests.get(url, headers=headers, params=params)
+        rsp = requests.get(url, headers=headers, params=params, verify=self.certificate_location)
         rsp.raise_for_status()
         return rsp.json()
 
@@ -214,7 +214,7 @@ class WattTimeHistorical(WattTimeBase):
 
         for c in chunks:
             params["start"], params["end"] = c
-            rsp = requests.get(url, headers=headers, params=params)
+            rsp = requests.get(url, headers=headers, params=params, verify=self.certificate_location)
             try:
                 rsp.raise_for_status()
                 j = rsp.json()
@@ -322,7 +322,7 @@ class WattTimeMyAccess(WattTimeBase):
             self._login()
         url = "{}/v3/my-access".format(self.url_base)
         headers = {"Authorization": "Bearer " + self.token}
-        rsp = requests.get(url, headers=headers)
+        rsp = requests.get(url, headers=headers, verify=self.certificate_location)
         rsp.raise_for_status()
         return rsp.json()
 
@@ -406,7 +406,7 @@ class WattTimeForecast(WattTimeBase):
 
         url = "{}/v3/forecast".format(self.url_base)
         headers = {"Authorization": "Bearer " + self.token}
-        rsp = requests.get(url, headers=headers, params=params)
+        rsp = requests.get(url, headers=headers, params=params, verify=self.certificate_location)
         rsp.raise_for_status()
         return rsp.json()
 
@@ -485,7 +485,7 @@ class WattTimeForecast(WattTimeBase):
 
         for c in chunks:
             params["start"], params["end"] = c
-            rsp = requests.get(url, headers=headers, params=params)
+            rsp = requests.get(url, headers=headers, params=params, verify=self.certificate_location)
             try:
                 rsp.raise_for_status()
                 j = rsp.json()
@@ -562,6 +562,6 @@ class WattTimeMaps(WattTimeBase):
         url = "{}/v3/maps".format(self.url_base)
         headers = {"Authorization": "Bearer " + self.token}
         params = {"signal_type": signal_type}
-        rsp = requests.get(url, headers=headers, params=params)
+        rsp = requests.get(url, headers=headers, params=params, verify=self.certificate_location)
         rsp.raise_for_status()
         return rsp.json()

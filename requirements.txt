@@ -1,5 +1,4 @@
 requests
 pandas>1.0.0
 python-dateutil
-python-dotenv
 watttime

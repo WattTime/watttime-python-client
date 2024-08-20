@@ -4,7 +4,6 @@ from datetime import datetime, timedelta
 from dateutil.parser import parse
 from pytz import timezone, UTC
 import os
-from dotenv import load_dotenv
 
 from watttime import (
     WattTimeBase,
@@ -51,6 +50,7 @@ def mocked_register(*args, **kwargs):
 class TestWattTimeBase(unittest.TestCase):
     def setUp(self):
         self.base = WattTimeBase()
+        print(self.base.username)
 
     def test_login_with_real_api(self):
         self.base._login()
@@ -152,8 +152,8 @@ class TestWattTimeHistorical(unittest.TestCase):
         self.assertIsInstance(jsons[0], dict)
 
     def test_get_historical_jsons_signal_types(self):
-        start = "2023-01-01 00:00Z"
-        end = "2023-01-07 00:00Z"
+        start = "2024-01-01 00:00Z"
+        end = "2024-01-07 00:00Z"
         signal_types = ["co2_moer", "co2_aoer", "health_damage"]
         for signal_type in signal_types:
             if signal_type == "co2_aoer":

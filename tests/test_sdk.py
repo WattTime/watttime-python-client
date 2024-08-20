@@ -4,6 +4,8 @@ from datetime import datetime, timedelta
 from dateutil.parser import parse
 from pytz import timezone, UTC
 import os
+from dotenv import load_dotenv
+
 from watttime import (
     WattTimeBase,
     WattTimeHistorical,

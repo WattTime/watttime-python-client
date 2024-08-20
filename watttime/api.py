@@ -24,12 +24,13 @@ class WattTimeBase:
         """
         self.username = username or os.getenv("WATTTIME_USER")
         self.password = password or os.getenv("WATTTIME_PASSWORD")
+        self.certificate_location = os.getenv("PEM_CERTIFICATE")
         self.token = None
         self.token_valid_until = None
 
     def _login(self):
         """
-        Login to the WattTime API, which provides a JWT valid for 30 minutes
+       Login to the WattTime API, which provides a JWT valid for 30 minutes
 
         Raises:
             Exception: If the login fails and the credentials are incorrect.
@@ -39,6 +40,7 @@ class WattTimeBase:
         rsp = requests.get(
             url,
             auth=requests.auth.HTTPBasicAuth(self.username, self.password),
+            verify=self.certificate_location,
             timeout=20,
         )
         rsp.raise_for_status()

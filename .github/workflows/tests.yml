@@ -17,7 +17,8 @@ jobs:
     env:
       WATTTIME_USER: ${{ secrets.WATTTIME_USER }}
       WATTTIME_PASSWORD: ${{ secrets.WATTTIME_PASSWORD }}
-
+      WATTTIME_EMAIL: ${{ secrets.WATTTIME_EMAIL }}
+      
     runs-on: ubuntu-latest
 
     steps:

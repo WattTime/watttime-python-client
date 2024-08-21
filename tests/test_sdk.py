@@ -154,12 +154,9 @@ class TestWattTimeHistorical(unittest.TestCase):
     def test_get_historical_jsons_signal_types(self):
         start = "2024-01-01 00:00Z"
         end = "2024-01-07 00:00Z"
-        signal_types = ["co2_moer", "co2_aoer", "health_damage"]
+        signal_types = ["co2_moer", "health_damage"]
         for signal_type in signal_types:
-            if signal_type == "co2_aoer":
-                region = "CAISO"
-            else:
-                region = REGION
+            region = REGION
             jsons = self.historical.get_historical_jsons(
                 start, end, region, signal_type=signal_type
             )

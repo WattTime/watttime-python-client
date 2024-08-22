@@ -144,3 +144,12 @@ wt.region_from_loc(
 # get shape files for all regions of a signal type
 wt.get_maps_json('co2_moer')
 ```
+
+### Azure Data Center Coordinates
+WattTime requires latitude and longitude. Azure provides easy access to this information using Resource Management SDK (in Python). We implemented an example of use that you could include in your cose.
+
+# Example usage
+```python
+subscription_id = 'YOUR_SUBSCRIPTION_ID'  # Replace with your Azure subscription ID
+list_locations(subscription_id)
+```

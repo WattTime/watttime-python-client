@@ -50,7 +50,7 @@ def mocked_register(*args, **kwargs):
 class TestWattTimeBase(unittest.TestCase):
     def setUp(self):
         self.base = WattTimeBase()
-        print(self.base.username)
+        print(f"MYWATT: {self.base.username}")
 
     def test_login_with_real_api(self):
         self.base._login()

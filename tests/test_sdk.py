@@ -53,8 +53,8 @@ class TestWattTimeBase(unittest.TestCase):
         print(self.base.username)
 
     def test_login_with_real_api(self):
+        print(self.base.username)        
         self.base._login()
-        print(self.base.username)
         assert self.base.token is not None
         assert self.base.token_valid_until > datetime.now()
 

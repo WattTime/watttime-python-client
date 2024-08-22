@@ -23,10 +23,6 @@ def list_locations(subscription_id):
     # Create an empty dataframe
     location_list = []
 
-    # Add locations to the dataframe
-    location_list = []
-
-    for location in locations:
-        location_list.append(location)
+    location_list = [location for location in locations]
         
     return location_list

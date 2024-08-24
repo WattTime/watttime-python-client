@@ -1,6 +1,6 @@
-requests 2.32.3
+requests == 2.32.3
 pandas>1.0.0
-python-dateutil 2.9.0
-azure-identity 1.17.1
-azure-mgmt-resource 23.1.1
-#watttime 1.2.1
+python-dateutil == 2.9.0
+azure-identity == 1.17.1
+azure-mgmt-resource == 23.1.1
+#watttime == 1.2.1

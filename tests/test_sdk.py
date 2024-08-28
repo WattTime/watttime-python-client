@@ -39,7 +39,7 @@ def mocked_register(*args, **kwargs):
         & (kwargs["json"]["email"] == os.getenv("WATTTIME_EMAIL"))
         & (kwargs["json"]["username"] == os.getenv("WATTTIME_USER"))
         & (kwargs["json"]["password"] == os.getenv("WATTTIME_PASSWORD"))
-    ):  
+    ):
         return MockResponse(
             {"ok": "User created", "user": kwargs["json"]["username"]}, 200
         )

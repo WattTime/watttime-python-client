@@ -525,7 +525,7 @@ def get_schedule_and_cost(
 
 
 # Set up OptCharger based on moer fcsts and get info on projected schedule
-def get_schedule_and_cost_v2(
+def get_schedule_and_cost_api(
     usage_power_kw,
     time_needed,
     total_time_horizon,

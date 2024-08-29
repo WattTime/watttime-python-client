@@ -3,13 +3,15 @@ import numpy as np
 from .moer import Moer
 
 TOL = 1e-4
+EMISSION_FN_TOL = 1e-9 # in kw
+
 class OptCharger: 
     def __init__(
         self, 
         fixedChargeRate:int = None, 
         minChargeRate:int = None, 
         maxChargeRate:int = None,
-        emissionOverhead:bool = True, 
+        emissionOverhead:bool = False, 
         startEmissionOverhead:float = 0.,
         keepEmissionOverhead:float = 0.,
         stopEmissionOverhead:float = 0.,
@@ -62,6 +64,7 @@ class OptCharger:
         return lambda sc,ec: emission_multiplier_fn(sc,min(ec,totalCharge)) if (sc < totalCharge) else 1.0
 
     def __greedy_fit(self, totalCharge:int, totalTime:int, moer:Moer): 
+        print("== Baseline fit! ==")
         chargeToDo = totalCharge
         cs, t = [], 0
         while (chargeToDo > 0) and (t < totalTime): 
@@ -83,6 +86,7 @@ class OptCharger:
         - sort intervals by MOER
         - keep charging until we fill up 
         '''
+        print("== Simple fit! ==")
         sorted_times = [x for _, x in sorted(zip(moer.get_emission_interval(0,totalTime),range(totalTime)))]
         chargeToDo = totalCharge
         cs, schedule, t = [0] * totalTime, [0] * totalTime, 0
@@ -102,6 +106,7 @@ class OptCharger:
         '''
         This is the DP algorithm 
         '''
+        print("== Sophisticated fit! ==")
         # This is a matrix with size = number of charge states x number of actions {not charging = 0, charging = 1}
         maxUtil = np.full((totalCharge+1,2), np.nan)
         maxUtil[0,0] = 0.
@@ -184,7 +189,7 @@ class OptCharger:
         '''
         This is the DP algorithm with further constraint on # intervals  
         '''
-        print("== Contiguous fit! ==")
+        print("== Sophisticated contiguous fit! ==")
         # This is a matrix with size = number of charge states x number of actions {not charging = 0, charging = 1}
         maxUtil = np.full((totalCharge+1,2,totalIntervals+1), np.nan)
         maxUtil[0,0,0] = 0.
@@ -229,7 +234,6 @@ class OptCharger:
                                 pathHistory[t,c,1,k,:] = [c-ct,1,k]
                             initVal = False
             maxUtil = newMaxUtil
-            # print(maxUtil)
 
         solution_found = False
         for k in range(0,totalIntervals+1): 
@@ -259,34 +263,32 @@ class OptCharger:
             t_curr -= 1
         optimalPath = np.array(schedule)[::-1,:]
         self.__optimalChargingSchedule = list(np.diff(optimalPath[:,0]))
-        print(optimalPath[:,0])
         self.__optimalOnOffSchedule = optimalPath[:,1]
         self.__collect_results(moer)
     
-    def fit(self, totalCharge:int, totalTime:int, moer:Moer, totalIntervals:int = 0, constraints:dict = {}, ra:float = 0., asap:bool = False, emission_multiplier_fn = None): 
+    def fit(self, totalCharge:int, totalTime:int, moer:Moer, totalIntervals:int = 0, constraints:dict = {}, ra:float = 0., emission_multiplier_fn = None, optimization_method:str = 'auto'): 
         assert len(moer) >= totalTime
         if emission_multiplier_fn is None:
             print("Warning: OptCharger did not get an emission_multiplier_fn. Assuming that device uses constant 1kW of power")
             emission_multiplier_fn = lambda sc,ec:1.0
         # Store emission_multiplier_fn for evaluation 
         self.emission_multiplier_fn = emission_multiplier_fn
-
+        constant_emission_multiplier = np.std([emission_multiplier_fn(sc,sc+1) for sc in list(range(totalCharge))]) < EMISSION_FN_TOL
         if (totalCharge > totalTime * self.maxChargeRate): 
             raise Exception(f"Impossible to charge {totalCharge} within {totalTime} intervals.")
-        if asap: 
+        if optimization_method == 'baseline': 
             self.__greedy_fit(totalCharge, totalTime, moer)
-        elif not self.emissionOverhead and ra<TOL and not constraints and totalIntervals <= 0:
-            EMISSION_FN_TOL = 1e-9 # in kw
-            if np.std([emission_multiplier_fn(sc,sc+1) for sc in list(range(totalCharge))]) > EMISSION_FN_TOL:
+        elif (optimization_method == 'auto') and (not self.emissionOverhead and ra<TOL and not constraints and totalIntervals <= 0 and constant_emission_multiplier) or (optimization_method == 'simple'):
+            if not constant_emission_multiplier:
                 print("Warning: Emissions function is non-constant. Using the simple algorithm is suboptimal.")
             self.__simple_fit(totalCharge, totalTime, moer)
-        elif moer.is_diagonal():
+        elif (optimization_method == 'auto') and moer.is_diagonal() or (optimization_method == 'sophisticated'):
             if totalIntervals <= 0: 
                 self.__diagonal_fit(totalCharge, totalTime, moer, OptCharger.__sanitize_emission_multiplier(emission_multiplier_fn, totalCharge), ra, constraints)
             else: 
                 self.__contiguous_fit(totalCharge, totalTime, moer, OptCharger.__sanitize_emission_multiplier(emission_multiplier_fn, totalCharge), totalIntervals, ra, constraints)
         else: 
-            raise Exception("Not implemented!")
+            raise Exception("Non diagonal risk not implemented!")
     
     def get_energy_usage_over_time(self) -> list:
         """

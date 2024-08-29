@@ -62,6 +62,7 @@ class OptCharger:
         self.__collect_results(moer)
 
     def __simple_fit(self, totalCharge:int, totalTime:int, moer:Moer):  
+        print("Simple fit!")
         '''
         Assuming  
         - no extra costs 

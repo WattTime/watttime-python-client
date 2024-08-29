@@ -15,6 +15,7 @@ import math
 from evaluation.config import TZ_DICTIONARY
 
 import watttime.shared_anniez.alg.optCharger as optC
+import watttime.shared_anniez_v0.alg.optCharger as optC_v0
 import watttime.shared_anniez.alg.moer as Moer
 
 username = os.getenv("WATTTIME_USER")
@@ -348,7 +349,7 @@ def get_historical_actual_data(plug_in_time, horizon, region):
 def get_schedule_and_cost(
     charge_rate_per_window, charge_needed, total_time_horizon, moer_data, asap=False
 ):
-    charger = optC.OptCharger(charge_rate_per_window)  # charge rate needs to be an int
+    charger = optC_v0.OptCharger(charge_rate_per_window)  # charge rate needs to be an int
     moer = Moer.Moer(moer_data["value"])
 
     charger.fit(
@@ -361,22 +362,22 @@ def get_schedule_and_cost(
 
 # Set up OptCharger based on moer fcsts and get info on projected schedule
 def get_schedule_and_cost_v2(
-    usage_power_kw, time_needed, moer_data, optimization_method="sophisticated"
+    usage_power_kw, time_needed, total_time_horizon, moer_data, optimization_method="sophisticated"
 ):
     wt_opt = WattTimeOptimizer(username,password)
     usage_window_start = pd.to_datetime(moer_data["point_time"].iloc[0])
-    usage_window_end = pd.to_datetime(moer_data["point_time"].iloc[-1])
+    usage_window_end = pd.to_datetime(moer_data["point_time"].iloc[total_time_horizon-1])
     # print(usage_window_start, usage_window_end, usage_power_kw, time_needed)
 
     dp_usage_plan = wt_opt.get_optimal_usage_plan(
-                    region=None,
-                    usage_window_start = usage_window_start,
-                    usage_window_end = usage_window_end,
-                    usage_time_required_minutes = time_needed,
-                    usage_power_kw = usage_power_kw,
-                    optimization_method = optimization_method,
-                    moer_data_override = moer_data
-                    )
+        region=None,
+        usage_window_start = usage_window_start,
+        usage_window_end = usage_window_end,
+        usage_time_required_minutes = time_needed,
+        usage_power_kw = usage_power_kw,
+        optimization_method = optimization_method,
+        moer_data_override = moer_data
+    )
 
     if dp_usage_plan["emissions_co2e_lb"].sum() == 0.0:
         print("Warning using 0.0 lb of CO2e:", usage_power_kw, usage_power_kw, time_needed, dp_usage_plan["usage"].sum())

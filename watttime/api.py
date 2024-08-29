@@ -547,7 +547,7 @@ class WattTimeOptimizer(WattTimeForecast):
         usage_power_kw: Union[int, float, pd.DataFrame],
         usage_time_uncertainty_minutes: Optional[float] = 0,
         optimization_method: Optional[
-            Literal["baseline", "simple", "sophisticated"]
+            Literal["baseline", "simple", "sophisticated", "auto"]
         ] = "baseline",
         moer_data_override: Optional[pd.DataFrame] = None,
     ) -> pd.DataFrame:
@@ -589,18 +589,14 @@ class WattTimeOptimizer(WattTimeForecast):
         result_df = relevant_forecast_df[["pred_moer"]]
         moer_values = relevant_forecast_df["pred_moer"].values
 
-        asap = optimization_method == "baseline"
-        emissionOverhead = optimization_method == "sophisticated"
-
         m = moer.Moer(
-        mu = moer_values, 
-        isDiagonal = True,
-        sig2 = 0.0,
+            mu = moer_values, 
+            isDiagonal = True,
+            sig2 = 0.0,
         )
 
         model = optCharger.OptCharger(
             fixedChargeRate = 1,
-            emissionOverhead = emissionOverhead,
         )
 
         total_charge_units = usage_time_required_minutes // OPT_INTERVAL
@@ -627,14 +623,15 @@ class WattTimeOptimizer(WattTimeForecast):
                 value = usage_power_kw[sc:max(sc, ec-1e-12)]["power_kw"].mean() * 0.001 * OPT_INTERVAL / 60.0
                 return value
 
-        model.fit(totalCharge = total_charge_units,
-                    totalTime = len(moer_values),
-                    moer = m,
-                    emission_multiplier_fn = emission_multiplier_fn,
-                    asap = asap,
-                    constraints = constraints,
-                    )
-        # model.summary()
+        model.fit(
+            totalCharge = total_charge_units,
+            totalTime = len(moer_values),
+            moer = m,
+            emission_multiplier_fn = emission_multiplier_fn,
+            constraints = constraints,
+            optimization_method = optimization_method
+        )
+
         optimizer_result = model.get_schedule()
         result_df["usage"] = [x * float(OPT_INTERVAL) for x in optimizer_result]
         result_df["emissions_co2e_lb"] = model.get_charging_emissions_over_time()

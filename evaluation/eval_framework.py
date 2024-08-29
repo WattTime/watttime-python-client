@@ -28,12 +28,36 @@ distinct_date_list = [
 ]
 
 
-def intervalize_power_rate(kW_value: float, convert_to_MW=True):
+def intervalize_power_rate(kW_value: float, convert_to_MW=True) -> float:
+    """
+    Convert a power rate from kilowatts to a 5-minute interval rate, optionally in megawatts.
+
+    This function takes a power rate in kilowatts and converts it to a rate for a 5-minute interval.
+    It can also optionally convert the result to megawatts.
+
+    Parameters:
+    -----------
+    kW_value : float
+        The power rate in kilowatts.
+    convert_to_MW : bool, optional
+        If True, converts the result to megawatts. Default is True.
+
+    Returns:
+    --------
+    float
+        The power rate for a 5-minute interval, in megawatts if convert_to_MW is True,
+        otherwise in kilowatts.
+
+    Example:
+    --------
+    >>> intervalize_power_rate(60, convert_to_MW=True)
+    0.00025  # (60 kW / 12) / 1000 = 0.00025 MW per 5-minute interval
+    >>> intervalize_power_rate(60, convert_to_MW=False)
+    5.0  # 60 kW / 12 = 5 kW per 5-minute interval
+    """
     five_min_rate = kW_value / 12
     if convert_to_MW:
         five_min_rate = five_min_rate / 1000
-    else:
-        five_min_rate
     return five_min_rate
 
 
@@ -42,24 +66,27 @@ def convert_to_utc(local_time_str, local_tz_str):
     Convert a time expressed in any local time to UTC.
 
     Parameters:
-    local_time_str (str): The local time as a pd.Timestamp.
-    local_tz_str (str): The timezone of the local time as a string, e.g., 'America/New_York'.
+    -----------
+    local_time_str : str
+        The local time as a pd.Timestamp.
+    local_tz_str : str
+        The timezone of the local time as a string, e.g., 'America/New_York'.
 
     Returns:
-    str: The time in UTC as a datetime object in the format 'YYYY-MM-DD HH:MM:SS'.
+    --------
+    str
+        The time in UTC as a datetime object in the format 'YYYY-MM-DD HH:MM:SS'.
+
+    Example:
+    --------
+    >>> convert_to_utc(pd.Timestamp('2023-08-29 14:30:00'), 'America/New_York')
+    '2023-08-29 18:30:00'
     """
-    # Parse the local time string to a datetime object
     local_time = datetime.strptime(
         local_time_str.strftime("%Y-%m-%d %H:%M:%S"), "%Y-%m-%d %H:%M:%S"
     )
-
-    # Set the local timezone
     local_tz = pytz.timezone(local_tz_str)
-
-    # Localize the local time to the local timezone
     local_time = local_tz.localize(local_time)
-
-    # Return the UTC time as a datetime
     return local_time.astimezone(pytz.utc)
 
 
@@ -68,49 +95,57 @@ def generate_random_plug_time(date):
     Generate a random datetime on the given date, uniformly distributed between 5 PM and 9 PM.
 
     Parameters:
-    date (datetime.date): The date for which to generate the random time.
+    -----------
+    date : datetime.date
+        The date for which to generate the random time.
 
     Returns:
-    datetime: A datetime object representing the generated random time on the given date.
+    --------
+    datetime
+        A datetime object representing the generated random time on the given date.
+
+    Example:
+    --------
+    >>> generate_random_plug_time(datetime.date(2023, 8, 29))
+    datetime.datetime(2023, 8, 29, 19, 45, 30)  # Example output
     """
-    # Define the start and end times for the interval (5 PM to 9 PM)
     start_time = datetime.combine(
         date, datetime.strptime("17:00:00", "%H:%M:%S").time()
     )
     end_time = datetime.combine(date, datetime.strptime("21:00:00", "%H:%M:%S").time())
-
-    # Calculate the total number of seconds between start and end times
     total_seconds = int((end_time - start_time).total_seconds())
-
-    # Generate a random number of seconds within the interval
     random_seconds = random.randint(0, total_seconds)
-
-    # Add the random seconds to the start time to get the random datetime
     random_datetime = start_time + timedelta(seconds=random_seconds)
-
     return random_datetime
 
 
 def generate_random_unplug_time(random_plug_time, mean, stddev):
     """
-    Adds a number of sconds drawn from a normal distribution to the given datetime.
+    Adds a number of seconds drawn from a normal distribution to the given datetime.
 
     Parameters:
-    -datetime_obj
-    -mean
-    -stddev
+    -----------
+    random_plug_time : datetime
+        The initial plug-in time.
+    mean : float
+        The mean of the normal distribution for generating random seconds.
+    stddev : float
+        The standard deviation of the normal distribution for generating random seconds.
 
-    REturns
-    -pd.Timestamp: the new datetime after adding the random seconds
+    Returns:
+    --------
+    pd.Timestamp
+        The new datetime after adding the random seconds.
+
+    Example:
+    --------
+    >>> plug_time = datetime(2023, 8, 29, 19, 0, 0)
+    >>> generate_random_unplug_time(plug_time, 3600, 900)
+    Timestamp('2023-08-29 20:01:23.456789')  # Example output
     """
-    random_seconds = abs(
-        np.random.normal(loc=mean, scale=stddev)
-    )  # ensure the delta is positive
-
-    # convert to timedelta
+    random_seconds = abs(np.random.normal(loc=mean, scale=stddev))
     random_timedelta = timedelta(seconds=random_seconds)
     new_datetime = random_plug_time + random_timedelta
-
     if not isinstance(new_datetime, pd.Timestamp):
         new_datetime = pd.Timestamp(new_datetime)
     return new_datetime
@@ -122,6 +157,28 @@ def generate_synthetic_user_data(
     user_charge_tolerance: float = 0.8,
     power_output_efficiency: float = 0.75,
 ) -> pd.DataFrame:
+    """
+    Generate synthetic user data for electric vehicle charging sessions.
+
+    This function creates a DataFrame with synthetic data for EV charging sessions,
+    including plug-in times, unplug times, initial charge, and other relevant metrics.
+
+    Parameters:
+    -----------
+    distinct_date_list : List[Any]
+        A list of distinct dates for which to generate charging sessions.
+    max_percent_capacity : float, optional
+        The maximum percentage of battery capacity to charge to (default is 0.95).
+    user_charge_tolerance : float, optional
+        The minimum acceptable charge percentage for users (default is 0.8).
+    power_output_efficiency : float, optional
+        The efficiency of power output (default is 0.75).
+
+    Returns:
+    --------
+    pd.DataFrame
+        A DataFrame containing synthetic user data for EV charging sessions.
+    """
 
     power_output_efficiency = round(random.uniform(0.5, 0.9), 3)
     power_output_max_rate = random.choice([11, 7.4, 22]) * power_output_efficiency
@@ -207,6 +264,24 @@ def generate_synthetic_user_data(
 def execute_synth_data_process(
     distinct_date_list: List[Any], number_of_users: int = 1000
 ):
+    """
+    Execute the synthetic data generation process for multiple users.
+
+    This function generates synthetic charging data for a specified number of users
+    across the given distinct dates.
+
+    Parameters:
+    -----------
+    distinct_date_list : List[Any]
+        A list of distinct dates for which to generate charging sessions.
+    number_of_users : int, optional
+        The number of users to generate data for (default is 1000).
+
+    Returns:
+    --------
+    pd.DataFrame
+        A concatenated DataFrame containing synthetic data for all users.
+    """
     dfs = []
     for i in tqdm(range(number_of_users)):
         df_temp = generate_synthetic_user_data(distinct_date_list=distinct_date_list)
@@ -221,77 +296,102 @@ def add_one_day(date):
     Add one day to the given datetime object.
 
     Parameters:
-    date (datetime): The datetime object to which one day will be added.
+    -----------
+    date : datetime
+        The datetime object to which one day will be added.
 
     Returns:
-    datetime: A new datetime object with one day added.
+    --------
+    datetime
+        A new datetime object with one day added.
     """
     return date + timedelta(days=1)
 
-def get_date_from_week_and_day(year,week_number,day_number):
+
+def get_date_from_week_and_day(year, week_number, day_number):
     """
-    Return the date corresponding to the year, week number,
-    and day number provided. It assumes the first week of 
-    the year is the first week that fully starts that year; 
-    and the last week of the year can splill into next year 
-    (i.e. if monday is dec 31, then the week goes all the 
-    way to Sunday January 6th of the next year. 
+    Return the date corresponding to the year, week number, and day number provided.
 
-    The function also checks that all the dates returned 
-    are before today. I.e. it cannot return dates in 
-    the future. 
+    This function calculates the date based on the ISO week date system. It assumes
+    the first week of the year is the first week that fully starts that year, and
+    the last week of the year can spill into the next year.
 
-    Arguments:
-    year -- the year we want sampled
-    week_number -- The week number (1-52)
-    day_number -- The day number (1-7 where 1 is Monday)
+    Parameters:
+    -----------
+    year : int
+        The year for which to calculate the date.
+    week_number : int
+        The week number (1-52).
+    day_number : int
+        The day number (1-7 where 1 is Monday).
 
     Returns:
-    The corresponding date as a datetime.date object
+    --------
+    datetime.date
+        The corresponding date as a datetime.date object.
+
+    Notes:
+    ------
+    The function checks that all returned dates are before today and cannot
+    return dates in the future.
     """
     # Calculate the first day of the year
-    first_day_of_year = date(year,1,1)
+    first_day_of_year = date(year, 1, 1)
 
-    #Calculate the first Monday of the eyar (ISO calendar)
-    first_monday = first_day_of_year + timedelta(days=(7- first_day_of_year.isoweekday()) + 1)
+    # Calculate the first Monday of the eyar (ISO calendar)
+    first_monday = first_day_of_year + timedelta(
+        days=(7 - first_day_of_year.isoweekday()) + 1
+    )
 
-    #Calculate the target date
-    target_date = first_monday + timedelta(weeks=week_number -1, days=day_number -1)
+    # Calculate the target date
+    target_date = first_monday + timedelta(weeks=week_number - 1, days=day_number - 1)
 
-    #if the first day of the year is Monday, adjust the target date
-    if first_day_of_year.isoweekday() ==1:
+    # if the first day of the year is Monday, adjust the target date
+    if first_day_of_year.isoweekday() == 1:
         target_date -= timedelta(days=7)
 
     return target_date
 
+
 def generate_random_dates(year):
     """
-    Generate a list of containing two random dates from each week in the given year.
+    Generate a list containing two random dates from each week in the given year.
 
     Parameters:
-    year (int): The year for which to generate the random dates.
+    -----------
+    year : int
+        The year for which to generate the random dates.
 
     Returns:
-    list: A list of dates.
+    --------
+    list
+        A list of dates, with two random dates from each week of the specified year.
     """
     random_dates = []
-    for i in range(1,53):
-        days = random.sample(range(1,8),2)
+    for i in range(1, 53):
+        days = random.sample(range(1, 8), 2)
         days.sort()
-        random_dates.append(get_date_from_week_and_day(year,i,days[0]))
-        random_dates.append(get_date_from_week_and_day(year,i,days[1]))  
+        random_dates.append(get_date_from_week_and_day(year, i, days[0]))
+        random_dates.append(get_date_from_week_and_day(year, i, days[1]))
     random_dates = [date for date in random_dates if date < date.today()]
     random_dates = remove_duplicates(random_dates)
-    
+
     return random_dates
 
 
 def remove_duplicates(input_list):
     """
-    Removes duplicate items from a list while maintaining the order of the first occurrences.
+    Remove duplicate items from a list while maintaining the order of the first occurrences.
 
-    :param input_list: List of items that may contain duplicates.
-    :return: A new list with duplicates removed.
+    Parameters:
+    -----------
+    input_list : list
+        List of items that may contain duplicates.
+
+    Returns:
+    --------
+    list
+        A new list with duplicates removed, maintaining the order of first occurrences.
     """
     seen = set()
     output_list = []
@@ -304,20 +404,42 @@ def remove_duplicates(input_list):
 
 def get_timezone_from_dict(key, dictionary=TZ_DICTIONARY):
     """
-    Returns the value from the dictionary based on the given key.
+    Retrieve the timezone value from the dictionary based on the given key.
 
     Parameters:
-    - dictionary: The dictionary from which to retrieve the value.
-    - key: The key whose corresponding value is to be retrieved.
+    -----------
+    key : str
+        The key whose corresponding timezone value is to be retrieved.
+    dictionary : dict, optional
+        The dictionary from which to retrieve the value (default is TZ_DICTIONARY).
 
     Returns:
-    - The value corresponding to the given key if the key exists, otherwise None.
+    --------
+    str or None
+        The timezone value corresponding to the given key if it exists, otherwise None.
     """
     return dictionary.get(key)
 
 
 # Get per-row historical fcsts at 'plug in time'
 def get_historical_fcst_data(plug_in_time, horizon, region):
+    """
+    Retrieve historical forecast data for a specific plug-in time, horizon, and region.
+
+    Parameters:
+    -----------
+    plug_in_time : datetime
+        The time at which the EV was plugged in.
+    horizon : int
+        The number of hours to forecast ahead.
+    region : str
+        The region for which to retrieve the forecast data.
+
+    Returns:
+    --------
+    pd.DataFrame
+        A DataFrame containing historical forecast data.
+    """
 
     time_zone = get_timezone_from_dict(region)
     plug_in_time = pd.Timestamp(convert_to_utc(plug_in_time, time_zone))
@@ -331,7 +453,25 @@ def get_historical_fcst_data(plug_in_time, horizon, region):
         region=region,
     )
 
+
 def get_historical_actual_data(plug_in_time, horizon, region):
+    """
+    Retrieve historical actual data for a specific plug-in time, horizon, and region.
+
+    Parameters:
+    -----------
+    plug_in_time : datetime
+        The time at which the EV was plugged in.
+    horizon : int
+        The number of hours to retrieve data for.
+    region : str
+        The region for which to retrieve the actual data.
+
+    Returns:
+    --------
+    pd.DataFrame
+        A DataFrame containing historical actual data.
+    """
 
     time_zone = get_timezone_from_dict(region)
     plug_in_time = pd.Timestamp(convert_to_utc(plug_in_time, time_zone))
@@ -349,7 +489,30 @@ def get_historical_actual_data(plug_in_time, horizon, region):
 def get_schedule_and_cost(
     charge_rate_per_window, charge_needed, total_time_horizon, moer_data, asap=False
 ):
-    charger = optC_v0.OptCharger(charge_rate_per_window)  # charge rate needs to be an int
+    """
+    Generate an optimal charging schedule and associated cost based on MOER forecasts.
+
+    Parameters:
+    -----------
+    charge_rate_per_window : int
+        The charge rate per time window.
+    charge_needed : int
+        The total charge needed.
+    total_time_horizon : int
+        The total time horizon for scheduling.
+    moer_data : pd.DataFrame
+        MOER (Marginal Operating Emissions Rate) forecast data.
+    asap : bool, optional
+        Whether to charge as soon as possible (default is False).
+
+    Returns:
+    --------
+    OptCharger
+        An OptCharger object containing the optimal charging schedule and cost.
+    """
+    charger = optC_v0.OptCharger(
+        charge_rate_per_window
+    )  # charge rate needs to be an int
     moer = Moer.Moer(moer_data["value"])
 
     charger.fit(
@@ -360,26 +523,65 @@ def get_schedule_and_cost(
     )
     return charger
 
+
 # Set up OptCharger based on moer fcsts and get info on projected schedule
 def get_schedule_and_cost_v2(
-    usage_power_kw, time_needed, total_time_horizon, moer_data, optimization_method="sophisticated"
+    usage_power_kw,
+    time_needed,
+    total_time_horizon,
+    moer_data,
+    optimization_method="sophisticated",
 ):
-    wt_opt = WattTimeOptimizer(username,password)
+    """
+    Generate an optimal charging schedule and associated cost using WattTimeOptimizer.
+
+    Parameters:
+    -----------
+    usage_power_kw : float or pd.Series
+        The power usage in kilowatts.
+    time_needed : float
+        The time needed for charging in minutes.
+    total_time_horizon : int
+        The total time horizon for scheduling.
+    moer_data : pd.DataFrame
+        MOER (Marginal Operating Emissions Rate) forecast data.
+    optimization_method : str, optional
+        The optimization method to use (default is "sophisticated").
+
+    Returns:
+    --------
+    pd.DataFrame
+        A DataFrame containing the optimal usage plan.
+
+    Notes:
+    ------
+    This function uses the WattTimeOptimizer to generate an optimal charging schedule.
+    It prints a warning if the resulting emissions are 0.0 lb of CO2e.
+    """
+    wt_opt = WattTimeOptimizer(username, password)
     usage_window_start = pd.to_datetime(moer_data["point_time"].iloc[0])
-    usage_window_end = pd.to_datetime(moer_data["point_time"].iloc[total_time_horizon-1])
+    usage_window_end = pd.to_datetime(
+        moer_data["point_time"].iloc[total_time_horizon - 1]
+    )
     # print(usage_window_start, usage_window_end, usage_power_kw, time_needed)
 
     dp_usage_plan = wt_opt.get_optimal_usage_plan(
         region=None,
-        usage_window_start = usage_window_start,
-        usage_window_end = usage_window_end,
-        usage_time_required_minutes = time_needed,
-        usage_power_kw = usage_power_kw,
-        optimization_method = optimization_method,
-        moer_data_override = moer_data
+        usage_window_start=usage_window_start,
+        usage_window_end=usage_window_end,
+        usage_time_required_minutes=time_needed,
+        usage_power_kw=usage_power_kw,
+        optimization_method=optimization_method,
+        moer_data_override=moer_data,
     )
 
     if dp_usage_plan["emissions_co2e_lb"].sum() == 0.0:
-        print("Warning using 0.0 lb of CO2e:", usage_power_kw, usage_power_kw, time_needed, dp_usage_plan["usage"].sum())
+        print(
+            "Warning using 0.0 lb of CO2e:",
+            usage_power_kw,
+            usage_power_kw,
+            time_needed,
+            dp_usage_plan["usage"].sum(),
+        )
 
     return dp_usage_plan

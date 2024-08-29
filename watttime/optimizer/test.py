@@ -77,15 +77,6 @@ model.fit(
     constraints={0: (1, None)},
 )
 model.summary()
-model.fit(
-    totalCharge=3,
-    totalTime=8,
-    moer=m,
-    optimization_method="auto",
-    totalIntervals=4,
-    constraints={0: (1, None)},
-)
-model.summary()
 
 model.fit(
     totalCharge=3,

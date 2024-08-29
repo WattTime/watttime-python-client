@@ -74,6 +74,3 @@ dp_usage_plan_3 = wt_opt.get_optimal_usage_plan(
     optimization_method="auto",
 )
 print(dp_usage_plan_3["emissions_co2e_lb"].sum())
-
-# Add examples w/ constraints
-

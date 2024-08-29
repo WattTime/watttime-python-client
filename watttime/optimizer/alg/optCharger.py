@@ -225,7 +225,7 @@ class OptCharger:
 
         Calls __collect_results to process the results.
         """
-        # print("== Baseline fit! ==")
+        print("== Baseline fit! ==")
         chargeToDo = totalCharge
         cs, t = [], 0
         while (chargeToDo > 0) and (t < totalTime):
@@ -263,7 +263,7 @@ class OptCharger:
 
         Calls __collect_results to process the results.
         """
-        # print("== Simple fit! ==")
+        print("== Simple fit! ==")
         sorted_times = [
             x
             for _, x in sorted(
@@ -336,7 +336,7 @@ class OptCharger:
         """
         This is the DP algorithm 
         """
-        # print("== Sophisticated fit! ==")
+        print("== Sophisticated fit! ==")
         # This is a matrix with size = number of charge states x number of actions {not charging = 0, charging = 1}
         maxUtil = np.full((totalCharge + 1, 2), np.nan)
         maxUtil[0, 0] = 0.0
@@ -478,7 +478,7 @@ class OptCharger:
         This method uses a complex dynamic programming approach to optimize the
         charging schedule considering contiguous intervals and various constraints.
         """
-        # print("== Sophisticated contiguous fit! ==")
+        print("== Sophisticated contiguous fit! ==")
         # This is a matrix with size = number of charge states x number of actions {not charging = 0, charging = 1}
         maxUtil = np.full((totalCharge + 1, 2, totalIntervals + 1), np.nan)
         maxUtil[0, 0, 0] = 0.0

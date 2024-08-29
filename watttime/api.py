@@ -10,7 +10,7 @@ import pandas as pd
 import requests
 from dateutil.parser import parse
 from pytz import UTC, timezone
-from watttime.shared_anniez.alg import optCharger, moer
+from watttime.optimizer.alg import optCharger, moer
 
 class WattTimeBase:
     url_base = "https://api.watttime.org"

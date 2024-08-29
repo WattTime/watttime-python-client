@@ -12,8 +12,11 @@ model = optCharger.OptCharger(
 )
 model.fit(totalCharge=3, totalTime=8, moer=m, optimization_method="baseline")
 model.summary()
+
+# simple, assumes a 1 kW
 model.fit(totalCharge=3, totalTime=8, moer=m, optimization_method="simple")
 model.summary()
+
 # fixed charge rate
 model.fit(
     totalCharge=3,
@@ -23,6 +26,7 @@ model.fit(
     emission_multiplier_fn=lambda x, y: [2.0, 2.0, 2.0][x],
 )
 model.summary()
+
 # incorrect pairing of simple sorting algo + variable charge rate
 model.fit(
     totalCharge=3,
@@ -32,6 +36,7 @@ model.fit(
     emission_multiplier_fn=lambda x, y: [1.0, 2.0, 1.0][x],
 )
 model.summary()
+
 # correct pairing of dynamic sorting algo + variable charge rate
 model.fit(
     totalCharge=3,
@@ -72,6 +77,16 @@ model.fit(
     constraints={0: (1, None)},
 )
 model.summary()
+model.fit(
+    totalCharge=3,
+    totalTime=8,
+    moer=m,
+    optimization_method="auto",
+    totalIntervals=4,
+    constraints={0: (1, None)},
+)
+model.summary()
+
 model.fit(
     totalCharge=3,
     totalTime=8,

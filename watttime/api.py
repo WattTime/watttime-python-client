@@ -639,7 +639,7 @@ class WattTimeOptimizer(WattTimeForecast):
             datetime_now = datetime.now(UTC)
             assert usage_window_end > datetime_now, "Error, Window end is before current datetime"
             assert usage_window_end - datetime_now < timedelta(hours = MAX_PREDICTION_HOURS), "End time is too far in the future"
-        assert optimization_method in ("baseline", "simple", "sophisticated"), "Unsupported optimization method:" + optimization_method
+        assert optimization_method in ("baseline", "simple", "sophisticated","auto"), "Unsupported optimization method:" + optimization_method
 
         if moer_data_override is None:
             forecast_df = self.get_forecast_pandas(region=region, signal_type="co2_moer", horizon_hours = MAX_PREDICTION_HOURS)
@@ -684,45 +684,45 @@ class WattTimeOptimizer(WattTimeForecast):
             usage_power_kw = pd.merge_asof(usage_power_kw_new_index, usage_power_kw.set_index("time_step"),
                                             left_index=True, right_index=True,
                                             direction="backward", allow_exact_matches=True)
-def emission_multiplier_fn(sc: float, ec: float) -> float:
-        """
-        Calculate the emission multiplier for a given time range.
+            def emission_multiplier_fn(sc: float, ec: float) -> float:
+                """
+                Calculate the emission multiplier for a given time range.
 
-        This function computes the average power consumption in kilowatts (kW) for a specified
-        time range, converts it to megawatts (MW), and applies a time unit conversion factor.
+                This function computes the average power consumption in kilowatts (kW) for a specified
+                time range, converts it to megawatts (MW), and applies a time unit conversion factor.
 
-        Parameters:
-        -----------
-        sc : float
-            Start of the time range (in some time unit, presumably hours or minutes).
-        ec : float
-            End of the time range (in the same time unit as sc).
+                Parameters:
+                -----------
+                sc : float
+                    Start of the time range (in some time unit, presumably hours or minutes).
+                ec : float
+                    End of the time range (in the same time unit as sc).
 
-        Returns:
-        --------
-        float
-            The calculated emission multiplier value.
+                Returns:
+                --------
+                float
+                    The calculated emission multiplier value.
 
-        Notes:
-        ------
-        - The function uses a global or class variable 'usage_power_kw', which is expected to be
-        a pandas DataFrame or Series with a 'power_kw' column.
-        - 'OPT_INTERVAL' is assumed to be a constant defined elsewhere, representing an optimization
-        interval in minutes.
-        - The calculation includes a small offset (1e-12) to handle potential floating-point precision issues.
+                Notes:
+                ------
+                - The function uses a global or class variable 'usage_power_kw', which is expected to be
+                a pandas DataFrame or Series with a 'power_kw' column.
+                - 'OPT_INTERVAL' is assumed to be a constant defined elsewhere, representing an optimization
+                interval in minutes.
+                - The calculation includes a small offset (1e-12) to handle potential floating-point precision issues.
 
-        The calculation steps are:
-        1. Calculate mean power in kW for the given time range.
-        2. Convert kW to MW by multiplying by 0.001.
-        3. Apply time unit conversion using OPT_INTERVAL / 60.0.
+                The calculation steps are:
+                1. Calculate mean power in kW for the given time range.
+                2. Convert kW to MW by multiplying by 0.001.
+                3. Apply time unit conversion using OPT_INTERVAL / 60.0.
 
-        Example:
-        --------
-        >>> emission_multiplier_fn(0, 1)
-        0.00625  # Assuming mean power of 75 kW and OPT_INTERVAL of 5 minutes
-        """
-    value = usage_power_kw[sc:max(sc, ec-1e-12)]["power_kw"].mean() * 0.001 * OPT_INTERVAL / 60.0
-    return value
+                Example:
+                --------
+                >>> emission_multiplier_fn(0, 1)
+                0.00625  # Assuming mean power of 75 kW and OPT_INTERVAL of 5 minutes
+                """
+                value = usage_power_kw[sc:max(sc, ec-1e-12)]["power_kw"].mean() * 0.001 * OPT_INTERVAL / 60.0
+                return value
 
         model.fit(
             totalCharge = total_charge_units,

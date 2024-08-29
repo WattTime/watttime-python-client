@@ -14,9 +14,9 @@ import math
 
 from evaluation.config import TZ_DICTIONARY
 
-import watttime.shared_anniez.alg.optCharger as optC
-import watttime.shared_anniez_v0.alg.optCharger as optC_v0
-import watttime.shared_anniez.alg.moer as Moer
+import watttime.optimizer.alg.optCharger as optC
+import watttime.optimizer_v0.alg.optCharger as optC_v0
+import watttime.optimizer.alg.moer as Moer
 
 username = os.getenv("WATTTIME_USER")
 password = os.getenv("WATTTIME_PASSWORD")
@@ -525,7 +525,7 @@ def get_schedule_and_cost(
 
 
 # Set up OptCharger based on moer fcsts and get info on projected schedule
-def get_schedule_and_cost_v2(
+def get_schedule_and_cost_api(
     usage_power_kw,
     time_needed,
     total_time_horizon,

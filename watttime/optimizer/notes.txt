@@ -1,0 +1,34 @@
+2024/6/8
+Added a toy algorithm that
+- inputs: 
+    - mandatory: total carbon charge, expected moer forecast 
+    - optional: min/max/fixed charge per time period, full covariance matrix of moer forecast error, additional cost for starting, maintaining and stopping charging
+- outputs: optimal schedule, carbon cost, carbon "utility" (with uncertainty)
+
+Next steps: 
+- impose contiguity constraints: currently achievable by imposing large "fake" cost for starting and stopping charge, but algorithm can be further optimized if we only want one period
+- more flexibility in measuring carbon cost. add layer that includes carbon cost and startup/shutdown cost, but no uncertainty
+- add framework for testing this on small data example
+- need to implement algorithm for nondiagonal errors covariance 
+
+
+- testing
+
+
+__contiguous_fit() explaination:
+
+- Initialization:
+    - Creates arrays to store maximum utility values (maxUtil) and path history (pathHistory) for different charging states.
+    - Sets initial conditions for zero charge and zero time.
+- Main Loop:
+    - Iterates through each time step (t) in the total charging time.
+    - Applies any time-specific charging constraints.
+    - For each possible charge level and number of intervals:
+    - Calculates utilities for different charging scenarios (on/off states).
+    - Updates maxUtil and pathHistory with the best options.
+- Solution Extraction:
+    - Finds the optimal final state that maximizes utility.
+    - Backtracks through pathHistory to construct the optimal charging schedule.
+- Result Storage:
+    - Stores the optimal charging schedule and on/off states in class variables.
+    - Calls __collect_results to process the final results.

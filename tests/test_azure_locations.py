@@ -33,16 +33,7 @@ class TestAzureLocations(unittest.TestCase):
         mock_subscription.subscriptions.list_locations.return_value = mock_locations 
 
         # Call the function under test
-        locations = list_locations(self.subscription_id) 
-
-        # Assertions to verify the results
-        # self.assertEqual(len(locations), 91)
-        # self.assertEqual(locations[0].name, 'eastus')
-        # self.assertEqual(locations[0].display_name, 'East US')
-        # self.assertEqual(locations[0].metadata.latitude, '37.3719')
-        # self.assertEqual(locations[0].metadata.longitude, '-79.8164')
-        # self.assertEqual(locations[1].name, 'southcentralus')
-        # self.assertEqual(locations[1].display_name, 'South Central US')
+        locations = list_locations(self.subscription_id, credential=mock_credential, subscription_client=mock_subscription) 
 
         # Assertions to verify the structure and content format
         # This approach makes the test resilient to changes in the list of Azure locations, 

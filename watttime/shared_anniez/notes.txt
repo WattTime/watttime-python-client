@@ -12,4 +12,23 @@ Next steps:
 - need to implement algorithm for nondiagonal errors covariance 
 
 
-- testing 
+- testing
+
+
+__contiguous_fit() explaination:
+
+- Initialization:
+    - Creates arrays to store maximum utility values (maxUtil) and path history (pathHistory) for different charging states.
+    - Sets initial conditions for zero charge and zero time.
+- Main Loop:
+    - Iterates through each time step (t) in the total charging time.
+    - Applies any time-specific charging constraints.
+    - For each possible charge level and number of intervals:
+    - Calculates utilities for different charging scenarios (on/off states).
+    - Updates maxUtil and pathHistory with the best options.
+- Solution Extraction:
+    - Finds the optimal final state that maximizes utility.
+    - Backtracks through pathHistory to construct the optimal charging schedule.
+- Result Storage:
+    - Stores the optimal charging schedule and on/off states in class variables.
+    - Calls __collect_results to process the final results.

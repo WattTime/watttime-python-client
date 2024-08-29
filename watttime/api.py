@@ -538,6 +538,26 @@ class WattTimeForecast(WattTimeBase):
         return out
 
 class WattTimeOptimizer(WattTimeForecast):
+    """
+    A class that optimizes energy usage based on WattTime forecast data.
+
+    This class inherits from WattTimeForecast and provides methods to generate
+    optimal usage plans for energy consumption based on various parameters and
+    constraints.
+
+    Attributes:
+    -----------
+    Inherits all attributes from WattTimeForecast.
+
+    Methods:
+    --------
+    get_optimal_usage_plan(region, usage_window_start, usage_window_end, 
+                           usage_time_required_minutes, usage_power_kw, 
+                           usage_time_uncertainty_minutes, optimization_method, 
+                           moer_data_override)
+        Generates an optimal usage plan for energy consumption.
+    """
+
     def get_optimal_usage_plan(
         self,
         region: str,
@@ -547,10 +567,54 @@ class WattTimeOptimizer(WattTimeForecast):
         usage_power_kw: Union[int, float, pd.DataFrame],
         usage_time_uncertainty_minutes: Optional[float] = 0,
         optimization_method: Optional[
-            Literal["baseline", "simple", "sophisticated"]
+            Literal["baseline", "simple", "sophisticated", "auto"]
         ] = "baseline",
         moer_data_override: Optional[pd.DataFrame] = None,
     ) -> pd.DataFrame:
+        """
+        Generates an optimal usage plan for energy consumption based on given parameters.
+
+        This method calculates the most efficient energy usage schedule within a specified
+        time window, considering factors such as regional data, power requirements, and
+        optimization methods.
+
+        Parameters:
+        -----------
+        region : str
+            The region for which forecast data is requested.
+        usage_window_start : datetime
+            Start time of the window when power consumption is allowed.
+        usage_window_end : datetime
+            End time of the window when power consumption is allowed.
+        usage_time_required_minutes : float
+            Required usage time in minutes.
+        usage_power_kw : Union[int, float, pd.DataFrame]
+            Power usage in kilowatts. Can be a constant value or a DataFrame for variable power.
+        usage_time_uncertainty_minutes : Optional[float], default=0
+            Uncertainty in usage time, in minutes.
+        optimization_method : Optional[Literal["baseline", "simple", "sophisticated", "auto"]], default="baseline"
+            The method used for optimization.
+        moer_data_override : Optional[pd.DataFrame], default=None
+            Pre-generated MOER (Marginal Operating Emissions Rate) DataFrame, if available.
+
+        Returns:
+        --------
+        pd.DataFrame
+            A DataFrame representing the optimal usage plan, including columns for
+            predicted MOER, usage, CO2 emissions, and energy usage.
+
+        Raises:
+        -------
+        AssertionError
+            If input parameters do not meet specified conditions (e.g., timezone awareness,
+            valid time ranges, supported optimization methods).
+
+        Notes:
+        ------
+        - The method uses WattTime forecast data unless overridden by moer_data_override.
+        - It supports various optimization methods and can handle both constant and variable power usage.
+        - The resulting plan aims to minimize emissions while meeting the specified energy requirements.
+        """
         """
         Args:
             region (str): The region for which forecast data is requested.
@@ -575,7 +639,7 @@ class WattTimeOptimizer(WattTimeForecast):
             datetime_now = datetime.now(UTC)
             assert usage_window_end > datetime_now, "Error, Window end is before current datetime"
             assert usage_window_end - datetime_now < timedelta(hours = MAX_PREDICTION_HOURS), "End time is too far in the future"
-        assert optimization_method in ("baseline", "simple", "sophisticated"), "Unsupported optimization method:" + optimization_method
+        assert optimization_method in ("baseline", "simple", "sophisticated","auto"), "Unsupported optimization method:" + optimization_method
 
         if moer_data_override is None:
             forecast_df = self.get_forecast_pandas(region=region, signal_type="co2_moer", horizon_hours = MAX_PREDICTION_HOURS)
@@ -589,18 +653,14 @@ class WattTimeOptimizer(WattTimeForecast):
         result_df = relevant_forecast_df[["pred_moer"]]
         moer_values = relevant_forecast_df["pred_moer"].values
 
-        asap = optimization_method == "baseline"
-        emissionOverhead = optimization_method == "sophisticated"
-
         m = moer.Moer(
-        mu = moer_values, 
-        isDiagonal = True,
-        sig2 = 0.0,
+            mu = moer_values, 
+            isDiagonal = True,
+            sig2 = 0.0,
         )
 
         model = optCharger.OptCharger(
             fixedChargeRate = 1,
-            emissionOverhead = emissionOverhead,
         )
 
         total_charge_units = usage_time_required_minutes // OPT_INTERVAL
@@ -616,6 +676,7 @@ class WattTimeOptimizer(WattTimeForecast):
 
         if type(usage_power_kw) in (int, float):
             # Convert to the MWh used in an optimization interval
+            # expressed as a function to meet the parameter requirements for OptC function
             emission_multiplier_fn = lambda sc,ec:float(usage_power_kw) * 0.001 * OPT_INTERVAL / 60.0
         else:
             usage_power_kw["time_step"] = usage_power_kw["time"] / OPT_INTERVAL
@@ -623,18 +684,55 @@ class WattTimeOptimizer(WattTimeForecast):
             usage_power_kw = pd.merge_asof(usage_power_kw_new_index, usage_power_kw.set_index("time_step"),
                                             left_index=True, right_index=True,
                                             direction="backward", allow_exact_matches=True)
-            def emission_multiplier_fn(sc, ec):
+            def emission_multiplier_fn(sc: float, ec: float) -> float:
+                """
+                Calculate the emission multiplier for a given time range.
+
+                This function computes the average power consumption in kilowatts (kW) for a specified
+                time range, converts it to megawatts (MW), and applies a time unit conversion factor.
+
+                Parameters:
+                -----------
+                sc : float
+                    Start of the time range (in some time unit, presumably hours or minutes).
+                ec : float
+                    End of the time range (in the same time unit as sc).
+
+                Returns:
+                --------
+                float
+                    The calculated emission multiplier value.
+
+                Notes:
+                ------
+                - The function uses a global or class variable 'usage_power_kw', which is expected to be
+                a pandas DataFrame or Series with a 'power_kw' column.
+                - 'OPT_INTERVAL' is assumed to be a constant defined elsewhere, representing an optimization
+                interval in minutes.
+                - The calculation includes a small offset (1e-12) to handle potential floating-point precision issues.
+
+                The calculation steps are:
+                1. Calculate mean power in kW for the given time range.
+                2. Convert kW to MW by multiplying by 0.001.
+                3. Apply time unit conversion using OPT_INTERVAL / 60.0.
+
+                Example:
+                --------
+                >>> emission_multiplier_fn(0, 1)
+                0.00625  # Assuming mean power of 75 kW and OPT_INTERVAL of 5 minutes
+                """
                 value = usage_power_kw[sc:max(sc, ec-1e-12)]["power_kw"].mean() * 0.001 * OPT_INTERVAL / 60.0
                 return value
 
-        model.fit(totalCharge = total_charge_units,
-                    totalTime = len(moer_values),
-                    moer = m,
-                    emission_multiplier_fn = emission_multiplier_fn,
-                    asap = asap,
-                    constraints = constraints,
-                    )
-        # model.summary()
+        model.fit(
+            totalCharge = total_charge_units,
+            totalTime = len(moer_values),
+            moer = m,
+            emission_multiplier_fn = emission_multiplier_fn,
+            constraints = constraints,
+            optimization_method = optimization_method
+        )
+
         optimizer_result = model.get_schedule()
         result_df["usage"] = [x * float(OPT_INTERVAL) for x in optimizer_result]
         result_df["emissions_co2e_lb"] = model.get_charging_emissions_over_time()

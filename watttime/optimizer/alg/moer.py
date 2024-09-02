@@ -8,7 +8,7 @@ class Moer:
     Represents Marginal Operating Emissions Rate (MOER) for electricity grid emissions modeling.
 
     This class handles calculations related to emissions and utilities based on
-    MOER data, supporting both diagonal and non-diagonal covariance matrices.
+    MOER data, supporting both diagonal and non-diagonal penalty matrices.
 
     Attributes:
     -----------
@@ -17,22 +17,22 @@ class Moer:
     __T : int
         Total number of time steps.
     __diagonal : bool
-        Whether the covariance matrix is diagonal.
+        Whether the penalty matrix is diagonal.
     __Sigma : numpy.ndarray
-        Covariance matrix for emissions rates.
+        Penalty matrix for emissions rates.
 
     Methods:
     --------
     __len__()
         Returns the number of time steps.
     is_diagonal()
-        Returns whether the covariance matrix is diagonal.
+        Returns whether the penalty matrix is diagonal.
     get_emission_at(i, xi=1)
         Calculates emission at a specific time step.
     get_emission_interval(start, end, xi=1)
         Calculates emissions for a time interval.
     get_diagonal_util(xi, i, ra=0.)
-        Calculates utility for diagonal covariance case.
+        Calculates utility for diagonal penalty case.
     get_marginal_util(xi, i, x_old=None, ra=0.)
         Calculates marginal utility.
     get_emissions(x)
@@ -53,9 +53,9 @@ class Moer:
         mu : array-like
             Emissions rate for each time step.
         isDiagonal : bool, optional
-            Whether the covariance matrix is diagonal. Default is True.
+            Whether the penalty matrix is diagonal. Default is True.
         Sigma : numpy.ndarray, optional
-            Covariance matrix if not diagonal. Default is None.
+            Penalty matrix if not diagonal. Default is None.
         sig2 : float or array-like, optional
             Variance(s) for diagonal case. Default is 0.
         ac1 : float, optional
@@ -93,12 +93,12 @@ class Moer:
 
     def is_diagonal(self):
         """
-        Checks if the covariance matrix is diagonal.
+        Whether the penalty matrix is diagonal.
 
         Returns:
         --------
         bool
-            True if the covariance matrix is diagonal, False otherwise.
+            True if the penalty matrix is diagonal, False otherwise.
         """
         return self.__diagonal
 

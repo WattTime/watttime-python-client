@@ -235,7 +235,6 @@ class OptCharger:
             t += 1
         self.__optimalChargingSchedule = cs + [0] * (totalTime - t)
         self.__optimalOnOffSchedule = [1] * t + [0] * (totalTime - t)
-        # print(self.__optimalChargingSchedule, totalTime)
         self.__collect_results(moer)
 
     def __simple_fit(self, totalCharge: int, totalTime: int, moer: Moer):

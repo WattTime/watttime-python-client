@@ -1,6 +1,7 @@
 import os
 import time
 import math
+import math
 from datetime import date, datetime, timedelta
 from functools import cache
 from pathlib import Path
@@ -10,6 +11,7 @@ import pandas as pd
 import requests
 from dateutil.parser import parse
 from pytz import UTC, timezone
+from watttime.optimizer.alg import optCharger, moer
 from watttime.optimizer.alg import optCharger, moer
 
 class WattTimeBase:

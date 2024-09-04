@@ -1,6 +1,7 @@
 import os
 import time
 import math
+import math
 from datetime import date, datetime, timedelta
 from functools import cache
 from pathlib import Path
@@ -10,6 +11,7 @@ import pandas as pd
 import requests
 from dateutil.parser import parse
 from pytz import UTC, timezone
+from watttime.optimizer.alg import optCharger, moer
 from watttime.optimizer.alg import optCharger, moer
 
 class WattTimeBase:
@@ -539,17 +541,11 @@ class WattTimeForecast(WattTimeBase):
 
 class WattTimeOptimizer(WattTimeForecast):
     """
-    A class that optimizes energy usage based on WattTime forecast data.
-
-    This class inherits from WattTimeForecast and provides methods to generate
+    This class inherits from WattTimeForecast, with additional methods to generate
     optimal usage plans for energy consumption based on various parameters and
     constraints.
 
-    Attributes:
-    -----------
-    Inherits all attributes from WattTimeForecast.
-
-    Methods:
+    Additional Methods:
     --------
     get_optimal_usage_plan(region, usage_window_start, usage_window_end, 
                            usage_time_required_minutes, usage_power_kw, 
@@ -615,19 +611,7 @@ class WattTimeOptimizer(WattTimeForecast):
         - It supports various optimization methods and can handle both constant and variable power usage.
         - The resulting plan aims to minimize emissions while meeting the specified energy requirements.
         """
-        """
-        Args:
-            region (str): The region for which forecast data is requested.
-            usage_window_start (datetime): Start time of the window when we are allowed to consume power.
-            usage_window_end (datetime): End time of the window when we are allowed to consume power.
-            usage_time_required_minutes (float): Usage time required in minutes
-            usage_power_kw (pd.DataFrame or float): A float representing the power usage for constant power. Otherwise,
-                                                    pass in a DataFrame with the power used at x_min in the future
-            optimization_method (str): Optimization Method. Defaults to basic
-            moer_data_override (pd.DataFrame): Pass in a generated moer DataFrame.
-        Returns:
-            pd.DataFrame: DataFrame representing the usage plan
-        """
+        
         OPT_INTERVAL = 5
         MAX_PREDICTION_HOURS = 72
         def is_tz_aware(dt):
@@ -686,40 +670,22 @@ class WattTimeOptimizer(WattTimeForecast):
                                             direction="backward", allow_exact_matches=True)
             def emission_multiplier_fn(sc: float, ec: float) -> float:
                 """
-                Calculate the emission multiplier for a given time range.
+                Calculate the energy used for a given time range in the charging schedule.
 
-                This function computes the average power consumption in kilowatts (kW) for a specified
-                time range, converts it to megawatts (MW), and applies a time unit conversion factor.
+                This gives us the MWh used per OPT_INTERVAL.
 
                 Parameters:
                 -----------
                 sc : float
-                    Start of the time range (in some time unit, presumably hours or minutes).
+                    Start of the time range (in optimizer time units).
                 ec : float
-                    End of the time range (in the same time unit as sc).
+                    End of the time range (in optimizer time units).
 
                 Returns:
                 --------
                 float
-                    The calculated emission multiplier value.
+                    Energy used for a given time range
 
-                Notes:
-                ------
-                - The function uses a global or class variable 'usage_power_kw', which is expected to be
-                a pandas DataFrame or Series with a 'power_kw' column.
-                - 'OPT_INTERVAL' is assumed to be a constant defined elsewhere, representing an optimization
-                interval in minutes.
-                - The calculation includes a small offset (1e-12) to handle potential floating-point precision issues.
-
-                The calculation steps are:
-                1. Calculate mean power in kW for the given time range.
-                2. Convert kW to MW by multiplying by 0.001.
-                3. Apply time unit conversion using OPT_INTERVAL / 60.0.
-
-                Example:
-                --------
-                >>> emission_multiplier_fn(0, 1)
-                0.00625  # Assuming mean power of 75 kW and OPT_INTERVAL of 5 minutes
                 """
                 value = usage_power_kw[sc:max(sc, ec-1e-12)]["power_kw"].mean() * 0.001 * OPT_INTERVAL / 60.0
                 return value

@@ -2,7 +2,13 @@ from azure.identity import DefaultAzureCredential
 from azure.mgmt.resource import SubscriptionClient
 import pandas as pd
 
-def list_locations(subscription_id):
+def authenticate():
+    return DefaultAzureCredential()
+
+def create_client(credential):
+    return  SubscriptionClient(credential)
+
+def list_locations(subscription_id, credential=None, subscription_client=None):
     """
     Lists the available Azure locations for a given subscription.
     Args:
@@ -11,11 +17,15 @@ def list_locations(subscription_id):
         None
     Prints the available locations with their Azure Region, Display Name, Latitude, and Longitude.
     """
-    # Authenticate
-    credential = DefaultAzureCredential()
 
-    # Create a Subscription Client
-    subscription_client = SubscriptionClient(credential)
+    # Use provided credential or authenticate if not provided
+    if credential is None:
+        credential = authenticate()
+
+    # Use provided client or create a new client if not provided
+    if subscription_client is None:
+        subscription_client = create_client(credential)
+
 
     # List Locations
     locations = subscription_client.subscriptions.list_locations(subscription_id)

@@ -1,8 +1,6 @@
-
-
 # https://towardsdatascience.com/reading-and-writing-files-from-to-amazon-s3-with-pandas-ccaf90bfe86c
 
-import data.s3 as s3u 
+import data.s3 as s3u
 import pandas as pd
 import os
 
@@ -11,10 +9,10 @@ AWS_ACCESS_KEY = os.getenv("AWS_ACCESS_KEY")
 AWS_SECRET_ACCESS_KEY = os.getenv("AWS_SECRET_ACCESS_KEY")
 
 s3 = s3u.s3_utils()
-key = 'PJM_NJ_co2_moer_2024-01-01_2024-02-01.csv'
-#print(s3.store_csvdataframe(file=key).head())
+key = "PJM_NJ_co2_moer_2024-01-01_2024-02-01.csv"
+# print(s3.store_csvdataframe(file=key).head())
 
-'''
+"""
 
 s3.store_file(
     filesource="",
@@ -35,4 +33,4 @@ books_df = pd.read_csv(
 
 print(books_df.head())
 
-'''
+"""

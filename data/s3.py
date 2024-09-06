@@ -104,15 +104,9 @@ class s3_utils:
         else:
             print(f"Unsuccessful S3 put_object response. Status - {status}")
 
-    def store_dictionary(
-        self, dictionary, file: str, bucket=AWS_S3_BUCKET
-    ):
-        response = self.S3.put_object(
-            Body=dictionary,
-            Bucket=bucket,
-            Key=file
-        )
-        
+    def store_dictionary(self, dictionary, file: str, bucket=AWS_S3_BUCKET):
+        response = self.S3.put_object(Body=dictionary, Bucket=bucket, Key=file)
+
         status = response.get("ResponseMetadata", {}).get("HTTPStatusCode")
 
         if status == 200:

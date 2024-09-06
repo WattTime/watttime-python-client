@@ -90,14 +90,20 @@ def convert_to_utc(local_time_str, local_tz_str):
     return local_time.astimezone(pytz.utc)
 
 
-def generate_random_plug_time(date):
+def generate_random_session_start_time(
+    date, start_hour: str = "17:00:00", end_hour: str = "21:00:00"
+):
     """
-    Generate a random datetime on the given date, uniformly distributed between 5 PM and 9 PM.
+    Generate a random datetime on the given date, uniformly distributed between two times.
 
     Parameters:
     -----------
     date : datetime.date
         The date for which to generate the random time.
+    start_hour: string
+        The earliest possible random start time generated. Formatted as HH:MM:SS.
+    end_hour:
+        The latest possible random start time generated. Formatted as HH:MM:SS.
 
     Returns:
     --------
@@ -106,26 +112,26 @@ def generate_random_plug_time(date):
 
     Example:
     --------
-    >>> generate_random_plug_time(datetime.date(2023, 8, 29))
+    >>> generate_random_session_start_time(datetime.date(2023, 8, 29),"17:00:00","21:00:00")
     datetime.datetime(2023, 8, 29, 19, 45, 30)  # Example output
     """
     start_time = datetime.combine(
-        date, datetime.strptime("17:00:00", "%H:%M:%S").time()
+        date, datetime.strptime(start_hour, "%H:%M:%S").time()
     )
-    end_time = datetime.combine(date, datetime.strptime("21:00:00", "%H:%M:%S").time())
+    end_time = datetime.combine(date, datetime.strptime(end_hour, "%H:%M:%S").time())
     total_seconds = int((end_time - start_time).total_seconds())
     random_seconds = random.randint(0, total_seconds)
     random_datetime = start_time + timedelta(seconds=random_seconds)
     return random_datetime
 
 
-def generate_random_unplug_time(random_plug_time, mean, stddev):
+def generate_random_session_end_time(random_start_time, mean, stddev):
     """
     Adds a number of seconds drawn from a normal distribution to the given datetime.
 
     Parameters:
     -----------
-    random_plug_time : datetime
+    random_start_time : datetime
         The initial plug-in time.
     mean : float
         The mean of the normal distribution for generating random seconds.
@@ -140,12 +146,12 @@ def generate_random_unplug_time(random_plug_time, mean, stddev):
     Example:
     --------
     >>> plug_time = datetime(2023, 8, 29, 19, 0, 0)
-    >>> generate_random_unplug_time(plug_time, 3600, 900)
+    >>> generate_random_session_end_time(random_start_time, 3600, 900)
     Timestamp('2023-08-29 20:01:23.456789')  # Example output
     """
     random_seconds = abs(np.random.normal(loc=mean, scale=stddev))
     random_timedelta = timedelta(seconds=random_seconds)
-    new_datetime = random_plug_time + random_timedelta
+    new_datetime = random_start_time + random_timedelta
     if not isinstance(new_datetime, pd.Timestamp):
         new_datetime = pd.Timestamp(new_datetime)
     return new_datetime
@@ -156,6 +162,9 @@ def generate_synthetic_user_data(
     max_percent_capacity: float = 0.95,
     user_charge_tolerance: float = 0.8,
     power_output_efficiency: float = 0.75,
+    average_battery_starting_capacity: float = 0.2,
+    start_hour="17:00:00",
+    end_hour="21:00:00",
 ) -> pd.DataFrame:
     """
     Generate synthetic user data for electric vehicle charging sessions.
@@ -169,10 +178,16 @@ def generate_synthetic_user_data(
         A list of distinct dates for which to generate charging sessions.
     max_percent_capacity : float, optional
         The maximum percentage of battery capacity to charge to (default is 0.95).
+    average_battery_starting_capacity: float
+        The average percent charged at session start.
     user_charge_tolerance : float, optional
         The minimum acceptable charge percentage for users (default is 0.8).
     power_output_efficiency : float, optional
         The efficiency of power output (default is 0.75).
+    start_hour: string
+        The earliest possible random start time generated. Formatted as HH:MM:SS.
+    end_hour:
+        The latest possible random start time generated. Formatted as HH:MM:SS.
 
     Returns:
     --------
@@ -210,14 +225,18 @@ def generate_synthetic_user_data(
         + str(std_length_charge)
     )
 
-    user_df["plug_in_time"] = user_df["distinct_dates"].apply(generate_random_plug_time)
-    user_df["unplug_time"] = user_df["plug_in_time"].apply(
-        lambda x: generate_random_unplug_time(x, mean_length_charge, std_length_charge)
+    user_df["session_start_time"] = user_df["distinct_dates"].apply(
+        generate_random_session_start_time, args=(start_hour, end_hour)
+    )
+    user_df["session_end_time"] = user_df["session_start_time"].apply(
+        lambda x: generate_random_session_end_time(
+            x, mean_length_charge, std_length_charge
+        )
     )
 
     # Another random parameter, this time at the session level, it's the initial charge of the battery.
     user_df["initial_charge"] = user_df.apply(
-        lambda _: random.uniform(0.2, 0.6), axis=1
+        lambda _: random.uniform(average_battery_starting_capacity, 0.6), axis=1
     )
     user_df["total_seconds_to_95"] = user_df["initial_charge"].apply(
         lambda x: total_capacity
@@ -227,30 +246,30 @@ def generate_synthetic_user_data(
     )
 
     # What time will the battery reach 95%
-    user_df["full_charge_time"] = user_df["plug_in_time"] + pd.to_timedelta(
+    user_df["full_charge_time"] = user_df["session_start_time"] + pd.to_timedelta(
         user_df["total_seconds_to_95"], unit="s"
     )
-    user_df["length_plugged_in"] = (
-        user_df.unplug_time - user_df.plug_in_time
+    user_df["length_of_session_in_seconds"] = (
+        user_df.session_end_time - user_df.session_start_time
     ) / pd.Timedelta(seconds=1)
 
     # what happened first? did the user unplug or did it reach 95%
     user_df["charged_kWh_actual"] = user_df[
-        ["total_seconds_to_95", "length_plugged_in"]
+        ["total_seconds_to_95", "length_of_session_in_seconds"]
     ].min(axis=1) * (rate_per_second)
     user_df["final_perc_charged"] = user_df.charged_kWh_actual.apply(
         lambda x: x / total_capacity
     )
     user_df["final_perc_charged"] = user_df.final_perc_charged + user_df.initial_charge
-    user_df["final_charge_time"] = user_df[["full_charge_time", "unplug_time"]].min(
-        axis=1
-    )
+    user_df["final_charge_time"] = user_df[
+        ["full_charge_time", "session_end_time"]
+    ].min(axis=1)
     user_df["uncharged"] = np.where(user_df["final_perc_charged"] < 0.80, True, False)
     user_df["total_capacity"] = total_capacity
     user_df["power_output_rate"] = power_output_max_rate
 
     user_df["total_intervals_plugged_in"] = (
-        user_df["length_plugged_in"] / 300
+        user_df["length_of_session_in_seconds"] / 300
     )  # number of seconds in 5 minutes
     user_df["charge_MWh_needed"] = (
         user_df["total_capacity"] * (0.95 - user_df["initial_charge"]) / 1000
@@ -262,7 +281,7 @@ def generate_synthetic_user_data(
 
 
 def execute_synth_data_process(
-    distinct_date_list: List[Any], number_of_users: int = 1000
+    distinct_date_list: List[Any], number_of_users: int = 1000, **kwargs
 ):
     """
     Execute the synthetic data generation process for multiple users.
@@ -284,7 +303,9 @@ def execute_synth_data_process(
     """
     dfs = []
     for i in tqdm(range(number_of_users)):
-        df_temp = generate_synthetic_user_data(distinct_date_list=distinct_date_list)
+        df_temp = generate_synthetic_user_data(
+            distinct_date_list=distinct_date_list, **kwargs
+        )
         dfs.append(df_temp)
     df_all = pd.concat(dfs)
     df_all.reset_index(inplace=True)
@@ -422,13 +443,13 @@ def get_timezone_from_dict(key, dictionary=TZ_DICTIONARY):
 
 
 # Get per-row historical fcsts at 'plug in time'
-def get_historical_fcst_data(plug_in_time, horizon, region):
+def get_historical_fcst_data(session_start_time, horizon, region):
     """
     Retrieve historical forecast data for a specific plug-in time, horizon, and region.
 
     Parameters:
     -----------
-    plug_in_time : datetime
+    session_start_time : datetime
         The time at which the EV was plugged in.
     horizon : int
         The number of hours to forecast ahead.
@@ -442,25 +463,25 @@ def get_historical_fcst_data(plug_in_time, horizon, region):
     """
 
     time_zone = get_timezone_from_dict(region)
-    plug_in_time = pd.Timestamp(convert_to_utc(plug_in_time, time_zone))
+    session_start_time = pd.Timestamp(convert_to_utc(session_start_time, time_zone))
     horizon = math.ceil(horizon / 12)
 
     hist_data = WattTimeForecast(username, password)
     return hist_data.get_historical_forecast_pandas(
-        start=plug_in_time - pd.Timedelta(minutes=5),
-        end=plug_in_time,
+        start=session_start_time - pd.Timedelta(minutes=5),
+        end=session_start_time,
         horizon_hours=horizon,
         region=region,
     )
 
 
-def get_historical_actual_data(plug_in_time, horizon, region):
+def get_historical_actual_data(session_start_time, horizon, region):
     """
     Retrieve historical actual data for a specific plug-in time, horizon, and region.
 
     Parameters:
     -----------
-    plug_in_time : datetime
+    session_start_time : datetime
         The time at which the EV was plugged in.
     horizon : int
         The number of hours to retrieve data for.
@@ -474,13 +495,13 @@ def get_historical_actual_data(plug_in_time, horizon, region):
     """
 
     time_zone = get_timezone_from_dict(region)
-    plug_in_time = pd.Timestamp(convert_to_utc(plug_in_time, time_zone))
+    session_start_time = pd.Timestamp(convert_to_utc(session_start_time, time_zone))
     horizon = math.ceil(horizon / 12)
 
     hist_data = WattTimeHistorical(username, password)
     return hist_data.get_historical_pandas(
-        start=plug_in_time - pd.Timedelta(minutes=5),
-        end=plug_in_time + pd.Timedelta(hours=horizon),
+        start=session_start_time - pd.Timedelta(minutes=5),
+        end=session_start_time + pd.Timedelta(hours=horizon),
         region=region,
     )
 
@@ -585,3 +606,8 @@ def get_schedule_and_cost_api(
         )
 
     return dp_usage_plan
+
+
+def get_total_emission(moer, schedule):
+    x = np.array(schedule).flatten()
+    return np.dot(moer[: x.shape[0]], x)

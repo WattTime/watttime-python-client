@@ -55,10 +55,13 @@ model.fit(
     constraints={0: (1, None), 1: (2, None)},
 )
 model.summary()
+
 model.fit(
     totalCharge=3, totalTime=8, moer=m, optimization_method="auto", totalIntervals=1
 )
 model.summary()
+
+print ("One contiguous interval + variable power rate")
 model.fit(
     totalCharge=3,
     totalTime=8,
@@ -67,17 +70,10 @@ model.fit(
     totalIntervals=1,
     emission_multiplier_fn=lambda x, y: [1.0, 0.1, 1.0][x],
 )
-model.summary()
-model.fit(
-    totalCharge=3,
-    totalTime=8,
-    moer=m,
-    optimization_method="auto",
-    totalIntervals=1,
-    constraints={0: (1, None)},
-)
+
 model.summary()
 
+print ("Two contiguous intervals, must charge 1st time period, variable power rate")
 model.fit(
     totalCharge=3,
     totalTime=8,
@@ -85,16 +81,6 @@ model.fit(
     optimization_method="auto",
     totalIntervals=2,
     constraints={0: (1, None)},
+    emission_multiplier_fn=lambda x, y: [1.0, 0.1, 1.0][x]
 )
 model.summary()
-
-# print("Introducing emission overheads...")
-# model = optCharger.OptCharger(
-#     minChargeRate = 1,
-#     maxChargeRate = 5,
-#     startEmissionOverhead = 10.,
-#     keepEmissionOverhead = 1.
-# )
-# model.fit(totalCharge=10, totalTime=5, moer=m, asap=True); model.summary()
-# model.fit(totalCharge=10, totalTime=5, moer=m, asap=False); model.summary()
-# model.fit(totalCharge=10, totalTime=5, moer=m, asap=False, constraints = {0:(1,None), 1:(3,None)}); model.summary()

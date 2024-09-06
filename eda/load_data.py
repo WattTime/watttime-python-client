@@ -8,10 +8,11 @@ import os
 username = os.getenv("WATTTIME_USER")
 password = os.getenv("WATTTIME_PASSWORD")
 
-login_url = 'https://api.watttime.org/login'
+login_url = "https://api.watttime.org/login"
 rsp = requests.get(login_url, auth=HTTPBasicAuth(username, password))
-TOKEN = rsp.json()['token']
+TOKEN = rsp.json()["token"]
 headers = {"Authorization": f"Bearer {TOKEN}"}
+
 
 def get_historical_forecast_pandas(region, start, end):
     """
@@ -48,9 +49,14 @@ def get_historical_forecast_pandas(region, start, end):
         df_list.append(df)
     df = pd.concat(df_list, axis=0)
 
-    df_piv = df.set_index(["generated_at", "point_time"]).unstack(level=0).droplevel(axis=1, level=0)
+    df_piv = (
+        df.set_index(["generated_at", "point_time"])
+        .unstack(level=0)
+        .droplevel(axis=1, level=0)
+    )
     df_piv.index = pd.to_datetime(df_piv.index)
     return df_piv
+
 
 def get_historical(regions, start, end):
     """
@@ -66,22 +72,24 @@ def get_historical(regions, start, end):
     end = "2023-07-02 00:00Z"
     """
 
-    if isinstance(regions, str): # there is only one region
+    if isinstance(regions, str):  # there is only one region
         regions = [regions]
 
     wt_hist = WattTimeHistorical(username, password)
     df_region_list = []
     for region in tqdm(regions, desc="loading regions"):
-        df_region = wt_hist.get_historical_pandas(
-            start = start, 
-            end = end,
-            region = region,
-            signal_type = 'co2_moer' 
-        ).set_index("point_time").rename(columns={"value": region})
+        df_region = (
+            wt_hist.get_historical_pandas(
+                start=start, end=end, region=region, signal_type="co2_moer"
+            )
+            .set_index("point_time")
+            .rename(columns={"value": region})
+        )
         df_region_list.append(df_region)
 
     df_all_regions = pd.concat(df_region_list, axis=1)
     return df_all_regions
+
 
 def get_region_geojson():
     """

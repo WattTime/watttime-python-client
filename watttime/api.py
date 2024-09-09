@@ -8,7 +8,7 @@ from typing import Any, Dict, List, Literal, Optional, Tuple, Union
 import pandas as pd
 import requests
 from dateutil.parser import parse
-from pytz import UTC, timezone
+from pytz import UTC
 
 
 class WattTimeBase:
@@ -165,10 +165,17 @@ class WattTimeBase:
             "longitude": str(longitude),
             "signal_type": signal_type,
         }
+
         rsp = requests.get(url, headers=headers, params=params, verify=self.certificate_location)
         rsp.raise_for_status()
-        return rsp.json()
-
+        if not rsp.ok:
+            if rsp.status_code == 404:
+                # here we specifically cannot find a location that was provided
+                raise Exception(
+                    f"\nAPI Response Error: {rsp.status_code}, {rsp.text} [{rsp.headers.get('x-request-id')}]"
+                )
+            else:
+                rsp.raise_for_status()
 
 class WattTimeHistorical(WattTimeBase):
     def get_historical_jsons(
@@ -260,9 +267,7 @@ class WattTimeHistorical(WattTimeBase):
         Returns:
             pd.DataFrame: _description_
         """
-        responses = self.get_historical_jsons(
-            start, end, region, signal_type, model
-        )
+        responses = self.get_historical_jsons(start, end, region, signal_type, model)
         df = pd.json_normalize(
             responses, record_path="data", meta=["meta"] if include_meta else []
         )

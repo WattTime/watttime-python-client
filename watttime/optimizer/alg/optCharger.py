@@ -431,7 +431,7 @@ class OptCharger:
         totalTime: int,
         moer: Moer,
         emission_multiplier_fn,
-        totalIntervals: int = 1,
+        total_intervals: int = 1,
         ra: float = 0.0,
         constraints: dict = {},
     ):
@@ -452,7 +452,7 @@ class OptCharger:
             An object representing Marginal Operating Emissions Rate.
         emission_multiplier_fn : callable
             A function that calculates emission multipliers.
-        totalIntervals : int, optional
+        total_intervals : int, optional
             The maximum number of contiguous charging intervals allowed. Default is 1.
         ra : float, optional
             Risk aversion factor. Default is 0.
@@ -479,10 +479,10 @@ class OptCharger:
         """
         print("== Sophisticated contiguous fit! ==")
         # This is a matrix with size = number of charge states x number of actions {not charging = 0, charging = 1}
-        maxUtil = np.full((totalCharge + 1, 2, totalIntervals + 1), np.nan)
+        maxUtil = np.full((totalCharge + 1, 2, total_intervals + 1), np.nan)
         maxUtil[0, 0, 0] = 0.0
         pathHistory = np.full(
-            (totalTime, totalCharge + 1, 2, totalIntervals + 1, 3), 0, dtype=int
+            (totalTime, totalCharge + 1, 2, total_intervals + 1, 3), 0, dtype=int
         )
         for t in range(totalTime):
             if t in constraints:
@@ -494,7 +494,7 @@ class OptCharger:
             else:
                 minCharge, maxCharge = 0, totalCharge
             newMaxUtil = np.full(maxUtil.shape, np.nan)
-            for k in range(0, totalIntervals + 1):
+            for k in range(0, total_intervals + 1):
                 for c in range(minCharge, maxCharge + 1):
                     ## update (c,0,k)
                     initVal = True
@@ -539,7 +539,7 @@ class OptCharger:
             maxUtil = newMaxUtil
 
         solution_found = False
-        for k in range(0, totalIntervals + 1):
+        for k in range(0, total_intervals + 1):
             if not np.isnan(maxUtil[totalCharge, 0, k]):
                 newUtil = maxUtil[totalCharge, 0, k]
                 if not solution_found or (newUtil > max_util):
@@ -576,7 +576,7 @@ class OptCharger:
         totalCharge: int,
         totalTime: int,
         moer: Moer,
-        totalIntervals: int = 0,
+        total_intervals: int = 0,
         constraints: dict = {},
         ra: float = 0.0,
         emission_multiplier_fn=None,
@@ -597,7 +597,7 @@ class OptCharger:
             The total time available for charging.
         moer : Moer
             An object representing Marginal Operating Emissions Rate.
-        totalIntervals : int, optional
+        total_intervals : int, optional
             The maximum number of contiguous charging intervals allowed. Default is 0 (no limit).
         constraints : dict, optional
             A dictionary of charging constraints for specific time steps.
@@ -646,7 +646,7 @@ class OptCharger:
                 not self.emissionOverhead
                 and ra < TOL
                 and not constraints
-                and totalIntervals <= 0
+                and total_intervals <= 0
                 and constant_emission_multiplier
             )
             or (optimization_method == "simple")
@@ -661,7 +661,7 @@ class OptCharger:
             and moer.is_diagonal()
             or (optimization_method == "sophisticated")
         ):
-            if totalIntervals <= 0:
+            if total_intervals <= 0:
                 self.__diagonal_fit(
                     totalCharge,
                     totalTime,
@@ -680,7 +680,7 @@ class OptCharger:
                     OptCharger.__sanitize_emission_multiplier(
                         emission_multiplier_fn, totalCharge
                     ),
-                    totalIntervals,
+                    total_intervals,
                     ra,
                     constraints,
                 )

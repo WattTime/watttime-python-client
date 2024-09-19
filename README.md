@@ -132,7 +132,7 @@ We provide two methods to access location data:
 ```python
 from watttime import WattTimeMaps
 
-wt = WattTimeMaps()
+wt = WattTimeMaps(username, password)
 
 # get BA region for a given location
 wt.region_from_loc(

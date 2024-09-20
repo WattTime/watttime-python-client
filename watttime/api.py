@@ -764,7 +764,6 @@ class WattTimeMaps(WattTimeBase):
         rsp.raise_for_status()
         return rsp.json()
 
-# TODO: Currently doesn't query live (API only useful for backtesting now)
 class RecalculatingWattTimeOptimizer:
     def __init__(
         self, 
@@ -794,15 +793,16 @@ class RecalculatingWattTimeOptimizer:
         self.wt_hist = WattTimeHistorical(watttime_username, watttime_password)
 
 
-    def get_new_schedule(self, new_start_time: datetime, new_end_time: datetime) -> pd.DataFrame:
-        # Get new data
-        curr_fcst_data = self.forecast_generator.get_historical_forecast_pandas(
-            start=new_start_time, 
-            end=new_start_time + timedelta(minutes=OPT_INTERVAL),
-            region=self.region,
-            signal_type="co2_moer",
-            horizon_hours=MAX_PREDICTION_HOURS,
-        )
+    def get_new_schedule(self, new_start_time: datetime, new_end_time: datetime, curr_fcst_data: pd.DataFrame=None) -> pd.DataFrame:
+        if curr_fcst_data is None:
+            # Get new data
+            curr_fcst_data = self.forecast_generator.get_historical_forecast_pandas(
+                start=new_start_time - timedelta(minutes=OPT_INTERVAL), 
+                end=new_start_time,
+                region=self.region,
+                signal_type="co2_moer",
+                horizon_hours=MAX_PREDICTION_HOURS,
+            )
         curr_fcst_data["point_time"] = pd.to_datetime(curr_fcst_data["point_time"])
         new_schedule_start_time = curr_fcst_data["point_time"].iloc[0]
         
@@ -817,9 +817,6 @@ class RecalculatingWattTimeOptimizer:
             usage = int(schedule[schedule.index < new_schedule_start_time]["usage"].sum())
             self.remaining_time_required -= usage
 
-
-        print(self.remaining_time_required)
-        print(self.usage_power_kw)
         # Generate new schedule
         new_schedule = self.wt_opt.get_optimal_usage_plan(
             self.region, 
@@ -847,18 +844,18 @@ class RecalculatingWattTimeOptimizer:
             combined_schedule = combined_schedule[combined_schedule.index <= last_segment_start_time]
         return combined_schedule
 
-    def get_predicted_combined_schedule_cost(self, end_time: datetime = None) -> float:
-        schedule = self.get_combined_schedule(end_time=end_time)
-        return schedule["emissions_co2e_lb"].sum()
+    # def get_predicted_combined_schedule_cost(self, end_time: datetime = None) -> float:
+    #     schedule = self.get_combined_schedule(end_time=end_time)
+    #     return schedule["emissions_co2e_lb"].sum()
     
-    def get_actual_combined_schedule_cost(self, end_time: datetime = None) -> float:
-        schedule = self.get_combined_schedule(end_time=end_time)
-        hist_data = self.wt_hist.get_historical_pandas(
-            start=schedule.index[0], 
-            end=schedule.index[-1],
-            region=self.region,
-            signal_type="co2_moer",
-        ).set_index("point_time")
-        merged_data = pd.merge(schedule["energy_usage_mwh"], hist_data["value"], left_index=True, right_index=True, how="left")
-        assert not merged_data.isnull().values.any()
-        return merged_data["energy_usage_mwh"].dot(merged_data["value"])
+    # def get_actual_combined_schedule_cost(self, end_time: datetime = None) -> float:
+    #     schedule = self.get_combined_schedule(end_time=end_time)
+    #     hist_data = self.wt_hist.get_historical_pandas(
+    #         start=schedule.index[0], 
+    #         end=schedule.index[-1],
+    #         region=self.region,
+    #         signal_type="co2_moer",
+    #     ).set_index("point_time")
+    #     merged_data = pd.merge(schedule["energy_usage_mwh"], hist_data["value"], left_index=True, right_index=True, how="left")
+    #     assert not merged_data.isnull().values.any()
+    #     return merged_data["energy_usage_mwh"].dot(merged_data["value"])

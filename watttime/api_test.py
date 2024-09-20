@@ -16,11 +16,8 @@ from watttime import (
 )
 
 region = "PJM_NJ"
-# username = os.getenv("WATTTIME_USER")
-# password = os.getenv("WATTTIME_PASSWORD")
-username = "annie"
-password = "dcxwt2024!"
-
+username = os.getenv("WATTTIME_USER")
+password = os.getenv("WATTTIME_PASSWORD")
 wt_opt = WattTimeOptimizer(username, password)
 
 now = datetime.now(UTC)
@@ -78,29 +75,3 @@ dp_usage_plan_3 = wt_opt.get_optimal_usage_plan(
     optimization_method="auto",
 )
 print(dp_usage_plan_3["emissions_co2e_lb"].sum())
-
-recalculating_optimizer_start_time = datetime.now(UTC) - timedelta(hours=24)
-recalculating_optimizer_end_time = datetime.now(UTC) - timedelta(hours=12)
-
-recalculating_optimizer = RecalculatingWattTimeOptimizer(
-    region=region, 
-    watttime_username=username, 
-    watttime_password=password, 
-    usage_time_required_minutes=240,
-    usage_power_kw=2,
-    optimization_method="simple"
-)
-
-x = 0
-while x < (12*60):
-    recalculating_optimizer.get_new_schedule(
-        recalculating_optimizer_start_time + timedelta(minutes=x), 
-        recalculating_optimizer_end_time
-    )
-    x += 30
-
-print(recalculating_optimizer.get_combined_schedule())
-
-print(recalculating_optimizer.get_predicted_combined_schedule_cost())
-
-print(recalculating_optimizer.get_actual_combined_schedule_cost())

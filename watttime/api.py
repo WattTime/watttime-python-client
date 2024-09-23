@@ -561,7 +561,8 @@ class WattTimeOptimizer(WattTimeForecast):
         usage_window_end: datetime,
         usage_time_required_minutes: float,
         usage_power_kw: Union[int, float, pd.DataFrame],
-        usage_time_uncertainty_minutes: Optional[float] = 0,
+        usage_time_uncertainty_minutes: Optional[float] = 0,        
+        total_intervals: Optional[int] = 0,
         optimization_method: Optional[
             Literal["baseline", "simple", "sophisticated", "auto"]
         ] = "baseline",
@@ -588,6 +589,8 @@ class WattTimeOptimizer(WattTimeForecast):
             Power usage in kilowatts. Can be a constant value or a DataFrame for variable power.
         usage_time_uncertainty_minutes : Optional[float], default=0
             Uncertainty in usage time, in minutes.
+        total_intervals : Optional[float], default=0
+            Number of intervals to constraint to. If this is 0, then there is no limit.
         optimization_method : Optional[Literal["baseline", "simple", "sophisticated", "auto"]], default="baseline"
             The method used for optimization.
         moer_data_override : Optional[pd.DataFrame], default=None
@@ -725,8 +728,9 @@ class WattTimeOptimizer(WattTimeForecast):
             totalCharge=total_charge_units,
             totalTime=len(moer_values),
             moer=m,
-            emission_multiplier_fn=emission_multiplier_fn,
             constraints=constraints,
+            total_intervals=total_intervals,
+            emission_multiplier_fn=emission_multiplier_fn,
             optimization_method=optimization_method,
         )
 

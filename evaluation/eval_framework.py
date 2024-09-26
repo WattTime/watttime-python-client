@@ -611,3 +611,12 @@ def get_schedule_and_cost_api(
 def get_total_emission(moer, schedule):
     x = np.array(schedule).flatten()
     return np.dot(moer[: x.shape[0]], x)
+
+def create_car_model_feature():
+    if random.random()<= 0.5:
+        car == 'chevy'
+    else:
+        car == 'tesla'
+    return car
+
+

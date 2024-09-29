@@ -2,6 +2,7 @@
 from dataclasses import dataclass
 import pandas as pd
 
+
 @dataclass
 class Battery:
     capacity_kWh: float

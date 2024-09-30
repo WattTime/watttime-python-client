@@ -6,8 +6,8 @@ from datetime import datetime, timedelta
 class TestRecalculatingOptimizer(unittest.TestCase):
     def setUp(self):
         self.region = "PJM_NJ"
-        self.username = "annie"
-        self.password = "dcxwt2024!"
+        self.username = ""
+        self.password = ""
         
         # Seems that the watttime API considers both start and end to be inclusive 
         self.static_start_time = efu.convert_to_utc(datetime(2024, 1, 1, hour=20, second=1), local_tz_str="America/New_York")

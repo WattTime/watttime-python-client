@@ -1,5 +1,20 @@
 TZ_META_DATA_FILE = "us_region_timezones.csv"
 
+CARS = {
+    'tesla':[
+            [0.0, 250.0],
+            [0.15, 250.0],
+            [0.5, 90.0],
+            [1.0, 10.0],
+        ],
+    'bolt':[
+            [0.0, 50.0],
+            [0.5, 50.0],
+            [0.93, 20.0],
+            [1.0, 0.5],
+        ]
+}
+
 TZ_DICTIONARY = {
     "AECI": "America/Chicago",
     "AVA": "America/Los_Angeles",

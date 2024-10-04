@@ -2,7 +2,7 @@
 # coding: utf-8
 
 import os
-from typing import List, Any
+from typing import List, Any, Optional
 import numpy as np
 import pandas as pd
 import random
@@ -165,6 +165,7 @@ def generate_synthetic_user_data(
     average_battery_starting_capacity: float = 0.2,
     start_hour="17:00:00",
     end_hour="21:00:00",
+    power_output_max_rates = [11, 7.4, 22]
 ) -> pd.DataFrame:
     """
     Generate synthetic user data for electric vehicle charging sessions.
@@ -196,7 +197,7 @@ def generate_synthetic_user_data(
     """
 
     power_output_efficiency = round(random.uniform(0.5, 0.9), 3)
-    power_output_max_rate = random.choice([11, 7.4, 22]) * power_output_efficiency
+    power_output_max_rate = random.choice(power_output_max_rates) * power_output_efficiency
     rate_per_second = np.divide(power_output_max_rate, 3600)
     total_capacity = round(random.uniform(21, 123))
     mean_length_charge = round(random.uniform(20000, 30000))
@@ -552,6 +553,7 @@ def get_schedule_and_cost_api(
     total_time_horizon,
     moer_data,
     optimization_method="sophisticated",
+    total_intervals: Optional[int] = 0
 ):
     """
     Generate an optimal charging schedule and associated cost using WattTimeOptimizer.
@@ -594,6 +596,7 @@ def get_schedule_and_cost_api(
         usage_power_kw=usage_power_kw,
         optimization_method=optimization_method,
         moer_data_override=moer_data,
+        total_intervals = total_intervals
     )
 
     if dp_usage_plan["emissions_co2e_lb"].sum() == 0.0:
@@ -611,3 +614,12 @@ def get_schedule_and_cost_api(
 def get_total_emission(moer, schedule):
     x = np.array(schedule).flatten()
     return np.dot(moer[: x.shape[0]], x)
+
+def create_car_model_feature(car):
+    if random.random()<= 0.5:
+        car == 'chevy'
+    else:
+        car == 'tesla'
+    return car
+
+

@@ -2,7 +2,9 @@
 import numpy as np
 from .moer_new import Moer
 
-TOL = 1e-4
+TOL = 1e-4  # tolerance
+EMISSION_FN_TOL = 1e-9  # emissions functions tolerance in kw
+
 class OptCharger: 
     def __init__(self):
         self.__optimalChargingEmission = None
@@ -40,6 +42,7 @@ class OptCharger:
         return True
 
     def __greedy_fit(self, totalCharge:int, totalTime:int, moer:Moer): 
+        print("== Baseline fit! ==")
         chargeToDo = totalCharge
         cs, t = [], 0
         while (chargeToDo > 0) and (t < totalTime): 
@@ -47,7 +50,6 @@ class OptCharger:
             cs.append(1)
             t += 1
         self.__optimalChargingSchedule = cs + [0]*(totalTime - t)
-        #print(self.__optimalChargingSchedule, totalTime)
         self.__collect_results(moer)
 
     def __simple_fit(self, totalCharge:int, totalTime:int, moer:Moer):  
@@ -89,20 +91,17 @@ class OptCharger:
                 maxCharge = totalCharge if maxCharge is None else min(maxCharge, totalCharge)
             else: 
                 minCharge, maxCharge = 0, totalCharge
-            # print("=== Time step", t, "===")
             newMaxUtil = np.full(maxUtil.shape, np.nan)
             for c in range(minCharge,maxCharge+1): 
                 ## Do not charge
-                # print("-- charge", c, "| charging off --")
                 initVal = True
                 if not np.isnan(maxUtil[c]): 
                     newMaxUtil[c] = maxUtil[c]
                     pathHistory[t,c] = c
                     initVal = False
                 ## Charge
-                # print("-- charge", c, "| charging on --")
                 if not np.isnan(maxUtil[c-1]):
-                    # moer.get_marginal_util gives lbs/MWh. emission function needs to be how many MWh the interval consumes
+                    # moer.get_emission_at gives lbs/MWh. emission function needs to be how many MWh the interval consumes
                     # which would be power_in_kW * 0.001 * 5/60
                     newUtil = maxUtil[c-1]-moer.get_emission_at(t, emission_multiplier_fn(c-1,c))
                     if initVal or (newUtil > newMaxUtil[c]): 
@@ -110,7 +109,6 @@ class OptCharger:
                         pathHistory[t,c] = c-1
                     initVal = False
             maxUtil = newMaxUtil
-            # print(maxUtil)
 
         solution_found = False
         if not np.isnan(maxUtil[totalCharge]): 
@@ -156,7 +154,6 @@ class OptCharger:
                     ## not charging
                     initVal = True
                     if not np.isnan(maxUtil[t-1,c,k]):  
-                        # print("Exist non-charging solution")
                         maxUtil[t,c,k] = maxUtil[t-1,c,k]
                         pathHistory[t-1,c,k,:] = [0,0]
                         initVal = False
@@ -164,11 +161,9 @@ class OptCharger:
                     if k > 0: 
                         for dc in range(charge_per_interval[k-1][0],min(charge_per_interval[k-1][1],t,c)+1):
                             if not np.isnan(maxUtil[t-dc,c-dc,k-1]) and OptCharger.__check_constraint(t-dc,c-dc,dc,constraints): 
-                                # print(f"Exist solution charging {dc}")
                                 marginalcost = moer.get_emission_interval(t-dc,t,OptCharger.__avg_to_interval(emission_multiplier_fn,c-dc,c))
                                 newUtil = maxUtil[t-dc,c-dc,k-1] - marginalcost
                                 if initVal or (newUtil > maxUtil[t,c,k]): 
-                                    # print(f"updating... marginalcost={marginalcost}")
                                     maxUtil[t,c,k] = newUtil
                                     pathHistory[t-1,c,k,:] = [dc,1]
                                 initVal = False
@@ -182,7 +177,6 @@ class OptCharger:
         schedule = []
         while t_curr > 0: 
             dc,di = pathHistory[t_curr-1, curr_state[0], curr_state[1], :]
-            # print(t_curr, schedule, dc, di)
             if di==0: 
                 ## did not charge 
                 schedule.append(0)
@@ -197,10 +191,9 @@ class OptCharger:
         self.__optimalChargingSchedule = optimalPath
         self.__collect_results(moer)
     
-    def fit(self, totalCharge:int, totalTime:int, moer:Moer, charge_per_interval = None, constraints:dict = {}, asap:bool = False, emission_multiplier_fn = None, optimization_method:str = 'auto'): 
+    def fit(self, totalCharge:int, totalTime:int, moer:Moer, charge_per_interval = None, constraints:dict = {}, emission_multiplier_fn = None, optimization_method:str = 'auto'): 
         assert len(moer) >= totalTime
         assert optimization_method in ['greedy','simple','sophisticated','auto']
-        EMISSION_FN_TOL = 1e-9 # in kw
         if emission_multiplier_fn is None:
             print("Warning: OptCharger did not get an emission_multiplier_fn. Assuming that device uses constant 1kW of power")
             emission_multiplier_fn = lambda sc,ec:1.0
@@ -212,7 +205,7 @@ class OptCharger:
 
         if (totalCharge > totalTime): 
             raise Exception(f"Impossible to charge {totalCharge} within {totalTime} intervals.")
-        if asap: 
+        if optimization_method=='greedy': 
             self.__greedy_fit(totalCharge, totalTime, moer)
         elif (not constraints and not charge_per_interval and ef_is_constant and optimization_method=='auto') or (optimization_method=='simple'):
             if not ef_is_constant:

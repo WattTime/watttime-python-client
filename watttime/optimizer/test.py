@@ -96,7 +96,7 @@ model.fit(
     totalCharge=3,
     totalTime=8,
     moer=m,
-    charge_per_interval=[(1,2),(0,3)],   mn?¿¿¿¿¿¿¿¿¿¿¿¿¿hn
+    charge_per_interval=[(1,2),(0,3)],
     constraints = {0:(1,None)}
  )
 model.summary()

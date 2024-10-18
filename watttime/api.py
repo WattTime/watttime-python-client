@@ -12,8 +12,6 @@ import requests
 from dateutil.parser import parse
 from pytz import UTC
 from watttime.optimizer.alg import optCharger, moer
-from watttime.optimizer.alg import optCharger, moer
-
 
 class WattTimeBase:
     url_base = "https://api.watttime.org"
@@ -620,6 +618,13 @@ class WattTimeOptimizer(WattTimeForecast):
 
         def is_tz_aware(dt):
             return dt.tzinfo is not None and dt.tzinfo.utcoffset(dt) is not None
+        def min_to_unit(x,floor=True):
+            if x: 
+                if floor: 
+                    return x//OPT_INTERVAL
+                else: 
+                    return int(math.ceil(x/OPT_INTERVAL))
+            return x         
 
         assert is_tz_aware(usage_window_start), "Start time is not tz-aware"
         assert is_tz_aware(usage_window_end), "End time is not tz-aware"
@@ -660,11 +665,11 @@ class WattTimeOptimizer(WattTimeForecast):
 
         model = optCharger.OptCharger()
 
-        total_charge_units = usage_time_required_minutes // OPT_INTERVAL
+        total_charge_units = min_to_unit(usage_time_required_minutes)
         if optimization_method == "sophisticated":
             # Give a buffer time equal to the uncertainty
             buffer_time = usage_time_uncertainty_minutes
-            buffer_periods = int(math.ceil(buffer_time / OPT_INTERVAL))
+            buffer_periods = min_to_unit(buffer_time, False) if buffer_time else 0
             # TODO: Check if there is any off-by-1 error here
             buffer_enforce_time = max(
                 total_charge_units, len(moer_values) - buffer_periods
@@ -719,13 +724,21 @@ class WattTimeOptimizer(WattTimeForecast):
                     / 60.0
                 )
                 return value
-
+        if charge_per_interval is not None: 
+            converted_charge_per_interval = []
+            for c in charge_per_interval: 
+                if isinstance(c,int): 
+                    converted_charge_per_interval.append(min_to_unit(c))
+                else: 
+                    assert(len(c)==2)
+                    converted_charge_per_interval.append((min_to_unit(c[0]),min_to_unit(c[1])))
+                
         model.fit(
             totalCharge=total_charge_units,
             totalTime=len(moer_values),
             moer=m,
             constraints=constraints,
-            charge_per_interval=charge_per_interval,
+            charge_per_interval=converted_charge_per_interval,
             emission_multiplier_fn=emission_multiplier_fn,
             optimization_method=optimization_method,
         )

@@ -370,7 +370,7 @@ class OptCharger:
                 if dc>0: 
                     schedule.extend([1]*dc)         
         optimalPath = np.array(schedule)[::-1]
-        self.__optimalChargingSchedule = optimalPath
+        self.__optimalChargingSchedule = list(optimalPath)
         self.__collect_results(moer)
 
     def fit(

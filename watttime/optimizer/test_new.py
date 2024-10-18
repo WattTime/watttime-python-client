@@ -29,7 +29,7 @@ model.fit(totalCharge=3, totalTime=8, moer=m, charge_per_interval=[(0,3)]); mode
 print("Two contiguous intervals")
 model.fit(totalCharge=3, totalTime=8, moer=m, charge_per_interval=[(1,2),(0,3)]); model.summary()
 print ("Two contiguous intervals + variable power rate")
-model.fit(totalCharge=3, totalTime=8, moer=m, charge_per_interval=[(1,2),(0,1)], emission_multiplier_fn=lambda x,y: [1.0,0.1,1.0][x]); model.summary()
+model.fit(totalCharge=3, totalTime=8, moer=m, charge_per_interval=[(1,2),(1,2)], emission_multiplier_fn=lambda x,y: [1.0,0.1,1.0][x]); model.summary()
 print ("Two contiguous intervals + variable power rate")
 model.fit(totalCharge=4, totalTime=8, moer=m, charge_per_interval=[(1,3),(0,3)]); model.summary()
 print ("Two contiguous intervals + variable power rate + constraints")

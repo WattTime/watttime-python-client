@@ -10,7 +10,7 @@ from typing import Any, Dict, List, Literal, Optional, Tuple, Union
 import pandas as pd
 import requests
 from dateutil.parser import parse
-from pytz import UTC, timezone
+from pytz import UTC
 from watttime.optimizer.alg import optCharger, moer
 from watttime.optimizer.alg import optCharger, moer
 
@@ -562,7 +562,7 @@ class WattTimeOptimizer(WattTimeForecast):
         usage_time_required_minutes: float,
         usage_power_kw: Union[int, float, pd.DataFrame],
         usage_time_uncertainty_minutes: Optional[float] = 0,        
-        total_intervals: Optional[int] = 0,
+        charge_per_interval: list = [],
         optimization_method: Optional[
             Literal["baseline", "simple", "sophisticated", "auto"]
         ] = "baseline",
@@ -589,7 +589,7 @@ class WattTimeOptimizer(WattTimeForecast):
             Power usage in kilowatts. Can be a constant value or a DataFrame for variable power.
         usage_time_uncertainty_minutes : Optional[float], default=0
             Uncertainty in usage time, in minutes.
-        total_intervals : Optional[float], default=0
+        charge_per_interval : list, default=[]
             Number of intervals to constraint to. If this is 0, then there is no limit.
         optimization_method : Optional[Literal["baseline", "simple", "sophisticated", "auto"]], default="baseline"
             The method used for optimization.
@@ -655,14 +655,10 @@ class WattTimeOptimizer(WattTimeForecast):
         moer_values = relevant_forecast_df["pred_moer"].values
 
         m = moer.Moer(
-            mu=moer_values,
-            isDiagonal=True,
-            sig2=0.0,
+            mu=moer_values
         )
 
-        model = optCharger.OptCharger(
-            fixedChargeRate=1,
-        )
+        model = optCharger.OptCharger()
 
         total_charge_units = usage_time_required_minutes // OPT_INTERVAL
         if optimization_method == "sophisticated":
@@ -729,7 +725,7 @@ class WattTimeOptimizer(WattTimeForecast):
             totalTime=len(moer_values),
             moer=m,
             constraints=constraints,
-            total_intervals=total_intervals,
+            charge_per_interval=charge_per_interval,
             emission_multiplier_fn=emission_multiplier_fn,
             optimization_method=optimization_method,
         )

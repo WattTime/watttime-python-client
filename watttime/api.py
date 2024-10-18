@@ -589,8 +589,8 @@ class WattTimeOptimizer(WattTimeForecast):
             Power usage in kilowatts. Can be a constant value or a DataFrame for variable power.
         usage_time_uncertainty_minutes : Optional[float], default=0
             Uncertainty in usage time, in minutes.
-        charge_per_interval : list, default=[]
-            Number of intervals to constraint to. If this is 0, then there is no limit.
+        charge_per_interval : list, default=None
+            The minimium and maximum (inclusive) charging amount per interval. If int instead of tuple, interpret as both min and max.
         optimization_method : Optional[Literal["baseline", "simple", "sophisticated", "auto"]], default="baseline"
             The method used for optimization.
         moer_data_override : Optional[pd.DataFrame], default=None

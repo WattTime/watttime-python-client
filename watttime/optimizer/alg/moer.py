@@ -16,23 +16,17 @@ class Moer:
         Mean emissions rate for each time step.
     __T : int
         Total number of time steps.
-    __diagonal : bool
-        Whether the penalty matrix is diagonal.
-    __Sigma : numpy.ndarray
-        Penalty matrix for emissions rates.
 
     Methods:
     --------
     __len__()
         Returns the number of time steps.
-    is_diagonal()
-        Returns whether the penalty matrix is diagonal.
-    get_emission_at(i, xi=1)
+    get_emission_at(i, usage)
         Calculates emission at a specific time step.
-    get_emission_interval(start, end, xi=1)
-        Calculates emissions for a time interval.
+    get_emission_interval(start, end, usage)
+        Calculates sum of emissions for a time interval.
     get_emissions(x)
-        Calculates total emissions for a given schedule.
+        Calculates emissions per interval for a given schedule.
     get_total_emission(x)
         Calculates total emission for a given schedule.
     
@@ -61,17 +55,6 @@ class Moer:
         """
         return self.__T
 
-    def is_diagonal(self):
-        """
-        Whether the penalty matrix is diagonal.
-
-        Returns:
-        --------
-        bool
-            True if the penalty matrix is diagonal, False otherwise.
-        """
-        return True
-
     def get_emission_at(self, i, usage):
         """
         Calculates the emission at a specific time step.
@@ -81,7 +64,7 @@ class Moer:
         i : int
             The time step index.
         usage : float, optional
-            The emission multiplier.
+            The power usage.
 
         Returns:
         --------
@@ -108,7 +91,7 @@ class Moer:
         numpy.ndarray
             An array of emission values for the specified interval.
         """
-        return self.__mu[start:end] * usage
+        return np.dot(self.__mu[start:end], usage)
 
     def get_emissions(self, usage):
         """
@@ -125,7 +108,7 @@ class Moer:
             An array of calculated emission values.
         """
         usage = np.array(usage).flatten()
-        return self.__mu[: usage.shape[0]] * usage
+        return self.__mu[:usage.shape[0]] * usage
 
     def get_total_emission(self, usage):
         """

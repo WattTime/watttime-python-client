@@ -9,7 +9,7 @@ import random
 import pytz
 from tqdm import tqdm
 from datetime import datetime, timedelta, date
-from watttime import WattTimeHistorical, WattTimeForecast, WattTimeOptimizer, RecalculatingWattTimeOptimizer
+from watttime import WattTimeHistorical, WattTimeForecast, WattTimeOptimizer, RecalculatingWattTimeOptimizer, RecalculatingWattTimeOptimizer
 import math
 
 from evaluation.config import TZ_DICTIONARY
@@ -674,6 +674,78 @@ def get_schedule_and_cost_api_requerying(
             wt_opt_rc.get_new_schedule(new_start_time=new_start_time, new_end_time=end_time, curr_fcst_data=curr_fcst_data)
 
     
+    dp_usage_plan = wt_opt_rc.get_combined_schedule()
+
+
+    if dp_usage_plan["emissions_co2e_lb"].sum() == 0.0:
+        print(
+            "Warning using 0.0 lb of CO2e:",
+            usage_power_kw,
+            usage_power_kw,
+            time_needed,
+            dp_usage_plan["usage"].sum(),
+        )
+
+    return dp_usage_plan
+
+
+
+def get_schedule_and_cost_api_requerying(
+    region,
+    usage_power_kw,
+    time_needed,
+    start_time,
+    end_time,
+    optimization_method="sophisticated",
+    requery_interval_minutes = 60
+):
+    """
+    Generate an optimal charging schedule and associated cost using RecalculatingWattTimeOptimizer.
+
+    Parameters:
+    -----------
+    usage_power_kw : float or pd.Series
+        The power usage in kilowatts.
+    time_needed : float
+        The time needed for charging in minutes.
+    total_time_horizon : int
+        The total time horizon for scheduling.
+    moer_data : pd.DataFrame
+        MOER (Marginal Operating Emissions Rate) forecast data.
+    optimization_method : str, optional
+        The optimization method to use (default is "sophisticated").
+
+    Returns:
+    --------
+    pd.DataFrame
+        A DataFrame containing the optimal usage plan.
+
+    Notes:
+    ------
+    This function uses the WattTimeOptimizer to generate an optimal charging schedule.
+    It prints a warning if the resulting emissions are 0.0 lb of CO2e.
+    """
+    wt_opt_rc = RecalculatingWattTimeOptimizer(
+        region=region, 
+        watttime_username=username, 
+        watttime_password=password, 
+        usage_time_required_minutes=time_needed,
+        usage_power_kw=2,
+        optimization_method=optimization_method
+    )
+    
+    new_start_time = start_time
+
+    while new_start_time < end_time:
+        
+        wt_opt_rc.get_new_schedule(
+        new_start_time, 
+        end_time
+        )
+        
+        new_start_time = new_start_time + timedelta(minutes = requery_interval_minutes)
+
+
     dp_usage_plan = wt_opt_rc.get_combined_schedule()
 
 

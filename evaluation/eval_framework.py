@@ -615,6 +615,7 @@ def get_schedule_and_cost_api_requerying(
     start_time,
     end_time,
     optimization_method="sophisticated",
+    moer_list = None,
     requery_interval_minutes = 60
 ):
     """
@@ -648,22 +649,31 @@ def get_schedule_and_cost_api_requerying(
         watttime_username=username, 
         watttime_password=password, 
         usage_time_required_minutes=time_needed,
-        usage_power_kw=2,
+        usage_power_kw=usage_power_kw,
         optimization_method=optimization_method
     )
     
     new_start_time = start_time
 
-    while new_start_time < end_time:
-        
-        wt_opt_rc.get_new_schedule(
-        new_start_time, 
-        end_time
-        )
-        
-        new_start_time = new_start_time + timedelta(minutes = requery_interval_minutes)
+    if moer_list is None:
+        assert requery_interval_minutes is not None
+        while new_start_time < end_time:
+            new_start_time = new_start_time 
 
+            wt_opt_rc.get_new_schedule(
+            new_start_time, 
+            end_time
+            )
+            
+            new_start_time = new_start_time + timedelta(minutes = requery_interval_minutes)
+    
+    else:
+        for curr_fcst_data in moer_list:
+            new_start_time = curr_fcst_data["point_time"].min()
+            assert new_start_time < end_time
+            wt_opt_rc.get_new_schedule(new_start_time=new_start_time, new_end_time=end_time, curr_fcst_data=curr_fcst_data)
 
+    
     dp_usage_plan = wt_opt_rc.get_combined_schedule()
 
 

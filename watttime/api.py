@@ -731,7 +731,7 @@ class WattTimeOptimizer(WattTimeForecast):
                     converted_charge_per_interval.append(min_to_unit(c))
                 else: 
                     assert(len(c)==2)
-                    converted_charge_per_interval.append((min_to_unit(c[0]),min_to_unit(c[1])))
+                    converted_charge_per_interval.append((min_to_unit(c[0],False),min_to_unit(c[1])))
                 
         model.fit(
             totalCharge=total_charge_units,

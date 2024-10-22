@@ -554,6 +554,9 @@ class WattTimeOptimizer(WattTimeForecast):
         Generates an optimal usage plan for energy consumption.
     """
 
+    OPT_INTERVAL = 5
+    MAX_PREDICTION_HOURS = 72
+
     def get_optimal_usage_plan(
         self,
         region: str,
@@ -615,9 +618,6 @@ class WattTimeOptimizer(WattTimeForecast):
         - The resulting plan aims to minimize emissions while meeting the specified energy requirements.
         """
 
-        OPT_INTERVAL = 5
-        MAX_PREDICTION_HOURS = 72
-
         def is_tz_aware(dt):
             return dt.tzinfo is not None and dt.tzinfo.utcoffset(dt) is not None
 
@@ -630,7 +630,7 @@ class WattTimeOptimizer(WattTimeForecast):
                 usage_window_end > datetime_now
             ), "Error, Window end is before current datetime"
             assert usage_window_end - datetime_now < timedelta(
-                hours=MAX_PREDICTION_HOURS
+                hours=self.MAX_PREDICTION_HOURS
             ), "End time is too far in the future"
         assert optimization_method in ("baseline", "simple", "sophisticated", "auto"), (
             "Unsupported optimization method:" + optimization_method
@@ -640,7 +640,7 @@ class WattTimeOptimizer(WattTimeForecast):
             forecast_df = self.get_forecast_pandas(
                 region=region,
                 signal_type="co2_moer",
-                horizon_hours=MAX_PREDICTION_HOURS,
+                horizon_hours=self.MAX_PREDICTION_HOURS,
             )
         else:
             forecast_df = moer_data_override.copy()
@@ -664,11 +664,11 @@ class WattTimeOptimizer(WattTimeForecast):
             fixedChargeRate=1,
         )
 
-        total_charge_units = usage_time_required_minutes // OPT_INTERVAL
+        total_charge_units = usage_time_required_minutes // self.OPT_INTERVAL
         if optimization_method == "sophisticated":
             # Give a buffer time equal to the uncertainty
             buffer_time = usage_time_uncertainty_minutes
-            buffer_periods = int(math.ceil(buffer_time / OPT_INTERVAL))
+            buffer_periods = int(math.ceil(buffer_time / self.OPT_INTERVAL))
             # TODO: Check if there is any off-by-1 error here
             buffer_enforce_time = max(
                 total_charge_units, len(moer_values) - buffer_periods
@@ -681,10 +681,10 @@ class WattTimeOptimizer(WattTimeForecast):
             # Convert to the MWh used in an optimization interval
             # expressed as a function to meet the parameter requirements for OptC function
             emission_multiplier_fn = (
-                lambda sc, ec: float(usage_power_kw) * 0.001 * OPT_INTERVAL / 60.0
+                lambda sc, ec: float(usage_power_kw) * 0.001 * self.OPT_INTERVAL / 60.0
             )
         else:
-            usage_power_kw["time_step"] = usage_power_kw["time"] / OPT_INTERVAL
+            usage_power_kw["time_step"] = usage_power_kw["time"] / self.OPT_INTERVAL
             usage_power_kw_new_index = pd.DataFrame(
                 index=list([float(x) for x in range(total_charge_units + 1)])
             )
@@ -719,7 +719,7 @@ class WattTimeOptimizer(WattTimeForecast):
                 value = (
                     usage_power_kw[sc : max(sc, ec - 1e-12)]["power_kw"].mean()
                     * 0.001
-                    * OPT_INTERVAL
+                    * self.OPT_INTERVAL
                     / 60.0
                 )
                 return value
@@ -735,7 +735,7 @@ class WattTimeOptimizer(WattTimeForecast):
         )
 
         optimizer_result = model.get_schedule()
-        result_df["usage"] = [x * float(OPT_INTERVAL) for x in optimizer_result]
+        result_df["usage"] = [x * float(self.OPT_INTERVAL) for x in optimizer_result]
         result_df["emissions_co2e_lb"] = model.get_charging_emissions_over_time()
         result_df["energy_usage_mwh"] = model.get_energy_usage_over_time()
 

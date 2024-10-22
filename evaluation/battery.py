@@ -18,7 +18,7 @@ class Battery:
             title=f"battery capacity {self.capacity_kWh} kWh"
         )
 
-    def get_usage_power_kw_df(self):
+    def get_usage_power_kw_df(self, max_capacity_fraction=0.95):
         """
         Output the variable charging curve in the format that optimizer accepts.
         That is, dataframe with index "time" in minutes and "power_kw" which
@@ -49,7 +49,7 @@ class Battery:
         secs_elapsed = 0
         charged_kWh = capacity_kWh * initial_soc
         kW_by_second = []
-        while charged_kWh < capacity_kWh:
+        while charged_kWh < capacity_kWh * max_capacity_fraction:
             secs_elapsed += 1
             curr_soc = charged_kWh / capacity_kWh
             curr_kW = get_kW_at_SoC(charging_curve, curr_soc)

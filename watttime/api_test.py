@@ -114,3 +114,16 @@ dp_usage_plan_6 = wt_opt.get_optimal_usage_plan(
 )
 print(dp_usage_plan_6["usage"].tolist())
 print(dp_usage_plan_6.sum())
+
+print("Using auto mode, but constrained to two contiguous intervals with length constraints")
+dp_usage_plan_7 = wt_opt.get_optimal_usage_plan(
+    region=region,
+    usage_window_start=window_start_test,
+    usage_window_end=window_end_test,
+    usage_time_required_minutes=160,
+    usage_power_kw=usage_power_kw,
+    charge_per_interval=[60,100],
+    optimization_method="auto",
+)
+print(dp_usage_plan_7["usage"].tolist())
+print(dp_usage_plan_7.sum())

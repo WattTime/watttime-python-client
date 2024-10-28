@@ -9,11 +9,10 @@ from pytz import UTC, timezone
 import matplotlib.pyplot as plt
 
 from watttime import (
-    # WattTimeMyAccess,
-    # WattTimeHistorical,
-    # WattTimeForecast,
     WattTimeOptimizer,
 )
+
+import unittest
 
 region = "PJM_NJ"
 username = os.getenv("WATTTIME_USER")
@@ -91,6 +90,19 @@ print(dp_usage_plan_4.sum())
 
 print("Using auto mode, but constrained to a single contiguous interval")
 dp_usage_plan_5 = wt_opt.get_optimal_usage_plan(
+    region=region,
+    usage_window_start=window_start_test,
+    usage_window_end=window_end_test,
+    usage_time_required_minutes=120,
+    energy_required_kwh=17,
+    optimization_method="auto",
+)
+print(dp_usage_plan_5)
+print(dp_usage_plan_5.sum())
+
+
+print("Using auto mode, but with a two intervals")
+dp_usage_plan_6 = wt_opt.get_optimal_usage_plan(
     region=region,
     usage_window_start=window_start_test,
     usage_window_end=window_end_test,

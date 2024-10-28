@@ -560,8 +560,9 @@ class WattTimeOptimizer(WattTimeForecast):
         region: str,
         usage_window_start: datetime,
         usage_window_end: datetime,
-        usage_time_required_minutes: float,
-        usage_power_kw: Union[int, float, pd.DataFrame],
+        usage_time_required_minutes: Optional[float] = None,
+        usage_power_kw: Optional[Union[int, float, pd.DataFrame]] = None,
+        energy_required_kwh: Optional[float] = None,
         usage_time_uncertainty_minutes: Optional[float] = 0,        
         charge_per_interval: list = None,
         use_all_intervals: bool = True,
@@ -577,6 +578,8 @@ class WattTimeOptimizer(WattTimeForecast):
         time window, considering factors such as regional data, power requirements, and
         optimization methods.
 
+        You should pass in exactly 2 of 3 parameters of (usage_time_required_minutes, usage_power_kw, energy_required_kwh)
+
         Parameters:
         -----------
         region : str
@@ -585,10 +588,12 @@ class WattTimeOptimizer(WattTimeForecast):
             Start time of the window when power consumption is allowed.
         usage_window_end : datetime
             End time of the window when power consumption is allowed.
-        usage_time_required_minutes : float
+        usage_time_required_minutes : Optional[float]
             Required usage time in minutes.
-        usage_power_kw : Union[int, float, pd.DataFrame]
+        usage_power_kw : Optional[Union[int, float, pd.DataFrame]]
             Power usage in kilowatts. Can be a constant value or a DataFrame for variable power.
+        energy_required_kwh : Optional[float], default=None
+            Energy required in kwh
         usage_time_uncertainty_minutes : Optional[float], default=0
             Uncertainty in usage time, in minutes.
         charge_per_interval : list, default=None
@@ -631,6 +636,24 @@ class WattTimeOptimizer(WattTimeForecast):
 
         assert is_tz_aware(usage_window_start), "Start time is not tz-aware"
         assert is_tz_aware(usage_window_end), "End time is not tz-aware"
+
+        num_inputs = 0
+        for input in (usage_time_required_minutes, usage_power_kw, energy_required_kwh):
+            if input is not None:
+                num_inputs += 1
+        assert num_inputs == 2, "Exactly 2 of 3 inputs in (usage_time_required_minutes, usage_power_kw, energy_required_kwh) required"
+        if usage_power_kw is None:
+            # TODO: Test
+            usage_power_kw = energy_required_kwh / usage_time_required_minutes * 60
+            print("Implied usage_power_kw =", usage_power_kw)
+        if usage_time_required_minutes is None:
+            if type(usage_power_kw) in (float, int) and type(energy_required_kwh) in (float, int):
+                usage_time_required_minutes = energy_required_kwh / usage_power_kw * 60
+                print("Implied usage time required =", usage_time_required_minutes)
+            else:
+                # TODO: Implement and test
+                raise NotImplementedError
+
         # Perform these checks if we are using live data
         if moer_data_override is None:
             datetime_now = datetime.now(UTC)
@@ -668,7 +691,11 @@ class WattTimeOptimizer(WattTimeForecast):
 
         model = optCharger.OptCharger()
 
+<<<<<<< HEAD
         total_charge_units = min_to_unit(usage_time_required_minutes)
+=======
+        total_charge_units = int(usage_time_required_minutes // OPT_INTERVAL)
+>>>>>>> df741d0 (Added new file api_test, along with some framework for allowing 2 of 3 inputs)
         if optimization_method == "sophisticated":
             # Give a buffer time equal to the uncertainty
             buffer_time = usage_time_uncertainty_minutes

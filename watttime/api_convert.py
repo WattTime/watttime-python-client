@@ -2,20 +2,6 @@ import pandas as pd
 import numpy as np
 
 # This file contains utility functions for converting formats for now
-def convert_soc_to_soe(soc_power_df, voltage_curve_df):
-    """
-    Convert Power vs SoC DataFrame to a Power vs SoE DataFrame.
-
-    Parameters:
-    soc_power_df (pd.DataFrame): DataFrame with 'SoC' and 'power_kw' columns.
-    voltage_curve_df (pd.DataFrame): DataFrame with 'SoC' and 'Voltage' columns.
-
-    Returns:
-    pd.DataFrame: DataFrame with 'SoE' (in minutes) and 'power_kw' columns.
-    """
-    # TODO: Implement
-    pass
-
 def convert_soc_to_soe(soc_power_df, voltage_curve, battery_capacity_coulombs):
     """
     Convert State of Charge (SoC) to State of Energy (SoE) by integrating voltage over SoC.

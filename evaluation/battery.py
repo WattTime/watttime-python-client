@@ -1,7 +1,7 @@
 # encode the variable power curves
 from dataclasses import dataclass
 import pandas as pd
-
+import numpy as np
 
 @dataclass
 class Battery:
@@ -29,14 +29,19 @@ class Battery:
         initial_soc = self.initial_soc
         charging_curve = self.charging_curve
 
-        def get_kW_at_SoC(df, soc):
-            """Linear interpolation to get charging rate at any SoC"""
-            prev_row = df[df["SoC"]< soc].iloc[-1]
-            next_row = df[df["SoC"] >= soc].iloc[0]
-            m1 = prev_row["SoC"]
-            p1 = prev_row["kW"]
-            m2 = next_row["SoC"]
-            p2 = next_row["kW"]
+        # Convert SoC column to numpy array for faster access
+        soc_array = self.charging_curve["SoC"].values
+        kW_array = self.charging_curve["kW"].values
+
+        def get_kW_at_SoC(soc):
+            """Linear interpolation to get charging rate at any SoC."""
+            idx = np.searchsorted(soc_array, soc)
+            if idx == 0:
+                return kW_array[0]
+            elif idx >= len(soc_array):
+                return kW_array[-1]
+            m1, m2 = soc_array[idx - 1], soc_array[idx]
+            p1, p2 = kW_array[idx - 1], kW_array[idx]
             return p1 + (soc - m1) / (m2 - m1) * (p2 - p1)
 
         # iterate over seconds

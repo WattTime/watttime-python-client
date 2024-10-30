@@ -624,7 +624,7 @@ class WattTimeOptimizer(WattTimeForecast):
                     return x//self.OPT_INTERVAL
                 else: 
                     return int(math.ceil(x/self.OPT_INTERVAL))
-            return x         
+            return x      
 
         assert is_tz_aware(usage_window_start), "Start time is not tz-aware"
         assert is_tz_aware(usage_window_end), "End time is not tz-aware"

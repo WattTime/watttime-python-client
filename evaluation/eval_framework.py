@@ -641,9 +641,9 @@ def get_schedule_and_cost_api(
         moer_data["point_time"].iloc[total_time_horizon - 1]
     )
 
-    if time_needed > total_time_horizon // wt_opt.OPT_INTERVAL:
-        time_needed = total_time_horizon // wt_opt.OPT_INTERVAL
-    # print(usage_window_start, usage_window_end, usage_power_kw, time_needed)
+    # if we need to charge for more minutes than given in between
+    # plugin time and plugout then we charge for the entire period 
+    time_needed = min(time_needed, total_time_horizon * wt_opt.OPT_INTERVAL)
 
     dp_usage_plan = wt_opt.get_optimal_usage_plan(
         region=None,

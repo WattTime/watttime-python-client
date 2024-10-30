@@ -2,6 +2,7 @@
 from dataclasses import dataclass
 import pandas as pd
 import numpy as np
+import matplotlib.pyplot as plt
 
 @dataclass
 class Battery:
@@ -9,14 +10,17 @@ class Battery:
     charging_curve: pd.DataFrame # columns SoC and kW
     initial_soc: float = 0.2
 
-    def plot_charging_curve(self):
-        self.charging_curve.set_index("SoC").plot(
+    def plot_charging_curve(self, ax=None):
+        """Plot the variabel charging curve of the battery"""
+        ax = self.charging_curve.set_index("SoC").plot(
+            ax=ax,
             grid=True,
-            figsize=(4, 2),
             ylabel="kW",
             legend=False,
-            title=f"battery capacity {self.capacity_kWh} kWh"
+            title=f"Battery capacity: {self.capacity_kWh} kWh"
         )
+        if ax is None:
+            plt.show()
 
     def get_usage_power_kw_df(self, max_capacity_fraction=0.95):
         """
@@ -27,9 +31,7 @@ class Battery:
         """
         capacity_kWh = self.capacity_kWh
         initial_soc = self.initial_soc
-        charging_curve = self.charging_curve
-
-        # Convert SoC column to numpy array for faster access
+        # convert SoC column to numpy array for faster access
         soc_array = self.charging_curve["SoC"].values
         kW_array = self.charging_curve["kW"].values
 
@@ -52,7 +54,7 @@ class Battery:
         while charged_kWh < capacity_kWh * max_capacity_fraction:
             secs_elapsed += 1
             curr_soc = charged_kWh / capacity_kWh
-            curr_kW = get_kW_at_SoC(charging_curve, curr_soc)
+            curr_kW = get_kW_at_SoC(curr_soc)
             kW_by_second.append(curr_kW)
             charged_kWh += curr_kW / 3600
 

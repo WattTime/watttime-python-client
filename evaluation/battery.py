@@ -9,7 +9,7 @@ class Battery:
     charging_curve: pd.DataFrame # columns SoC and kW
     initial_soc: float = 0.2
 
-    def plot_changing_curve(self):
+    def plot_charging_curve(self):
         self.charging_curve.set_index("SoC").plot(
             grid=True,
             figsize=(4, 2),

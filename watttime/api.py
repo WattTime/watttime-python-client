@@ -182,7 +182,7 @@ class WattTimeHistorical(WattTimeBase):
         model: Optional[Union[str, date]] = None,
     ) -> List[dict]:
         """
-        Base function to scrape historical data, returning a list of .json responses.
+OP        Base function to scrape historical data, returning a list of .json responses.
 
         Args:
             start (datetime): inclusive start, with a UTC timezone.
@@ -621,10 +621,10 @@ class WattTimeOptimizer(WattTimeForecast):
         def min_to_unit(x,floor=True):
             if x: 
                 if floor: 
-                    return x//OPT_INTERVAL
+                    return x//self.OPT_INTERVAL
                 else: 
-                    return int(math.ceil(x/OPT_INTERVAL))
-            return x         
+                    return int(math.ceil(x/self.OPT_INTERVAL))
+            return x      
 
         assert is_tz_aware(usage_window_start), "Start time is not tz-aware"
         assert is_tz_aware(usage_window_end), "End time is not tz-aware"
@@ -635,7 +635,7 @@ class WattTimeOptimizer(WattTimeForecast):
                 usage_window_end > datetime_now
             ), "Error, Window end is before current datetime"
             assert usage_window_end - datetime_now < timedelta(
-                hours=MAX_PREDICTION_HOURS
+                hours=self.MAX_PREDICTION_HOURS
             ), "End time is too far in the future"
         assert optimization_method in ("baseline", "simple", "sophisticated", "auto"), (
             "Unsupported optimization method:" + optimization_method
@@ -645,7 +645,7 @@ class WattTimeOptimizer(WattTimeForecast):
             forecast_df = self.get_forecast_pandas(
                 region=region,
                 signal_type="co2_moer",
-                horizon_hours=MAX_PREDICTION_HOURS,
+                horizon_hours=self.MAX_PREDICTION_HOURS,
             )
         else:
             forecast_df = moer_data_override.copy()
@@ -682,10 +682,10 @@ class WattTimeOptimizer(WattTimeForecast):
             # Convert to the MWh used in an optimization interval
             # expressed as a function to meet the parameter requirements for OptC function
             emission_multiplier_fn = (
-                lambda sc, ec: float(usage_power_kw) * 0.001 * OPT_INTERVAL / 60.0
+                lambda sc, ec: float(usage_power_kw) * 0.001 * self.OPT_INTERVAL / 60.0
             )
         else:
-            usage_power_kw["time_step"] = usage_power_kw["time"] / OPT_INTERVAL
+            usage_power_kw["time_step"] = usage_power_kw["time"] / self.OPT_INTERVAL
             usage_power_kw_new_index = pd.DataFrame(
                 index=list([float(x) for x in range(total_charge_units + 1)])
             )
@@ -720,7 +720,7 @@ class WattTimeOptimizer(WattTimeForecast):
                 value = (
                     usage_power_kw[sc : max(sc, ec - 1e-12)]["power_kw"].mean()
                     * 0.001
-                    * OPT_INTERVAL
+                    * self.OPT_INTERVAL
                     / 60.0
                 )
                 return value
@@ -744,7 +744,7 @@ class WattTimeOptimizer(WattTimeForecast):
         )
 
         optimizer_result = model.get_schedule()
-        result_df["usage"] = [x * float(OPT_INTERVAL) for x in optimizer_result]
+        result_df["usage"] = [x * float(self.OPT_INTERVAL) for x in optimizer_result]
         result_df["emissions_co2e_lb"] = model.get_charging_emissions_over_time()
         result_df["energy_usage_mwh"] = model.get_energy_usage_over_time()
 

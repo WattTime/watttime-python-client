@@ -11,6 +11,7 @@ from tqdm import tqdm
 from datetime import datetime, timedelta, date
 from watttime import WattTimeHistorical, WattTimeForecast, WattTimeOptimizer
 import math
+from typing import Union
 
 from evaluation.config import TZ_DICTIONARY
 
@@ -235,7 +236,8 @@ def generate_synthetic_user_data(
         )
     )
 
-    # Another random parameter, this time at the session level, it's the initial charge of the battery.
+    # Another random parameter, this time at the session level, 
+    # it's the initial charge of the battery as a percentage.
     user_df["initial_charge"] = user_df.apply(
         lambda _: random.uniform(average_battery_starting_capacity, 0.6), axis=1
     )
@@ -545,6 +547,58 @@ def get_schedule_and_cost(
     )
     return charger
 
+def get_time_needed(
+    total_capacity_kWh: float,
+    usage_power_kW: Union[float, pd.DataFrame],
+    initial_capacity_fraction: float,
+    max_capacity_fraction: float = 0.95,
+) -> int:
+    """
+    Get the number of minutes needed to charge
+
+    Parameters:
+    -----------
+    total_capacity_kWh : float
+        The total capcity of the battery in kilowatts hours
+    usage_power_kW : float or pd.DataFrame
+        the charging rate in kW, either constant (float)
+        or variable charging curve (DataFrame) 
+    initial_capacity_fraction : float
+        The battery capacity when it is plugged in,
+        as a fraction of total capacity
+    max_capacity_fraction : float
+        The percentage of capacity at which we stop charging.
+        Defaults to 95% 
+
+    Returns:
+    --------
+    int
+        The number of minutes that the battery needs to charge for 
+
+    Notes:
+    ------
+    This is then able to be fed into get_schedule_and_cost_api
+    as the time_needed parameter
+    """
+    needed_kWh = (max_capacity_fraction - initial_capacity_fraction) * total_capacity_kWh
+
+    if isinstance(usage_power_kW, float):
+        needed_minutes = math.ceil(needed_kWh / usage_power_kW * 60)
+    
+    elif isinstance(usage_power_kW, pd.DataFrame):
+        OPT_INTERVAL = 5 # units: minutes
+        df = usage_power_kW.copy()
+        df["kWh_per_interval"] = df["power_kw"] / 60 * OPT_INTERVAL
+        df["kWh_cumsum"] = df["kWh_per_interval"].cumsum()
+        if df["kWh_cumsum"].max() < needed_kWh:
+            needed_minutes = df["time"].max() + OPT_INTERVAL
+        else:
+            needed_minutes = df[df["kWh_cumsum"] > needed_kWh]["time"].values[0] + OPT_INTERVAL
+
+    else:
+        raise ValueError(f"usage_power_kW should be type float or DataFrame but got {type(usage_power_kW)}")
+
+    return needed_minutes
 
 # Set up OptCharger based on moer fcsts and get info on projected schedule
 def get_schedule_and_cost_api(
@@ -565,7 +619,7 @@ def get_schedule_and_cost_api(
     time_needed : float
         The time needed for charging in minutes.
     total_time_horizon : int
-        The total time horizon for scheduling.
+        The total time horizon for scheduling in number of intervalss.
     moer_data : pd.DataFrame
         MOER (Marginal Operating Emissions Rate) forecast data.
     optimization_method : str, optional
@@ -586,7 +640,10 @@ def get_schedule_and_cost_api(
     usage_window_end = pd.to_datetime(
         moer_data["point_time"].iloc[total_time_horizon - 1]
     )
-    # print(usage_window_start, usage_window_end, usage_power_kw, time_needed)
+
+    # if we need to charge for more minutes than given in between
+    # plugin time and plugout then we charge for the entire period 
+    time_needed = min(time_needed, total_time_horizon * wt_opt.OPT_INTERVAL)
 
     dp_usage_plan = wt_opt.get_optimal_usage_plan(
         region=None,

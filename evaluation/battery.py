@@ -1,7 +1,8 @@
 # encode the variable power curves
 from dataclasses import dataclass
 import pandas as pd
-
+import numpy as np
+import matplotlib.pyplot as plt
 
 @dataclass
 class Battery:
@@ -9,16 +10,19 @@ class Battery:
     charging_curve: pd.DataFrame # columns SoC and kW
     initial_soc: float = 0.2
 
-    def plot_changing_curve(self):
-        self.charging_curve.set_index("SoC").plot(
+    def plot_charging_curve(self, ax=None):
+        """Plot the variabel charging curve of the battery"""
+        ax = self.charging_curve.set_index("SoC").plot(
+            ax=ax,
             grid=True,
-            figsize=(4, 2),
             ylabel="kW",
             legend=False,
-            title=f"battery capacity {self.capacity_kWh} kWh"
+            title=f"Charging curve \nBattery capacity: {self.capacity_kWh} kWh"
         )
+        if ax is None:
+            plt.show()
 
-    def get_usage_power_kw_df(self):
+    def get_usage_power_kw_df(self, max_capacity_fraction=0.95):
         """
         Output the variable charging curve in the format that optimizer accepts.
         That is, dataframe with index "time" in minutes and "power_kw" which
@@ -27,16 +31,19 @@ class Battery:
         """
         capacity_kWh = self.capacity_kWh
         initial_soc = self.initial_soc
-        charging_curve = self.charging_curve
+        # convert SoC column to numpy array for faster access
+        soc_array = self.charging_curve["SoC"].values
+        kW_array = self.charging_curve["kW"].values
 
-        def get_kW_at_SoC(df, soc):
-            """Linear interpolation to get charging rate at any SoC"""
-            prev_row = df[df["SoC"]< soc].iloc[-1]
-            next_row = df[df["SoC"] >= soc].iloc[0]
-            m1 = prev_row["SoC"]
-            p1 = prev_row["kW"]
-            m2 = next_row["SoC"]
-            p2 = next_row["kW"]
+        def get_kW_at_SoC(soc):
+            """Linear interpolation to get charging rate at any SoC."""
+            idx = np.searchsorted(soc_array, soc)
+            if idx == 0:
+                return kW_array[0]
+            elif idx >= len(soc_array):
+                return kW_array[-1]
+            m1, m2 = soc_array[idx - 1], soc_array[idx]
+            p1, p2 = kW_array[idx - 1], kW_array[idx]
             return p1 + (soc - m1) / (m2 - m1) * (p2 - p1)
 
         # iterate over seconds
@@ -44,10 +51,10 @@ class Battery:
         secs_elapsed = 0
         charged_kWh = capacity_kWh * initial_soc
         kW_by_second = []
-        while charged_kWh < capacity_kWh:
+        while charged_kWh < capacity_kWh * max_capacity_fraction:
             secs_elapsed += 1
             curr_soc = charged_kWh / capacity_kWh
-            curr_kW = get_kW_at_SoC(charging_curve, curr_soc)
+            curr_kW = get_kW_at_SoC(curr_soc)
             kW_by_second.append(curr_kW)
             charged_kWh += curr_kW / 3600
 

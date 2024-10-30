@@ -15,6 +15,61 @@ CARS = {
         ]
 }
 
+CARS2 = {
+    # pulled data from https://www.fastnedcharging.com/en/brands-overview
+    # this is a subset of the cars 
+    "audi": [ # 71kWh, https://www.fastnedcharging.com/en/brands-overview/audi
+        [0.0, 120.0],
+        [0.6, 120.0],
+        [1.0, 30.0],
+    ],
+    "bmw": [ # 42.2kWh, https://www.fastnedcharging.com/en/brands-overview/bmw
+        [0.0, 40.0],
+        [0.85, 50.0],
+        [1.0, 5.0],
+    ],
+    "honda": [ # 35.5kWh, https://www.fastnedcharging.com/en/brands-overview/honda
+        [0.0, 40.0],
+        [0.4, 40.0],
+        [0.41, 30.0],
+        [0.70, 30.0],
+        [0.71, 20.0],
+        [0.95, 20.0],
+        [1.0, 10.0],
+    ],
+    "lucid": [ # 112kWh https://www.fastnedcharging.com/en/brands-overview/lucid
+        [0.0, 300.0],
+        [1.0, 50.0],
+    ],
+    "mazda": [ #35.5kWh https://www.fastnedcharging.com/en/brands-overview/mazda
+        [0.0, 50.0],
+        [0.2, 50.0],
+        [0.21, 40.0],
+        [1.0, 10.0],
+    ],
+    "subaru": [ # 75kWh https://www.fastnedcharging.com/en/brands-overview/subaru
+        [0.0, 150.0],
+        [0.25, 150.0],
+        [0.85, 30.0],
+        [1.00, 30.0],
+    ],
+    "tesla": [ # ??kWh https://www.fastnedcharging.com/en/brands-overview/tesla
+        [0.0, 180.0],
+        [0.4, 190.0],
+        [0.9, 40.0],
+        [1.0, 40.0],
+    ],
+    "volkswagen": [ # 24.2kWh https://www.fastnedcharging.com/en/brands-overview/volkswagen?model=e-Golf
+        [0.0, 40.0],
+        [0.1, 40.0],
+        [0.75, 45.0],
+        [0.81, 23.0],
+        [0.92, 17.0],
+        [0.95, 9.0],
+        [1.0, 9.0],
+    ]
+}
+
 TZ_DICTIONARY = {
     "AECI": "America/Chicago",
     "AVA": "America/Los_Angeles",

@@ -9,11 +9,11 @@ def make_test_moer_data():
     end = pd.Timestamp("2023-12-13T11:40:00+00:00")
     moer_data = pd.DataFrame(columns=["point_time"], data=pd.date_range(start, end, freq="300s"))
     moer_data["value"] = 1000.0
-    moer_data.loc[len(moer_data)//2, "value"] = 0.0
+    moer_data.loc[len(moer_data)//2, "value"] = 0.0 # middle interval has zero MOER
     return moer_data
 
 def make_test_batteries():
-    """Make three batteries which each have a fast charging part at a different point in the SoE"""
+    """Make three batteries which each have fast charging at a different point in their charging cycle"""
     batteries = []
     for i in range(1, 4):
         charging_curve = pd.DataFrame(

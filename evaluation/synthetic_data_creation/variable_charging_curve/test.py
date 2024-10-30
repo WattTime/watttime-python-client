@@ -1,3 +1,17 @@
+"""
+In this test, we construct three batteries, each of which have a "fast zone"
+of charging; at 20% to 40%, 40% to 60%, and 60% to 80% respectively.
+
+We also construct a test MOER forecast which has constant MOER except
+a single interval in the middle where the MOER drops to zero.
+
+We use the optimizer to get the schedule for each of these three batteries.
+The schedules will be different: the optimizer wants to charge in the fast zone
+during the zero MOER period. To do this, the battery with a later fast zone will
+have to charge more before the zero MOER period. This behavior does indeed occur
+and is shown in the output plot.
+"""
+
 import pandas as pd
 import matplotlib.pyplot as plt
 import evaluation.eval_framework as evu
@@ -36,21 +50,7 @@ def make_test_batteries():
     return batteries
 
 def main():
-    """
-    Run the test with a combined plot and save the plot as test_output.png
-    
-    In this test, we construct three batteries, each of which have a "fast zone"
-    of charging; at 20% to 40%, 40% to 60%, and 60% to 80% respectively.
-
-    We also construct a test MOER forecast which has constant MOER except
-    a single interval in the middle where the MOER drops to zero.
-
-    We use the optimizer to get the schedule for each of these three batteries.
-    The schedules will be different: the optimizer wants to charge in the fast zone
-    during the zero MOER period. To do this, the battery with a later fast zone will
-    have to charge more before the zero MOER period. This behavior does indeed occur
-    and is shown in the output plot.
-    """
+    """Run the test with a combined plot and save the plot as test_output.png"""
     moer_data = make_test_moer_data()
     batteries = make_test_batteries()
 

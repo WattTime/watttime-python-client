@@ -17,7 +17,7 @@ class Battery:
             grid=True,
             ylabel="kW",
             legend=False,
-            title=f"Battery capacity: {self.capacity_kWh} kWh"
+            title=f"Charging curve \nBattery capacity: {self.capacity_kWh} kWh"
         )
         if ax is None:
             plt.show()

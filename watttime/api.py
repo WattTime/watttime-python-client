@@ -10,10 +10,8 @@ from typing import Any, Dict, List, Literal, Optional, Tuple, Union
 import pandas as pd
 import requests
 from dateutil.parser import parse
-from pytz import UTC, timezone
+from pytz import UTC
 from watttime.optimizer.alg import optCharger, moer
-from watttime.optimizer.alg import optCharger, moer
-
 
 class WattTimeBase:
     url_base = "https://api.watttime.org"
@@ -562,7 +560,7 @@ class WattTimeOptimizer(WattTimeForecast):
         usage_time_required_minutes: float,
         usage_power_kw: Union[int, float, pd.DataFrame],
         usage_time_uncertainty_minutes: Optional[float] = 0,        
-        total_intervals: Optional[int] = 0,
+        charge_per_interval: list = [],
         optimization_method: Optional[
             Literal["baseline", "simple", "sophisticated", "auto"]
         ] = "baseline",
@@ -589,8 +587,8 @@ class WattTimeOptimizer(WattTimeForecast):
             Power usage in kilowatts. Can be a constant value or a DataFrame for variable power.
         usage_time_uncertainty_minutes : Optional[float], default=0
             Uncertainty in usage time, in minutes.
-        total_intervals : Optional[float], default=0
-            Number of intervals to constraint to. If this is 0, then there is no limit.
+        charge_per_interval : list, default=None
+            The minimium and maximum (inclusive) charging amount per interval. If int instead of tuple, interpret as both min and max.
         optimization_method : Optional[Literal["baseline", "simple", "sophisticated", "auto"]], default="baseline"
             The method used for optimization.
         moer_data_override : Optional[pd.DataFrame], default=None
@@ -620,6 +618,13 @@ class WattTimeOptimizer(WattTimeForecast):
 
         def is_tz_aware(dt):
             return dt.tzinfo is not None and dt.tzinfo.utcoffset(dt) is not None
+        def min_to_unit(x,floor=True):
+            if x: 
+                if floor: 
+                    return x//OPT_INTERVAL
+                else: 
+                    return int(math.ceil(x/OPT_INTERVAL))
+            return x         
 
         assert is_tz_aware(usage_window_start), "Start time is not tz-aware"
         assert is_tz_aware(usage_window_end), "End time is not tz-aware"
@@ -655,20 +660,16 @@ class WattTimeOptimizer(WattTimeForecast):
         moer_values = relevant_forecast_df["pred_moer"].values
 
         m = moer.Moer(
-            mu=moer_values,
-            isDiagonal=True,
-            sig2=0.0,
+            mu=moer_values
         )
 
-        model = optCharger.OptCharger(
-            fixedChargeRate=1,
-        )
+        model = optCharger.OptCharger()
 
-        total_charge_units = usage_time_required_minutes // OPT_INTERVAL
+        total_charge_units = min_to_unit(usage_time_required_minutes)
         if optimization_method == "sophisticated":
             # Give a buffer time equal to the uncertainty
             buffer_time = usage_time_uncertainty_minutes
-            buffer_periods = int(math.ceil(buffer_time / OPT_INTERVAL))
+            buffer_periods = min_to_unit(buffer_time, False) if buffer_time else 0
             # TODO: Check if there is any off-by-1 error here
             buffer_enforce_time = max(
                 total_charge_units, len(moer_values) - buffer_periods
@@ -723,13 +724,21 @@ class WattTimeOptimizer(WattTimeForecast):
                     / 60.0
                 )
                 return value
-
+        if charge_per_interval is not None: 
+            converted_charge_per_interval = []
+            for c in charge_per_interval: 
+                if isinstance(c,int): 
+                    converted_charge_per_interval.append(min_to_unit(c))
+                else: 
+                    assert(len(c)==2)
+                    converted_charge_per_interval.append((min_to_unit(c[0],False),min_to_unit(c[1])))
+                
         model.fit(
             totalCharge=total_charge_units,
             totalTime=len(moer_values),
             moer=m,
             constraints=constraints,
-            total_intervals=total_intervals,
+            charge_per_interval=converted_charge_per_interval,
             emission_multiplier_fn=emission_multiplier_fn,
             optimization_method=optimization_method,
         )

@@ -555,6 +555,9 @@ class WattTimeOptimizer(WattTimeForecast):
     OPT_INTERVAL = 5
     MAX_PREDICTION_HOURS = 72
 
+    OPT_INTERVAL = 5
+    MAX_PREDICTION_HOURS = 72
+
     def get_optimal_usage_plan(
         self,
         region: str,
@@ -629,7 +632,7 @@ class WattTimeOptimizer(WattTimeForecast):
         def min_to_unit(x,floor=True):
             if x: 
                 if floor: 
-                    return x//self.OPT_INTERVAL
+                    return int(x//self.OPT_INTERVAL)
                 else: 
                     return int(math.ceil(x/self.OPT_INTERVAL))
             return x      
@@ -691,11 +694,7 @@ class WattTimeOptimizer(WattTimeForecast):
 
         model = optCharger.OptCharger()
 
-<<<<<<< HEAD
         total_charge_units = min_to_unit(usage_time_required_minutes)
-=======
-        total_charge_units = int(usage_time_required_minutes // OPT_INTERVAL)
->>>>>>> df741d0 (Added new file api_test, along with some framework for allowing 2 of 3 inputs)
         if optimization_method == "sophisticated":
             # Give a buffer time equal to the uncertainty
             buffer_time = usage_time_uncertainty_minutes

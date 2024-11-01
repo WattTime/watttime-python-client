@@ -8,7 +8,7 @@ from watttime import WattTimeOptimizer
 
 def get_usage_plan_mean_power(usage_plan):
     usage_plan_when_active = usage_plan[usage_plan["usage"]!=0].copy()
-    usage_plan_when_active["power_kw"] = usage_plan_when_active["energy_usage_mwh"]/ (usage_plan_when_active["usage"] / 60) * 1000
+    usage_plan_when_active["power_kw"] = usage_plan_when_active["energy_usage_mwh"] / (usage_plan_when_active["usage"] / 60) * 1000
 
     return usage_plan_when_active["power_kw"].mean()
 
@@ -43,7 +43,7 @@ class TestWattTimeOptimizer(unittest.TestCase):
         # Check power
         self.assertAlmostEqual(get_usage_plan_mean_power(usage_plan), self.usage_power_kw)
         # Check energy required
-        self.assertAlmostEqual(usage_plan["energy_usage_mwh"].sum() * 1000, 240 * self.usage_power_kw)
+        self.assertAlmostEqual(usage_plan["energy_usage_mwh"].sum() * 1000, 240 * self.usage_power_kw / 60)
     
     def test_dp_fixed_power_rate(self):
         """Test the sophisticated plan with a fixed power rate."""
@@ -63,7 +63,7 @@ class TestWattTimeOptimizer(unittest.TestCase):
         # Check power
         self.assertAlmostEqual(get_usage_plan_mean_power(usage_plan), self.usage_power_kw)
         # Check energy required
-        self.assertAlmostEqual(usage_plan["energy_usage_mwh"].sum() * 1000, 240 * self.usage_power_kw)
+        self.assertAlmostEqual(usage_plan["energy_usage_mwh"].sum() * 1000, 240 * self.usage_power_kw / 60)
 
 
     def test_dp_fixed_power_rate_with_uncertainty(self):
@@ -85,7 +85,7 @@ class TestWattTimeOptimizer(unittest.TestCase):
         # Check power
         self.assertAlmostEqual(get_usage_plan_mean_power(usage_plan), self.usage_power_kw)
         # Check energy required
-        self.assertAlmostEqual(usage_plan["energy_usage_mwh"].sum() * 1000, 240 * self.usage_power_kw)
+        self.assertAlmostEqual(usage_plan["energy_usage_mwh"].sum() * 1000, 240 * self.usage_power_kw / 60)
 
 
     def test_dp_variable_power_rate(self):
@@ -104,6 +104,13 @@ class TestWattTimeOptimizer(unittest.TestCase):
         )
         print("Using DP Plan w/ variable power rate (kW)")
         print(usage_plan["emissions_co2e_lb"].sum())
+        
+        # Check time required
+        self.assertAlmostEqual(usage_plan["usage"].sum(), 320)
+        # Check power
+        ### TODO: Maybe implement way of checking power
+        # Check energy required
+        ### TODO: Maybe implement way of checking energy
 
     def test_dp_non_round_usage_time(self):
         """Test auto mode with non-round usage time minutes."""
@@ -124,7 +131,7 @@ class TestWattTimeOptimizer(unittest.TestCase):
         # Check power
         self.assertAlmostEqual(get_usage_plan_mean_power(usage_plan), self.usage_power_kw)
         # Check energy required
-        self.assertAlmostEqual(usage_plan["energy_usage_mwh"].sum() * 1000, 7 * self.usage_power_kw)
+        self.assertAlmostEqual(usage_plan["energy_usage_mwh"].sum() * 1000, 7 * self.usage_power_kw / 60)
 
 
     def test_dp_input_time_energy(self):
@@ -147,7 +154,7 @@ class TestWattTimeOptimizer(unittest.TestCase):
         # Check power
         self.assertAlmostEqual(get_usage_plan_mean_power(usage_plan), 8.5)
         # Check energy required
-        self.assertAlmostEqual(usage_plan["energy_usage_mwh"].sum() * 1000, 17)
+        self.assertAlmostEqual(usage_plan["energy_usage_mwh"].sum() * 1000, 120 * 8.5 / 60)
 
     def test_dp_input_constant_power_energy(self):
         """Test auto mode with a constant power and energy required."""
@@ -168,9 +175,9 @@ class TestWattTimeOptimizer(unittest.TestCase):
         # Check power
         self.assertAlmostEqual(get_usage_plan_mean_power(usage_plan), 5)
         # Check energy required
-        self.assertAlmostEqual(usage_plan["energy_usage_mwh"].sum() * 1000, 15)
+        self.assertAlmostEqual(usage_plan["energy_usage_mwh"].sum() * 1000, 180 * 5 / 60)
 
-    def test_dp_two_intervals(self):
+    def test_dp_two_intervals_unbounded(self):
         """Test auto mode with two intervals."""
         usage_plan = self.wt_opt.get_optimal_usage_plan(
             region=self.region,
@@ -178,13 +185,19 @@ class TestWattTimeOptimizer(unittest.TestCase):
             usage_window_end=self.window_end_test,
             usage_time_required_minutes=160,
             usage_power_kw=self.usage_power_kw,
-            total_intervals=2,
+            charge_per_interval=[(0,999999), (0,999999)],
             optimization_method="auto",
         )
         print("Using auto mode, but with two intervals")
         print(usage_plan["usage"].tolist())
         print(usage_plan.sum())
 
+        # Check time required
+        self.assertAlmostEqual(usage_plan["usage"].sum(), 160)
+        # Check power
+        self.assertAlmostEqual(get_usage_plan_mean_power(usage_plan), self.usage_power_kw)
+        # Check energy required
+        self.assertAlmostEqual(usage_plan["energy_usage_mwh"].sum() * 1000, 160 * self.usage_power_kw / 60)
 
 
 if __name__ == "__main__":

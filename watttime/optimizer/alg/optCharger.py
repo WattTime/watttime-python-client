@@ -272,7 +272,7 @@ class OptCharger:
         self.__optimalChargingSchedule = list(np.diff(optimalPath))
         self.__collect_results(moer)
 
-    def __fixed_contiguous_fit(
+    def __contiguous_fit(
         self,
         totalCharge: int,
         totalTime: int,
@@ -286,7 +286,7 @@ class OptCharger:
 
         This method implements a sophisticated optimization strategy that considers contiguous
         charging intervals. It uses dynamic programming to find an optimal charging schedule
-        while respecting constraints on the length of each charging interval.
+        while respecting the specified length of each charging interval.
 
         Parameters:
         -----------
@@ -299,7 +299,7 @@ class OptCharger:
         emission_multiplier_fn : callable
             A function that calculates emission multipliers.
         charge_per_interval : list of int
-            The charging amount per interval.
+            The exact charging amount per interval.
         constraints : dict, optional
             A dictionary of charging constraints for specific time steps. Constraints are one-indexed: t:(a,b) means that after t minutes, we have to have charged for between a and b minutes inclusive, so that 1<=t<=totalTime
 
@@ -377,13 +377,14 @@ class OptCharger:
         self.__optimalChargingSchedule = list(optimalPath)
         self.__collect_results(moer)
 
-    def __contiguous_fit(
+    def __variable_contiguous_fit(
         self,
         totalCharge: int,
         totalTime: int,
         moer: Moer,
         emission_multiplier_fn,
         charge_per_interval: list = [], # list of tuples
+        use_all_intervals: bool = True,
         constraints: dict = {},
     ):
         """
@@ -405,6 +406,8 @@ class OptCharger:
             A function that calculates emission multipliers.
         charge_per_interval : list of (int, int)
             The minimium and maximum (inclusive) charging amount per interval.
+        use_all_intervals : bool
+            If true, use all intervals provided by charge_per_interval; if false, can use the first few intervals and skip the rest. 
         constraints : dict, optional
             A dictionary of charging constraints for specific time steps. Constraints are one-indexed: t:(a,b) means that after t minutes, we have to have charged for between a and b minutes inclusive, so that 1<=t<=totalTime
 
@@ -455,12 +458,16 @@ class OptCharger:
                                     maxUtil[t,c,k] = newUtil
                                     pathHistory[t-1,c,k,:] = [dc,1]
                                 initVal = False
-                            
-        if np.isnan(maxUtil[totalTime,totalCharge,totalInterval]): 
+        optimal_interval, optimal_util = totalInterval, maxUtil[totalTime,totalCharge,totalInterval]
+        if not use_all_intervals: 
+            for k in range(0,totalInterval):
+                if np.isnan(maxUtil[totalTime,totalCharge,optimal_interval]) or (not np.isnan(maxUtil[totalTime,totalCharge,k]) and maxUtil[totalTime,totalCharge,k] > maxUtil[totalTime,totalCharge,optimal_interval]): 
+                    optimal_interval = k
+        if np.isnan(maxUtil[totalTime,totalCharge,optimal_interval]): 
             ## TODO: In this case we should still return the best possible plan
             ## which would probably to just charge for the entire window
             raise Exception("Solution not found!")
-        curr_state, t_curr = [totalCharge,totalInterval], totalTime
+        curr_state, t_curr = [totalCharge,optimal_interval], totalTime
         # This gives the schedule in reverse
         schedule = []
         while t_curr > 0: 
@@ -485,6 +492,7 @@ class OptCharger:
         totalTime: int,
         moer: Moer,
         charge_per_interval=None,
+        use_all_intervals: bool = True,
         constraints: dict = {},
         emission_multiplier_fn=None,
         optimization_method: str = "auto",
@@ -506,6 +514,8 @@ class OptCharger:
             An object representing Marginal Operating Emissions Rate.
         charge_per_interval : list of int or (int,int), optional
             The minimium and maximum (inclusive) charging amount per interval. If int instead of tuple, interpret as both min and max. 
+        use_all_intervals : bool
+            If true, use all intervals provided by charge_per_interval; if false, can use the first few intervals and skip the rest. This can only be false if charge_per_interval is provided as a range. 
         constraints : dict, optional
             A dictionary of charging constraints for specific time steps.
         emission_multiplier_fn : callable, optional
@@ -579,7 +589,8 @@ class OptCharger:
                 else: 
                     tuple_cpi.append(convert_input(c)[1])
             if use_fixed_alg: 
-                self.__fixed_contiguous_fit(
+                assert use_all_intervals, "Must use all intervals when interval lengths are fixed!"
+                self.__contiguous_fit(
                     totalCharge,
                     totalTime,
                     moer,
@@ -590,7 +601,7 @@ class OptCharger:
                     constraints
                 )
             else: 
-                self.__contiguous_fit(
+                self.__variable_contiguous_fit(
                     totalCharge,
                     totalTime,
                     moer,
@@ -598,6 +609,7 @@ class OptCharger:
                         emission_multiplier_fn, totalCharge
                     ), 
                     tuple_cpi, 
+                    use_all_intervals,
                     constraints
                 )
 

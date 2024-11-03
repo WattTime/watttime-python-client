@@ -592,6 +592,8 @@ class WattTimeOptimizer(WattTimeForecast):
             Uncertainty in usage time, in minutes.
         charge_per_interval : list, default=None
             The minimium and maximum (inclusive) charging amount per interval. If int instead of tuple, interpret as both min and max.
+        use_all_intervals : bool
+            If true, use all intervals provided by charge_per_interval; if false, can use the first few intervals and skip the rest. 
         optimization_method : Optional[Literal["baseline", "simple", "sophisticated", "auto"]], default="baseline"
             The method used for optimization.
         moer_data_override : Optional[pd.DataFrame], default=None

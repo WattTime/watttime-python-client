@@ -568,6 +568,7 @@ class WattTimeOptimizer(WattTimeForecast):
             Literal["baseline", "simple", "sophisticated", "auto"]
         ] = "baseline",
         moer_data_override: Optional[pd.DataFrame] = None,
+        constraints: dict = {}
     ) -> pd.DataFrame:
         """
         Generates an optimal usage plan for energy consumption based on given parameters.
@@ -590,14 +591,16 @@ class WattTimeOptimizer(WattTimeForecast):
             Power usage in kilowatts. Can be a constant value or a DataFrame for variable power.
         usage_time_uncertainty_minutes : Optional[float], default=0
             Uncertainty in usage time, in minutes.
-        charge_per_interval : list, default=None
+        charge_per_interval : list, default=[]
             The minimium and maximum (inclusive) charging amount per interval. If int instead of tuple, interpret as both min and max.
-        use_all_intervals : bool
+        use_all_intervals : Optional[bool], default=False
             If true, use all intervals provided by charge_per_interval; if false, can use the first few intervals and skip the rest. 
         optimization_method : Optional[Literal["baseline", "simple", "sophisticated", "auto"]], default="baseline"
             The method used for optimization.
         moer_data_override : Optional[pd.DataFrame], default=None
             Pre-generated MOER (Marginal Operating Emissions Rate) DataFrame, if available.
+        constraints : Optional[dict], default={}
+            Constraints (?)
 
         Returns:
         --------
@@ -617,8 +620,6 @@ class WattTimeOptimizer(WattTimeForecast):
         - It supports various optimization methods and can handle both constant and variable power usage.
         - The resulting plan aims to minimize emissions while meeting the specified energy requirements.
         """
-
-
 
         def is_tz_aware(dt):
             return dt.tzinfo is not None and dt.tzinfo.utcoffset(dt) is not None
@@ -678,9 +679,7 @@ class WattTimeOptimizer(WattTimeForecast):
             buffer_enforce_time = max(
                 total_charge_units, len(moer_values) - buffer_periods
             )
-            constraints = {buffer_enforce_time: (total_charge_units, None)}
-        else:
-            constraints = {}
+            constraints.update({buffer_enforce_time: (total_charge_units, None)})
 
         if type(usage_power_kw) in (int, float):
             # Convert to the MWh used in an optimization interval

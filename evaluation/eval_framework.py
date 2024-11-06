@@ -652,9 +652,10 @@ def get_schedule_and_cost_api(
         usage_time_required_minutes=time_needed,
         usage_power_kw=usage_power_kw,
         optimization_method=optimization_method,
-        moer_data_override=moer_data,
-        total_intervals = total_intervals
+        moer_data_override=moer_data
     )
+
+
 
     if dp_usage_plan["emissions_co2e_lb"].sum() == 0.0:
         print(

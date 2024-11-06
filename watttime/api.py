@@ -613,7 +613,6 @@ class WattTimeOptimizer(WattTimeForecast):
         - It supports various optimization methods and can handle both constant and variable power usage.
         - The resulting plan aims to minimize emissions while meeting the specified energy requirements.
         """
-
         def is_tz_aware(dt):
             return dt.tzinfo is not None and dt.tzinfo.utcoffset(dt) is not None
 
@@ -780,7 +779,6 @@ class RecalculatingWattTimeOptimizer:
         self.total_time_required = usage_time_required_minutes
         self.usage_power_kw = usage_power_kw
         self.optimization_method = optimization_method
-
         # Setup for us to track schedule/usage
         self.all_schedules = [] # (schedule, ctx)
         self.remaining_time_required = usage_time_required_minutes
@@ -820,7 +818,7 @@ class RecalculatingWattTimeOptimizer:
         # Generate new schedule
         new_schedule = self.wt_opt.get_optimal_usage_plan(
             self.region, 
-            new_start_time, 
+            new_start_time - timedelta(minutes=OPT_INTERVAL), 
             new_end_time, 
             self.remaining_time_required, 
             self.usage_power_kw, 

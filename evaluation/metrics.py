@@ -1,6 +1,6 @@
 from dataclasses import dataclass
 import pandas as pd
-import numpy as np
+from typing import List
 
 @dataclass
 class EvalMetrics:
@@ -10,47 +10,48 @@ class EvalMetrics:
     actuals_col: str
 
     def percent_diff(self, y,x):
-        return (y-x)/x
+        return ((y-x)/x)*100
 
-    def baseline_difference(self, results_frame: pd.DataFrame, percent = False):
+    def forecast_less_baseline(self, results_frame: pd.DataFrame, percent = False): # correct
         if percent == True:
             return self.percent_diff(results_frame[self.forecast_col],results_frame[self.baseline_col])
         else:
             return results_frame[self.forecast_col] - results_frame[self.baseline_col]
    
-    def ideal_difference(self, results_frame: pd.DataFrame, percent = False):
+    def forecast_less_ideal(self, results_frame: pd.DataFrame, percent = False): # correct
         if percent == True:
            return self.percent_diff(results_frame[self.forecast_col],results_frame[self.ideal_col])
         else:
-            return results_frame[self.forecast_col] - results_frame[self.ideal_col]
+            return   results_frame[self.forecast_col] - results_frame[self.ideal_col]
     
-    def actuals_difference(self, results_frame: pd.DataFrame, percent = False):
+    def forecast_less_actuals(self, results_frame: pd.DataFrame, percent = False): # correct
         if percent == True:
-           return self.percent_diff(results_frame[self.forecast_col],results_frame[self.actuals_col])
+           return self.percent_diff(results_frame[self.actuals_col],results_frame[self.forecast_col])
         else:
-            return results_frame[self.forecast_col] - results_frame[self.actuals_col]
+            return  results_frame[self.forecast_col] - results_frame[self.actuals_col]
     
-    def emissions_avoided(self, results_frame: pd.DataFrame, percent = False):
+    def acutals_less_baseline(self, results_frame: pd.DataFrame, percent = False): # correct
         if percent == True:
-           return self.percent_diff(results_frame[self.baseline_col],results_frame[self.actuals_col])
+           return self.percent_diff(results_frame[self.actuals_col],results_frame[self.baseline_col])
         else:
-            return results_frame[self.baseline_col] - results_frame[self.actuals_col]
+            return results_frame[self.actuals_col] - results_frame[self.baseline_col]
         
-    def calculate_results(self, results_frame: pd.DataFrame, percent = False):
-            columns = ["emissions_avoided","baseline_difference","ideal_difference","actuals_difference"]
+    def calculate_results(self, results_frame: pd.DataFrame, keep_cols: List[str], percent = False):
+            columns = ["emissions_avoided","expected_avoidance","nearness_to_ideal","forecast_error"]
             df = pd.DataFrame(
                     list(
                         zip(
-                            self.emissions_avoided(results_frame, percent=percent),
-                            self.baseline_difference(results_frame, percent=percent),
-                            self.ideal_difference(results_frame, percent=percent),
-                            self.actuals_difference(results_frame, percent=percent).to_list()
+                            self.acutals_less_baseline(results_frame, percent=percent).to_list(),
+                            self.forecast_less_baseline(results_frame, percent=percent).to_list(),
+                            self.forecast_less_ideal(results_frame, percent=percent).to_list(),
+                            self.forecast_less_actuals(results_frame, percent=percent).to_list()
                             )
-                            ),
+                        ),
                     columns = columns  
                 )
             if percent == True:
                 columns = [c + "_percent" for c in columns]
             
             df.columns = columns
-            return df
+
+            return pd.concat([results_frame[keep_cols],df])

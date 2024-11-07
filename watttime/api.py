@@ -551,9 +551,6 @@ class WattTimeOptimizer(WattTimeForecast):
                            moer_data_override)
         Generates an optimal usage plan for energy consumption.
     """
-    
-    OPT_INTERVAL = 5
-    MAX_PREDICTION_HOURS = 72
 
     OPT_INTERVAL = 5
     MAX_PREDICTION_HOURS = 72
@@ -646,7 +643,6 @@ class WattTimeOptimizer(WattTimeForecast):
                 num_inputs += 1
         assert num_inputs == 2, "Exactly 2 of 3 inputs in (usage_time_required_minutes, usage_power_kw, energy_required_kwh) required"
         if usage_power_kw is None:
-            # TODO: Test
             usage_power_kw = energy_required_kwh / usage_time_required_minutes * 60
             print("Implied usage_power_kw =", usage_power_kw)
         if usage_time_required_minutes is None:

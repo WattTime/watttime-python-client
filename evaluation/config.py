@@ -1,21 +1,6 @@
 TZ_META_DATA_FILE = "us_region_timezones.csv"
 
 CARS = {
-    'tesla':[
-            [0.0, 250.0],
-            [0.15, 250.0],
-            [0.5, 90.0],
-            [1.0, 10.0],
-        ],
-    'bolt':[
-            [0.0, 50.0],
-            [0.5, 50.0],
-            [0.93, 20.0],
-            [1.0, 0.5],
-        ]
-}
-
-CARS2 = {
     # pulled data from https://www.fastnedcharging.com/en/brands-overview
     # this is a subset of the cars 
     "audi": [ # 71kWh, https://www.fastnedcharging.com/en/brands-overview/audi
@@ -28,6 +13,12 @@ CARS2 = {
         [0.85, 50.0],
         [1.0, 5.0],
     ],
+    'bolt':[
+            [0.0, 50.0],
+            [0.5, 50.0],
+            [0.93, 20.0],
+            [1.0, 0.5],
+        ],
     "honda": [ # 35.5kWh, https://www.fastnedcharging.com/en/brands-overview/honda
         [0.0, 40.0],
         [0.4, 40.0],

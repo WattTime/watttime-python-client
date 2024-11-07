@@ -607,7 +607,7 @@ def get_schedule_and_cost_api(
     total_time_horizon,
     moer_data,
     optimization_method="sophisticated",
-    total_intervals: Optional[int] = 0
+    charge_per_interval: list = []
 ):
     """
     Generate an optimal charging schedule and associated cost using WattTimeOptimizer.
@@ -653,8 +653,10 @@ def get_schedule_and_cost_api(
         usage_power_kw=usage_power_kw,
         optimization_method=optimization_method,
         moer_data_override=moer_data,
-        total_intervals = total_intervals
+        charge_per_interval= charge_per_interval
     )
+
+
 
     if dp_usage_plan["emissions_co2e_lb"].sum() == 0.0:
         print(

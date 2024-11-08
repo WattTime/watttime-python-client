@@ -29,35 +29,14 @@ distinct_date_list = [
 ]
 
 
-def intervalize_power_rate(kW_value: float, convert_to_MW=True) -> float:
+def intervalize_power_rate(kW_value: float, convert_to_MWh=True) -> float:
     """
-    Convert a power rate from kilowatts to a 5-minute interval rate, optionally in megawatts.
-
-    This function takes a power rate in kilowatts and converts it to a rate for a 5-minute interval.
-    It can also optionally convert the result to megawatts.
-
-    Parameters:
-    -----------
-    kW_value : float
-        The power rate in kilowatts.
-    convert_to_MW : bool, optional
-        If True, converts the result to megawatts. Default is True.
-
-    Returns:
-    --------
-    float
-        The power rate for a 5-minute interval, in megawatts if convert_to_MW is True,
-        otherwise in kilowatts.
-
-    Example:
-    --------
-    >>> intervalize_power_rate(60, convert_to_MW=True)
-    0.00025  # (60 kW / 12) / 1000 = 0.00025 MW per 5-minute interval
-    >>> intervalize_power_rate(60, convert_to_MW=False)
-    5.0  # 60 kW / 12 = 5 kW per 5-minute interval
+    Calculate the energy used in an interval from a power rate in kilowatts
+    This will return a value in units of MWh by default.
+    If convert_to_MWh is false, it will convert to kWh units instead.
     """
     five_min_rate = kW_value / 12
-    if convert_to_MW:
+    if convert_to_MWh:
         five_min_rate = five_min_rate / 1000
     return five_min_rate
 

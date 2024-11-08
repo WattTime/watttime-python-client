@@ -83,10 +83,9 @@ dp_usage_plan_4 = wt_opt.get_optimal_usage_plan(
     usage_window_start=window_start_test,
     usage_window_end=window_end_test,
     usage_time_required_minutes=7,
-    usage_power_kw=usage_power_kw_df,
+    usage_power_kw=usage_power_kw,
     optimization_method="auto",
 )
-print(dp_usage_plan_4)
 print(dp_usage_plan_4.sum())
 
 

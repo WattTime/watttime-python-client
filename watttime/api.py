@@ -563,13 +563,12 @@ class WattTimeOptimizer(WattTimeForecast):
         usage_time_required_minutes: float,
         usage_power_kw: Union[int, float, pd.DataFrame],
         usage_time_uncertainty_minutes: Optional[float] = 0,        
-        charge_per_interval: list = [],
+        charge_per_interval: list = None,
         use_all_intervals: bool = True,
         optimization_method: Optional[
             Literal["baseline", "simple", "sophisticated", "auto"]
         ] = "baseline",
         moer_data_override: Optional[pd.DataFrame] = None,
-        constraints: dict = {}
     ) -> pd.DataFrame:
         """
         Generates an optimal usage plan for energy consumption based on given parameters.
@@ -592,7 +591,7 @@ class WattTimeOptimizer(WattTimeForecast):
             Power usage in kilowatts. Can be a constant value or a DataFrame for variable power.
         usage_time_uncertainty_minutes : Optional[float], default=0
             Uncertainty in usage time, in minutes.
-        charge_per_interval : list, default=[]
+        charge_per_interval : list, default=None
             The minimium and maximum (inclusive) charging amount per interval. If int instead of tuple, interpret as both min and max.
         use_all_intervals : Optional[bool], default=False
             If true, use all intervals provided by charge_per_interval; if false, can use the first few intervals and skip the rest. 
@@ -600,8 +599,6 @@ class WattTimeOptimizer(WattTimeForecast):
             The method used for optimization.
         moer_data_override : Optional[pd.DataFrame], default=None
             Pre-generated MOER (Marginal Operating Emissions Rate) DataFrame, if available.
-        constraints : Optional[dict], default={}
-            Constraints (?)
 
         Returns:
         --------
@@ -646,7 +643,7 @@ class WattTimeOptimizer(WattTimeForecast):
         assert optimization_method in ("baseline", "simple", "sophisticated", "auto"), (
             "Unsupported optimization method:" + optimization_method
         )
-
+        constraints = {}
         if moer_data_override is None:
             forecast_df = self.get_forecast_pandas(
                 region=region,
@@ -729,7 +726,7 @@ class WattTimeOptimizer(WattTimeForecast):
                 )
                 return value
         
-        if charge_per_interval is not None: 
+        if charge_per_interval: 
             converted_charge_per_interval = []
             for c in charge_per_interval: 
                 if isinstance(c,int): 
@@ -737,7 +734,9 @@ class WattTimeOptimizer(WattTimeForecast):
                 else: 
                     assert(len(c)==2)
                     converted_charge_per_interval.append((min_to_unit(c[0],False) if c[0] else 0,min_to_unit(c[1]) if c[1] else min_to_unit(usage_time_required_minutes)))
-            print("Charge per interval:", converted_charge_per_interval)
+            # print("Charge per interval:", converted_charge_per_interval)
+        else: 
+            converted_charge_per_interval = None
                 
         model.fit(
             totalCharge=total_charge_units,

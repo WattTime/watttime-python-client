@@ -551,6 +551,7 @@ class WattTimeOptimizer(WattTimeForecast):
                            moer_data_override)
         Generates an optimal usage plan for energy consumption.
     """
+    
     OPT_INTERVAL = 5
     MAX_PREDICTION_HOURS = 72
 

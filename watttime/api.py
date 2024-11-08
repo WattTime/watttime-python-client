@@ -10,10 +10,8 @@ from typing import Any, Dict, List, Literal, Optional, Tuple, Union
 import pandas as pd
 import requests
 from dateutil.parser import parse
-from pytz import UTC, timezone
+from pytz import UTC
 from watttime.optimizer.alg import optCharger, moer
-from watttime.optimizer.alg import optCharger, moer
-
 
 class WattTimeBase:
     url_base = "https://api.watttime.org"
@@ -184,7 +182,7 @@ class WattTimeHistorical(WattTimeBase):
         model: Optional[Union[str, date]] = None,
     ) -> List[dict]:
         """
-        Base function to scrape historical data, returning a list of .json responses.
+OP        Base function to scrape historical data, returning a list of .json responses.
 
         Args:
             start (datetime): inclusive start, with a UTC timezone.
@@ -554,14 +552,21 @@ class WattTimeOptimizer(WattTimeForecast):
         Generates an optimal usage plan for energy consumption.
     """
 
+    OPT_INTERVAL = 5
+    MAX_PREDICTION_HOURS = 72
+
     def get_optimal_usage_plan(
         self,
         region: str,
         usage_window_start: datetime,
         usage_window_end: datetime,
-        usage_time_required_minutes: float,
-        usage_power_kw: Union[int, float, pd.DataFrame],
-        usage_time_uncertainty_minutes: Optional[float] = 0,
+        usage_time_required_minutes: Optional[float] = None,
+        usage_power_kw: Optional[Union[int, float, pd.DataFrame]] = None,
+        energy_required_kwh: Optional[float] = None,
+        usage_time_uncertainty_minutes: Optional[float] = 0,        
+        charge_per_interval: Optional[list] = None,
+        use_all_intervals: bool = True,
+        constraints: Optional[dict] = None,
         optimization_method: Optional[
             Literal["baseline", "simple", "sophisticated", "auto"]
         ] = "baseline",
@@ -574,6 +579,8 @@ class WattTimeOptimizer(WattTimeForecast):
         time window, considering factors such as regional data, power requirements, and
         optimization methods.
 
+        You should pass in exactly 2 of 3 parameters of (usage_time_required_minutes, usage_power_kw, energy_required_kwh)
+
         Parameters:
         -----------
         region : str
@@ -582,12 +589,20 @@ class WattTimeOptimizer(WattTimeForecast):
             Start time of the window when power consumption is allowed.
         usage_window_end : datetime
             End time of the window when power consumption is allowed.
-        usage_time_required_minutes : float
+        usage_time_required_minutes : Optional[float]
             Required usage time in minutes.
-        usage_power_kw : Union[int, float, pd.DataFrame]
+        usage_power_kw : Optional[Union[int, float, pd.DataFrame]]
             Power usage in kilowatts. Can be a constant value or a DataFrame for variable power.
+        energy_required_kwh : Optional[float], default=None
+            Energy required in kwh
         usage_time_uncertainty_minutes : Optional[float], default=0
             Uncertainty in usage time, in minutes.
+        charge_per_interval : Optional[list], default=None
+            The minimium and maximum (inclusive) charging amount per interval. If int instead of tuple, interpret as both min and max.
+        use_all_intervals : Optional[bool], default=False
+            If true, use all intervals provided by charge_per_interval; if false, can use the first few intervals and skip the rest. 
+        constraints : Optional[dict], default=None
+            A dictionary containing contraints on how much usage must be used before the given time point
         optimization_method : Optional[Literal["baseline", "simple", "sophisticated", "auto"]], default="baseline"
             The method used for optimization.
         moer_data_override : Optional[pd.DataFrame], default=None
@@ -612,14 +627,50 @@ class WattTimeOptimizer(WattTimeForecast):
         - The resulting plan aims to minimize emissions while meeting the specified energy requirements.
         """
 
-        OPT_INTERVAL = 5
-        MAX_PREDICTION_HOURS = 72
-
         def is_tz_aware(dt):
             return dt.tzinfo is not None and dt.tzinfo.utcoffset(dt) is not None
+        def minutes_to_units(x,floor=True):
+            if x: 
+                if floor: 
+                    return int(x//self.OPT_INTERVAL)
+                else: 
+                    return int(math.ceil(x/self.OPT_INTERVAL))
+            return x      
 
         assert is_tz_aware(usage_window_start), "Start time is not tz-aware"
         assert is_tz_aware(usage_window_end), "End time is not tz-aware"
+
+        if constraints is None:
+            constraints = {}
+        else:            
+            # TODO: Rename things here to make it clearer
+            old_constraints = constraints.copy()
+            constraints = {}
+
+            for constraint_time_clock, constraint_usage_minutes in old_constraints.items():
+                constraint_time_minutes = (constraint_time_clock - usage_window_start).total_seconds() / 60
+                constraint_time_units = minutes_to_units(constraint_time_minutes)
+                constraint_usage_units = minutes_to_units(constraint_usage_minutes)
+                
+                constraints.update({constraint_time_units: (constraint_usage_units, None)})
+
+
+        num_inputs = 0
+        for input in (usage_time_required_minutes, usage_power_kw, energy_required_kwh):
+            if input is not None:
+                num_inputs += 1
+        assert num_inputs == 2, "Exactly 2 of 3 inputs in (usage_time_required_minutes, usage_power_kw, energy_required_kwh) required"
+        if usage_power_kw is None:
+            usage_power_kw = energy_required_kwh / usage_time_required_minutes * 60
+            print("Implied usage_power_kw =", usage_power_kw)
+        if usage_time_required_minutes is None:
+            if type(usage_power_kw) in (float, int) and type(energy_required_kwh) in (float, int):
+                usage_time_required_minutes = energy_required_kwh / usage_power_kw * 60
+                print("Implied usage time required =", usage_time_required_minutes)
+            else:
+                # TODO: Implement and test
+                raise NotImplementedError
+
         # Perform these checks if we are using live data
         if moer_data_override is None:
             datetime_now = datetime.now(UTC)
@@ -627,17 +678,16 @@ class WattTimeOptimizer(WattTimeForecast):
                 usage_window_end > datetime_now
             ), "Error, Window end is before current datetime"
             assert usage_window_end - datetime_now < timedelta(
-                hours=MAX_PREDICTION_HOURS
+                hours=self.MAX_PREDICTION_HOURS
             ), "End time is too far in the future"
         assert optimization_method in ("baseline", "simple", "sophisticated", "auto"), (
             "Unsupported optimization method:" + optimization_method
         )
-
         if moer_data_override is None:
             forecast_df = self.get_forecast_pandas(
                 region=region,
                 signal_type="co2_moer",
-                horizon_hours=MAX_PREDICTION_HOURS,
+                horizon_hours=self.MAX_PREDICTION_HOURS,
             )
         else:
             forecast_df = moer_data_override.copy()
@@ -652,36 +702,30 @@ class WattTimeOptimizer(WattTimeForecast):
         moer_values = relevant_forecast_df["pred_moer"].values
 
         m = moer.Moer(
-            mu=moer_values,
-            isDiagonal=True,
-            sig2=0.0,
+            mu=moer_values
         )
 
-        model = optCharger.OptCharger(
-            fixedChargeRate=1,
-        )
+        model = optCharger.OptCharger()
 
-        total_charge_units = usage_time_required_minutes // OPT_INTERVAL
+        total_charge_units = minutes_to_units(usage_time_required_minutes)
         if optimization_method == "sophisticated":
             # Give a buffer time equal to the uncertainty
             buffer_time = usage_time_uncertainty_minutes
-            buffer_periods = int(math.ceil(buffer_time / OPT_INTERVAL))
+            buffer_periods = minutes_to_units(buffer_time, False) if buffer_time else 0
             # TODO: Check if there is any off-by-1 error here
             buffer_enforce_time = max(
                 total_charge_units, len(moer_values) - buffer_periods
             )
-            constraints = {buffer_enforce_time: (total_charge_units, None)}
-        else:
-            constraints = {}
+            constraints.update({buffer_enforce_time: (total_charge_units, None)})
 
         if type(usage_power_kw) in (int, float):
             # Convert to the MWh used in an optimization interval
             # expressed as a function to meet the parameter requirements for OptC function
             emission_multiplier_fn = (
-                lambda sc, ec: float(usage_power_kw) * 0.001 * OPT_INTERVAL / 60.0
+                lambda sc, ec: float(usage_power_kw) * 0.001 * self.OPT_INTERVAL / 60.0
             )
         else:
-            usage_power_kw["time_step"] = usage_power_kw["time"] / OPT_INTERVAL
+            usage_power_kw["time_step"] = usage_power_kw["time"] / self.OPT_INTERVAL
             usage_power_kw_new_index = pd.DataFrame(
                 index=list([float(x) for x in range(total_charge_units + 1)])
             )
@@ -716,22 +760,36 @@ class WattTimeOptimizer(WattTimeForecast):
                 value = (
                     usage_power_kw[sc : max(sc, ec - 1e-12)]["power_kw"].mean()
                     * 0.001
-                    * OPT_INTERVAL
+                    * self.OPT_INTERVAL
                     / 60.0
                 )
                 return value
-
+        
+        if charge_per_interval: 
+            converted_charge_per_interval = []
+            for c in charge_per_interval: 
+                if isinstance(c,int): 
+                    converted_charge_per_interval.append(minutes_to_units(c))
+                else: 
+                    assert(len(c)==2)
+                    converted_charge_per_interval.append((minutes_to_units(c[0],False) if c[0] else 0,minutes_to_units(c[1]) if c[1] else minutes_to_units(usage_time_required_minutes)))
+            # print("Charge per interval:", converted_charge_per_interval)
+        else: 
+            converted_charge_per_interval = None
+                
         model.fit(
             totalCharge=total_charge_units,
             totalTime=len(moer_values),
             moer=m,
-            emission_multiplier_fn=emission_multiplier_fn,
             constraints=constraints,
+            charge_per_interval=converted_charge_per_interval,
+            use_all_intervals=use_all_intervals,
+            emission_multiplier_fn=emission_multiplier_fn,
             optimization_method=optimization_method,
         )
 
         optimizer_result = model.get_schedule()
-        result_df["usage"] = [x * float(OPT_INTERVAL) for x in optimizer_result]
+        result_df["usage"] = [x * float(self.OPT_INTERVAL) for x in optimizer_result]
         result_df["emissions_co2e_lb"] = model.get_charging_emissions_over_time()
         result_df["energy_usage_mwh"] = model.get_energy_usage_over_time()
 

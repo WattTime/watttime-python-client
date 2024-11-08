@@ -13,92 +13,17 @@ class OptCharger:
     This class handles the optimization of charging schedules based on various parameters
     such as charge rates, emission overheads, and other constraints.
 
-    Attributes:
-    -----------
-    minChargeRate : int
-        The minimum charging rate allowed.
-    maxChargeRate : int
-        The maximum charging rate allowed.
-    emissionOverhead : bool
-        Indicates whether emission overhead is considered in calculations.
-    startEmissionOverhead : float
-        The emission overhead for starting a charging session.
-    keepEmissionOverhead : float
-        The emission overhead for maintaining a charging session.
-    stopEmissionOverhead : float
-        The emission overhead for stopping a charging session.
-    __optimalChargingEmission : float
-        The calculated optimal charging emission (private attribute).
-    __optimalTotalEmission : float
-        The calculated total optimal emission including overheads (private attribute).
-    __optimalChargingSchedule : list
-        The optimal charging schedule determined by the optimization process (private attribute).
-
     Methods:
     --------
-    __init__(fixedChargeRate=None, minChargeRate=None, maxChargeRate=None,
-             emissionOverhead=False, startEmissionOverhead=0.0,
-             keepEmissionOverhead=0.0, stopEmissionOverhead=0.0)
+    __init__()
         Initializes the OptCharger object with the given parameters.
     """
 
-    def __init__(
-        self,
-        fixedChargeRate: int = None,
-        minChargeRate: int = None,
-        maxChargeRate: int = None,
-        emissionOverhead: bool = False,
-        startEmissionOverhead: float = 0.0,
-        keepEmissionOverhead: float = 0.0,
-        stopEmissionOverhead: float = 0.0,
-    ):
+    def __init__(self):
         """
         Initializes the OptCharger object.
-
-        Parameters:
-        -----------
-        fixedChargeRate : int, optional
-            If provided, sets both minChargeRate and maxChargeRate to this value.
-        minChargeRate : int, optional
-            The minimum charging rate. Used if fixedChargeRate is not provided.
-        maxChargeRate : int, optional
-            The maximum charging rate. Used if fixedChargeRate is not provided.
-        emissionOverhead : bool, optional
-            Whether to consider emission overheads in calculations. Default is False.
-        startEmissionOverhead : float, optional
-            The emission overhead for starting a charging session. Default is 0.0.
-        keepEmissionOverhead : float, optional
-            The emission overhead for maintaining a charging session. Default is 0.0.
-        stopEmissionOverhead : float, optional
-            The emission overhead for stopping a charging session. Default is 0.0.
-
-        Note:
-        -----
-        The method uses a tolerance value (TOL) to determine if emission overheads
-        are significant enough to be considered in calculations.
         """
-        if fixedChargeRate is not None:
-            self.minChargeRate = fixedChargeRate
-            self.maxChargeRate = fixedChargeRate
-        else:
-            self.minChargeRate = minChargeRate
-            self.maxChargeRate = maxChargeRate
-        if emissionOverhead:
-            self.startEmissionOverhead = startEmissionOverhead
-            self.keepEmissionOverhead = keepEmissionOverhead
-            self.stopEmissionOverhead = stopEmissionOverhead
-            self.emissionOverhead = (
-                (startEmissionOverhead > TOL)
-                or (keepEmissionOverhead > TOL)
-                or (stopEmissionOverhead > TOL)
-            )
-        else:
-            self.emissionOverhead = False
-            self.startEmissionOverhead = 0.0
-            self.keepEmissionOverhead = 0.0
-            self.stopEmissionOverhead = 0.0
         self.__optimalChargingEmission = None
-        self.__optimalTotalEmission = None
         self.__optimalChargingSchedule = None
 
     def __collect_results(self, moer: Moer):
@@ -125,7 +50,6 @@ class OptCharger:
         - __optimalChargingEnergyOverTime
         - __optimalChargingEmissionsOverTime
         - __optimalChargingEmission
-        - __optimalTotalEmission
 
         The function also populates the emission_multipliers list, which is used in the calculations.
         """
@@ -142,23 +66,11 @@ class OptCharger:
                 )
                 emission_multipliers.append(power_rate)
 
-        self.__optimalChargingEnergyOverTime = np.array(
-            self.__optimalChargingSchedule
-        ) * np.array(emission_multipliers)
+        self.__optimalChargingEnergyOverTime = np.array(self.__optimalChargingSchedule) * np.array(emission_multipliers)
         self.__optimalChargingEmissionsOverTime = moer.get_emissions(
-            np.array(self.__optimalChargingSchedule) * np.array(emission_multipliers)
+            self.__optimalChargingEnergyOverTime
         )
-        self.__optimalChargingEmission = moer.get_total_emission(
-            np.array(self.__optimalChargingSchedule) * np.array(emission_multipliers)
-        )
-        y = np.hstack((0, self.__optimalOnOffSchedule, 0))
-        yDiff = y[1:] - y[:-1]
-        self.__optimalTotalEmission = (
-            self.__optimalChargingEmission
-            + np.sum(y) * self.keepEmissionOverhead
-            + np.sum(yDiff == 1) * self.startEmissionOverhead
-            + np.sum(yDiff == -1) * self.stopEmissionOverhead
-        )
+        self.__optimalChargingEmission = self.__optimalChargingEmissionsOverTime.sum()
 
     @staticmethod
     def __sanitize_emission_multiplier(emission_multiplier_fn, totalCharge):
@@ -198,8 +110,19 @@ class OptCharger:
         return lambda sc, ec: (
             emission_multiplier_fn(sc, min(ec, totalCharge))
             if (sc < totalCharge)
-            else 1.0
+            else 0.0
         )
+    @staticmethod
+    def __avg_to_interval(emission_multiplier_fn, sc, ec): 
+        # TODO: There is probably a better way to implement this; any thoughts @yhlim?
+        return [emission_multiplier_fn(x,x+1) for x in range(sc,ec)]
+    @staticmethod
+    def __check_constraint(t_start, c_start, dc, constraints): 
+        # assuming constraints[t] is the bound on total charge after t intervals
+        for t in range(t_start+1, t_start+dc): 
+            if (t in constraints) and ((c_start+t-t_start < constraints[t][0]) or (c_start+t-t_start > constraints[t][1])): 
+                return False
+        return True
 
     def __greedy_fit(self, totalCharge: int, totalTime: int, moer: Moer):
         """
@@ -217,24 +140,16 @@ class OptCharger:
         moer : Moer
             An object representing Marginal Operating Emissions Rate.
 
-        Side Effects:
-        -------------
-        Updates the following instance variables:
-        - __optimalChargingSchedule
-        - __optimalOnOffSchedule
-
         Calls __collect_results to process the results.
         """
         print("== Baseline fit! ==")
         chargeToDo = totalCharge
         cs, t = [], 0
         while (chargeToDo > 0) and (t < totalTime):
-            c = max(min(self.maxChargeRate, chargeToDo), self.minChargeRate)
-            chargeToDo -= c
-            cs.append(c)
+            chargeToDo -= 1
+            cs.append(1)
             t += 1
         self.__optimalChargingSchedule = cs + [0] * (totalTime - t)
-        self.__optimalOnOffSchedule = [1] * t + [0] * (totalTime - t)
         self.__collect_results(moer)
 
     def __simple_fit(self, totalCharge: int, totalTime: int, moer: Moer):
@@ -254,31 +169,23 @@ class OptCharger:
         moer : Moer
             An object representing Marginal Operating Emissions Rate.
 
-        Side Effects:
-        -------------
-        Updates the following instance variables:
-        - __optimalChargingSchedule
-        - __optimalOnOffSchedule
-
         Calls __collect_results to process the results.
         """
         print("== Simple fit! ==")
         sorted_times = [
             x
             for _, x in sorted(
-                zip(moer.get_emission_interval(0, totalTime), range(totalTime))
+                zip(moer.get_emission_interval(0, totalTime,1), range(totalTime))
             )
         ]
         chargeToDo = totalCharge
         cs, schedule, t = [0] * totalTime, [0] * totalTime, 0
         while (chargeToDo > 0) and (t < totalTime):
-            c = max(min(self.maxChargeRate, chargeToDo), self.minChargeRate)
-            chargeToDo -= c
-            cs[sorted_times[t]] = c
+            chargeToDo -= 1
+            cs[sorted_times[t]] = 1
             schedule[sorted_times[t]] = 1
             t += 1
         self.__optimalChargingSchedule = cs
-        self.__optimalOnOffSchedule = schedule
         self.__collect_results(moer)
 
     def __diagonal_fit(
@@ -287,7 +194,6 @@ class OptCharger:
         totalTime: int,
         moer: Moer,
         emission_multiplier_fn,
-        ra: float = 0.0,
         constraints: dict = {},
     ):
         """
@@ -307,16 +213,8 @@ class OptCharger:
             An object representing Marginal Operating Emissions Rate.
         emission_multiplier_fn : callable
             A function that calculates emission multipliers.
-        ra : float, optional
-            Risk aversion factor. Default is 0.
         constraints : dict, optional
             A dictionary of charging constraints for specific time steps.
-
-        Side Effects:
-        -------------
-        Updates the following instance variables:
-        - __optimalChargingSchedule
-        - __optimalOnOffSchedule
 
         Calls __collect_results to process the results.
 
@@ -324,23 +222,13 @@ class OptCharger:
         -------
         Exception
             If no valid solution is found.
-
-        Note:
-        -----
-        This method uses a complex dynamic programming approach to optimize the
-        charging schedule considering various factors and constraints.
-        """
-        # maxUtil[{0..totalCharge},{0,1}] = emission (with risk penalty)
-        # path[t,{0..totalCharge},{0,1},:] = [charge,{0,1]}]
-        """
-        This is the DP algorithm 
         """
         print("== Sophisticated fit! ==")
         # This is a matrix with size = number of charge states x number of actions {not charging = 0, charging = 1}
-        maxUtil = np.full((totalCharge + 1, 2), np.nan)
-        maxUtil[0, 0] = 0.0
-        pathHistory = np.full((totalTime, totalCharge + 1, 2, 2), 0, dtype=int)
-        for t in range(totalTime):
+        maxUtil = np.full((totalCharge + 1), np.nan)
+        maxUtil[0] = 0.0
+        pathHistory = np.full((totalTime, totalCharge + 1), -1, dtype=int)
+        for t in range(1,totalTime+1):
             if t in constraints:
                 minCharge, maxCharge = constraints[t]
                 minCharge = 0 if minCharge is None else max(0, minCharge)
@@ -351,78 +239,39 @@ class OptCharger:
                 minCharge, maxCharge = 0, totalCharge
             # print("=== Time step", t, "===")
             newMaxUtil = np.full(maxUtil.shape, np.nan)
+            # print("minCharge, maxCharge =",minCharge,maxCharge)
             for c in range(minCharge, maxCharge + 1):
-                ## update (c,0)
-                # print("-- charge", c, "| charging off --")
+                ## not charging
                 initVal = True
-                if not np.isnan(maxUtil[c, 0]):
-                    newMaxUtil[c, 0] = maxUtil[c, 0]
-                    pathHistory[t, c, 0, :] = [c, 0]
+                if not np.isnan(maxUtil[c]):
+                    newMaxUtil[c] = maxUtil[c]
+                    pathHistory[t-1, c] = c
                     initVal = False
-                if not np.isnan(maxUtil[c, 1]):
-                    newUtil = maxUtil[c, 1] - self.stopEmissionOverhead
-                    if initVal or (newUtil > newMaxUtil[c, 0]):
-                        newMaxUtil[c, 0] = newUtil
-                        pathHistory[t, c, 0, :] = [c, 1]
-
-                ## update (c,1)
-                # print("-- charge", c, "| charging on --")
-                initVal = True
-                for ct in range(self.minChargeRate, min(c, self.maxChargeRate) + 1):
-                    if not np.isnan(maxUtil[c - ct, 0]):
-                        # moer.get_marginal_util gives lbs/MWh. emission function needs to be how many MWh the interval consumes
-                        # which would be power_in_kW * 0.001 * 5/60
-                        newUtil = (
-                            maxUtil[c - ct, 0]
-                            - moer.get_marginal_util(ct, t, ra=ra)
-                            * emission_multiplier_fn(c - ct, c)
-                            - self.startEmissionOverhead
-                            - self.keepEmissionOverhead
-                        )
-                        if initVal or (newUtil > newMaxUtil[c, 1]):
-                            newMaxUtil[c, 1] = newUtil
-                            pathHistory[t, c, 1, :] = [c - ct, 0]
-                        initVal = False
-                    if not np.isnan(maxUtil[c - ct, 1]):
-                        newUtil = (
-                            maxUtil[c - ct, 1]
-                            - moer.get_marginal_util(ct, t, ra=ra)
-                            * emission_multiplier_fn(c - ct, c)
-                            - self.keepEmissionOverhead
-                        )
-                        if initVal or (newUtil > newMaxUtil[c, 1]):
-                            newMaxUtil[c, 1] = newUtil
-                            pathHistory[t, c, 1, :] = [c - ct, 1]
-                        initVal = False
+                ## charging
+                if (c>0) and not np.isnan(maxUtil[c-1]):
+                    # moer.get_emission_at gives lbs/MWh. emission function needs to be how many MWh the interval consumes
+                    # which would be power_in_kW * 0.001 * 5/60
+                    newUtil = maxUtil[c-1]-moer.get_emission_at(t-1, emission_multiplier_fn(c-1,c))
+                    if initVal or (newUtil > newMaxUtil[c]):
+                        newMaxUtil[c] = newUtil
+                        pathHistory[t-1, c] = c-1
+                    initVal = False
             maxUtil = newMaxUtil
-            # print(maxUtil)
-
-        solution_found = False
-        if not np.isnan(maxUtil[totalCharge, 0]):
-            max_util = maxUtil[totalCharge, 0]
-            m_final = 0
-            solution_found = True
-        if not np.isnan(maxUtil[totalCharge, 1]):
-            newUtil = maxUtil[totalCharge, 1] - self.stopEmissionOverhead
-            if not solution_found or (newUtil > max_util):
-                max_util = newUtil
-                m_final = 1
-            solution_found = True
-        if not solution_found:
+        
+        if np.isnan(maxUtil[totalCharge]):
             ## TODO: In this case we should still return the best possible plan
             ## which would probably to just charge for the entire window
             raise Exception("Solution not found!")
-        curr_state, t_curr = [totalCharge, m_final], totalTime - 1
+        curr_state, t_curr = totalCharge, totalTime
         # This gives the schedule in reverse
         schedule = []
         schedule.append(curr_state)
-        while t_curr >= 0:
-            curr_state = pathHistory[t_curr, curr_state[0], curr_state[1], :]
+        while t_curr > 0:
+            curr_state = pathHistory[t_curr-1, curr_state]
             schedule.append(curr_state)
             t_curr -= 1
-        optimalPath = np.array(schedule)[::-1, :]
-        self.__optimalChargingSchedule = list(np.diff(optimalPath[:, 0]))
-        self.__optimalOnOffSchedule = optimalPath[:, 1]
+        optimalPath = np.array(schedule)[::-1]
+        self.__optimalChargingSchedule = list(np.diff(optimalPath))
         self.__collect_results(moer)
 
     def __contiguous_fit(
@@ -431,8 +280,7 @@ class OptCharger:
         totalTime: int,
         moer: Moer,
         emission_multiplier_fn,
-        totalIntervals: int = 1,
-        ra: float = 0.0,
+        charge_per_interval: list = [], # list of ints
         constraints: dict = {},
     ):
         """
@@ -440,7 +288,7 @@ class OptCharger:
 
         This method implements a sophisticated optimization strategy that considers contiguous
         charging intervals. It uses dynamic programming to find an optimal charging schedule
-        while respecting constraints on the number of charging intervals.
+        while respecting the specified length of each charging interval.
 
         Parameters:
         -----------
@@ -452,18 +300,10 @@ class OptCharger:
             An object representing Marginal Operating Emissions Rate.
         emission_multiplier_fn : callable
             A function that calculates emission multipliers.
-        totalIntervals : int, optional
-            The maximum number of contiguous charging intervals allowed. Default is 1.
-        ra : float, optional
-            Risk aversion factor. Default is 0.
+        charge_per_interval : list of int
+            The exact charging amount per interval.
         constraints : dict, optional
-            A dictionary of charging constraints for specific time steps.
-
-        Side Effects:
-        -------------
-        Updates the following instance variables:
-        - __optimalChargingSchedule
-        - __optimalOnOffSchedule
+            A dictionary of charging constraints for specific time steps. Constraints are one-indexed: t:(a,b) means that after t minutes, we have to have charged for between a and b minutes inclusive, so that 1<=t<=totalTime
 
         Calls __collect_results to process the results.
 
@@ -474,101 +314,177 @@ class OptCharger:
 
         Note:
         -----
-        This method uses a complex dynamic programming approach to optimize the
-        charging schedule considering contiguous intervals and various constraints.
+        This is the __diagonal_fit() algorithm with further constraint on contiguous charging intervals and their respective length 
         """
-        print("== Sophisticated contiguous fit! ==")
-        # This is a matrix with size = number of charge states x number of actions {not charging = 0, charging = 1}
-        maxUtil = np.full((totalCharge + 1, 2, totalIntervals + 1), np.nan)
-        maxUtil[0, 0, 0] = 0.0
+        print("== Fixed contiguous fit! ==")
+        # print("Charge per interval constraints:", charge_per_interval)
+        totalInterval = len(charge_per_interval)
+        # This is a matrix with size = number of time states x number of intervals charged so far
+        maxUtil = np.full((totalTime+1,totalInterval+1), np.nan)
+        maxUtil[0,0] = 0.0
         pathHistory = np.full(
-            (totalTime, totalCharge + 1, 2, totalIntervals + 1, 3), 0, dtype=int
+            (totalTime, totalInterval + 1), False, dtype=bool
         )
-        for t in range(totalTime):
+        cum_charge = [0]
+        for c in charge_per_interval: 
+            cum_charge.append(cum_charge[-1]+c)
+        print("Cumulative charge", cum_charge)
+        for t in range(1, totalTime+1):
             if t in constraints:
                 minCharge, maxCharge = constraints[t]
                 minCharge = 0 if minCharge is None else max(0, minCharge)
-                maxCharge = (
-                    totalCharge if maxCharge is None else min(maxCharge, totalCharge)
-                )
+                maxCharge = totalCharge if maxCharge is None else min(maxCharge, totalCharge)
+                constraints[t] = (minCharge, maxCharge)
             else:
                 minCharge, maxCharge = 0, totalCharge
-            newMaxUtil = np.full(maxUtil.shape, np.nan)
-            for k in range(0, totalIntervals + 1):
-                for c in range(minCharge, maxCharge + 1):
-                    ## update (c,0,k)
-                    initVal = True
-                    if not np.isnan(maxUtil[c, 0, k]):
-                        newMaxUtil[c, 0, k] = maxUtil[c, 0, k]
-                        pathHistory[t, c, 0, k, :] = [c, 0, k]
+            for k in range(0, totalInterval + 1):
+                # print(t,k)
+                ## not charging
+                initVal = True
+                if not np.isnan(maxUtil[t-1, k]):
+                    maxUtil[t, k] = maxUtil[t-1, k]
+                    initVal = False
+                ## charging
+                if (k>0) and (charge_per_interval[k-1]<=t): 
+                    dc = charge_per_interval[k-1]
+                    if not np.isnan(maxUtil[t-dc,k-1]) and OptCharger.__check_constraint(t-dc,cum_charge[k-1],dc,constraints): 
+                        marginalcost = moer.get_emission_interval(t-dc,t,OptCharger.__avg_to_interval(emission_multiplier_fn,cum_charge[k-1],cum_charge[k]))
+                        newUtil = maxUtil[t-dc,k-1] - marginalcost
+                        if initVal or (newUtil > maxUtil[t,k]): 
+                            maxUtil[t,k] = newUtil
+                            pathHistory[t-1,k] = True
                         initVal = False
-                    if not np.isnan(maxUtil[c, 1, k]):
-                        newUtil = maxUtil[c, 1, k] - self.stopEmissionOverhead
-                        if initVal or (newUtil > newMaxUtil[c, 0, k]):
-                            newMaxUtil[c, 0, k] = newUtil
-                            pathHistory[t, c, 0, k, :] = [c, 1, k]
-                    ## update (c,1,k)
-                    if k == 0:
-                        # If charging is on, we must have k > 0
-                        continue
-                    initVal = True
-                    for ct in range(self.minChargeRate, min(c, self.maxChargeRate) + 1):
-                        if not np.isnan(maxUtil[c - ct, 0, k - 1]):
-                            newUtil = (
-                                maxUtil[c - ct, 0, k - 1]
-                                - moer.get_marginal_util(ct, t, ra=ra)
-                                * emission_multiplier_fn(c - ct, c)
-                                - self.startEmissionOverhead
-                                - self.keepEmissionOverhead
-                            )
-                            if initVal or (newUtil > newMaxUtil[c, 1, k]):
-                                newMaxUtil[c, 1, k] = newUtil
-                                pathHistory[t, c, 1, k, :] = [c - ct, 0, k - 1]
-                            initVal = False
-                        if not np.isnan(maxUtil[c - ct, 1, k]):
-                            newUtil = (
-                                maxUtil[c - ct, 1, k]
-                                - moer.get_marginal_util(ct, t, ra=ra)
-                                * emission_multiplier_fn(c - ct, c)
-                                - self.keepEmissionOverhead
-                            )
-                            if initVal or (newUtil > newMaxUtil[c, 1, k]):
-                                newMaxUtil[c, 1, k] = newUtil
-                                pathHistory[t, c, 1, k, :] = [c - ct, 1, k]
-                            initVal = False
-            maxUtil = newMaxUtil
-
-        solution_found = False
-        for k in range(0, totalIntervals + 1):
-            if not np.isnan(maxUtil[totalCharge, 0, k]):
-                newUtil = maxUtil[totalCharge, 0, k]
-                if not solution_found or (newUtil > max_util):
-                    max_util = newUtil
-                    m_final = (0, k)
-                solution_found = True
-            if not np.isnan(maxUtil[totalCharge, 1, k]):
-                newUtil = maxUtil[totalCharge, 1, k] - self.stopEmissionOverhead
-                if not solution_found or (newUtil > max_util):
-                    max_util = newUtil
-                    m_final = (1, k)
-                solution_found = True
-        if not solution_found:
+                            
+        if np.isnan(maxUtil[totalTime,totalInterval]): 
             ## TODO: In this case we should still return the best possible plan
             ## which would probably to just charge for the entire window
             raise Exception("Solution not found!")
-        curr_state, t_curr = [totalCharge, *m_final], totalTime - 1
+        curr_state, t_curr = totalInterval, totalTime
         # This gives the schedule in reverse
         schedule = []
-        schedule.append(curr_state)
-        while t_curr >= 0:
-            curr_state = pathHistory[
-                t_curr, curr_state[0], curr_state[1], curr_state[2], :
-            ]
-            schedule.append(curr_state)
-            t_curr -= 1
-        optimalPath = np.array(schedule)[::-1, :]
-        self.__optimalChargingSchedule = list(np.diff(optimalPath[:, 0]))
-        self.__optimalOnOffSchedule = optimalPath[:, 1]
+        while t_curr > 0: 
+            di = pathHistory[t_curr-1, curr_state]
+            if not di: 
+                ## did not charge 
+                schedule.append(0)
+                t_curr -= 1  
+            else: 
+                ## charge
+                dc = charge_per_interval[curr_state-1]
+                t_curr -= dc
+                curr_state -= 1
+                if dc>0: 
+                    schedule.extend([1]*dc)         
+        optimalPath = np.array(schedule)[::-1]
+        self.__optimalChargingSchedule = list(optimalPath)
+        self.__collect_results(moer)
+
+    def __variable_contiguous_fit(
+        self,
+        totalCharge: int,
+        totalTime: int,
+        moer: Moer,
+        emission_multiplier_fn,
+        charge_per_interval: list = [], # list of tuples
+        use_all_intervals: bool = True,
+        constraints: dict = {},
+    ):
+        """
+        Performs a contiguous fit for charging schedule optimization using dynamic programming.
+
+        This method implements a sophisticated optimization strategy that considers contiguous
+        charging intervals. It uses dynamic programming to find an optimal charging schedule
+        while respecting constraints on the length of each charging interval.
+
+        Parameters:
+        -----------
+        totalCharge : int
+            The total amount of charge needed.
+        totalTime : int
+            The total time available for charging.
+        moer : Moer
+            An object representing Marginal Operating Emissions Rate.
+        emission_multiplier_fn : callable
+            A function that calculates emission multipliers.
+        charge_per_interval : list of (int, int)
+            The minimium and maximum (inclusive) charging amount per interval.
+        use_all_intervals : bool
+            If true, use all intervals provided by charge_per_interval; if false, can use the first few intervals and skip the rest. 
+        constraints : dict, optional
+            A dictionary of charging constraints for specific time steps. Constraints are one-indexed: t:(a,b) means that after t minutes, we have to have charged for between a and b minutes inclusive, so that 1<=t<=totalTime
+
+        Calls __collect_results to process the results.
+
+        Raises:
+        -------
+        Exception
+            If no valid solution is found.
+
+        Note:
+        -----
+        This is the __diagonal_fit() algorithm with further constraint on contiguous charging intervals and their respective length 
+        """
+        print("== Variable contiguous fit! ==")
+        # print(" erval constraints:", charge_per_interval)
+        totalInterval = len(charge_per_interval) 
+        # This is a matrix with size = number of time states x number of charge states x number of intervals charged so far
+        maxUtil = np.full((totalTime+1,totalCharge+1,totalInterval+1), np.nan)
+        maxUtil[0,0,0] = 0.0
+        pathHistory = np.full(
+            (totalTime, totalCharge + 1, totalInterval + 1, 2), 0, dtype=int
+        )
+        for t in range(1, totalTime+1):
+            if t in constraints:
+                minCharge, maxCharge = constraints[t]
+                minCharge = 0 if minCharge is None else max(0, minCharge)
+                maxCharge = totalCharge if maxCharge is None else min(maxCharge, totalCharge)
+                constraints[t] = (minCharge, maxCharge)
+            else:
+                minCharge, maxCharge = 0, totalCharge
+            for k in range(0, totalInterval + 1):
+                for c in range(minCharge, maxCharge + 1):
+                    ## not charging
+                    initVal = True
+                    if not np.isnan(maxUtil[t-1, c, k]):
+                        maxUtil[t, c, k] = maxUtil[t-1, c, k]
+                        pathHistory[t-1, c, k, :] = [0,0]
+                        initVal = False
+                    ## charging
+                    if k > 0: 
+                        for dc in range(charge_per_interval[k-1][0],min(charge_per_interval[k-1][1],t,c)+1):
+                            if not np.isnan(maxUtil[t-dc,c-dc,k-1]) and OptCharger.__check_constraint(t-dc,c-dc,dc,constraints): 
+                                marginalcost = moer.get_emission_interval(t-dc,t,OptCharger.__avg_to_interval(emission_multiplier_fn,c-dc,c))
+                                newUtil = maxUtil[t-dc,c-dc,k-1] - marginalcost
+                                if initVal or (newUtil > maxUtil[t,c,k]): 
+                                    maxUtil[t,c,k] = newUtil
+                                    pathHistory[t-1,c,k,:] = [dc,1]
+                                initVal = False
+        optimal_interval, optimal_util = totalInterval, maxUtil[totalTime,totalCharge,totalInterval]
+        if not use_all_intervals: 
+            for k in range(0,totalInterval):
+                if np.isnan(maxUtil[totalTime,totalCharge,optimal_interval]) or (not np.isnan(maxUtil[totalTime,totalCharge,k]) and maxUtil[totalTime,totalCharge,k] > maxUtil[totalTime,totalCharge,optimal_interval]): 
+                    optimal_interval = k
+        if np.isnan(maxUtil[totalTime,totalCharge,optimal_interval]): 
+            ## TODO: In this case we should still return the best possible plan
+            ## which would probably to just charge for the entire window
+            raise Exception("Solution not found!")
+        curr_state, t_curr = [totalCharge,optimal_interval], totalTime
+        # This gives the schedule in reverse
+        schedule = []
+        while t_curr > 0: 
+            dc,di = pathHistory[t_curr-1, curr_state[0], curr_state[1], :]
+            if di==0: 
+                ## did not charge 
+                schedule.append(0)
+                t_curr -= 1  
+            else: 
+                ## charge
+                t_curr -= dc
+                curr_state = [curr_state[0]-dc, curr_state[1]-di]
+                if dc>0: 
+                    schedule.extend([1]*dc)         
+        optimalPath = np.array(schedule)[::-1]
+        self.__optimalChargingSchedule = list(optimalPath)
         self.__collect_results(moer)
 
     def fit(
@@ -576,9 +492,9 @@ class OptCharger:
         totalCharge: int,
         totalTime: int,
         moer: Moer,
-        totalIntervals: int = 0,
+        charge_per_interval=None,
+        use_all_intervals: bool = True,
         constraints: dict = {},
-        ra: float = 0.0,
         emission_multiplier_fn=None,
         optimization_method: str = "auto",
     ):
@@ -597,12 +513,12 @@ class OptCharger:
             The total time available for charging.
         moer : Moer
             An object representing Marginal Operating Emissions Rate.
-        totalIntervals : int, optional
-            The maximum number of contiguous charging intervals allowed. Default is 0 (no limit).
+        charge_per_interval : list of int or (int,int), optional
+            The minimium and maximum (inclusive) charging amount per interval. If int instead of tuple, interpret as both min and max. 
+        use_all_intervals : bool
+            If true, use all intervals provided by charge_per_interval; if false, can use the first few intervals and skip the rest. This can only be false if charge_per_interval is provided as a range. 
         constraints : dict, optional
             A dictionary of charging constraints for specific time steps.
-        ra : float, optional
-            Risk aversion factor. Default is 0.
         emission_multiplier_fn : callable, optional
             A function that calculates emission multipliers. If None, assumes constant 1kW power usage.
         optimization_method : str, optional
@@ -621,71 +537,82 @@ class OptCharger:
         parameters and the characteristics of the problem.
         """
         assert len(moer) >= totalTime
+        assert optimization_method in ['baseline','simple','sophisticated','auto']
         if emission_multiplier_fn is None:
             print(
                 "Warning: OptCharger did not get an emission_multiplier_fn. Assuming that device uses constant 1kW of power"
             )
             emission_multiplier_fn = lambda sc, ec: 1.0
+            constant_emission_multiplier = True
+        else:
+            constant_emission_multiplier = np.std([emission_multiplier_fn(sc,sc+1) for sc in list(range(totalCharge))]) < EMISSION_FN_TOL
         # Store emission_multiplier_fn for evaluation
         self.emission_multiplier_fn = emission_multiplier_fn
-        constant_emission_multiplier = (
-            np.std(
-                [emission_multiplier_fn(sc, sc + 1) for sc in list(range(totalCharge))]
-            )
-            < EMISSION_FN_TOL
-        )
-        if totalCharge > totalTime * self.maxChargeRate:
+        if totalCharge > totalTime:
+            # TODO: might want to just print out charging all the time instead of failing
             raise Exception(
                 f"Impossible to charge {totalCharge} within {totalTime} intervals."
             )
         if optimization_method == "baseline":
             self.__greedy_fit(totalCharge, totalTime, moer)
         elif (
-            (optimization_method == "auto")
-            and (
-                not self.emissionOverhead
-                and ra < TOL
-                and not constraints
-                and totalIntervals <= 0
-                and constant_emission_multiplier
-            )
-            or (optimization_method == "simple")
-        ):
+            not constraints
+            and not charge_per_interval 
+            and constant_emission_multiplier
+            and optimization_method=='auto'
+         ) or (optimization_method=='simple'):
             if not constant_emission_multiplier:
-                print(
-                    "Warning: Emissions function is non-constant. Using the simple algorithm is suboptimal."
-                )
+                print("Warning: Emissions function is non-constant. Using the simple algorithm is suboptimal.")
             self.__simple_fit(totalCharge, totalTime, moer)
-        elif (
-            (optimization_method == "auto")
-            and moer.is_diagonal()
-            or (optimization_method == "sophisticated")
-        ):
-            if totalIntervals <= 0:
-                self.__diagonal_fit(
-                    totalCharge,
-                    totalTime,
-                    moer,
-                    OptCharger.__sanitize_emission_multiplier(
-                        emission_multiplier_fn, totalCharge
-                    ),
-                    ra,
-                    constraints,
-                )
-            else:
+        elif not charge_per_interval:
+            self.__diagonal_fit(
+                totalCharge,
+                totalTime,
+                moer,
+                OptCharger.__sanitize_emission_multiplier(
+                    emission_multiplier_fn, totalCharge
+                ), 
+                constraints
+            )
+        else:
+            single_cpi, tuple_cpi, use_fixed_alg = [], [], True
+            def convert_input(c): 
+                if isinstance(c,int): 
+                    return c,(c,c),True
+                if c[0]==c[1]: 
+                    return c[0],c,True
+                return None,c,False
+            for c in charge_per_interval: 
+                if use_fixed_alg:
+                    sc,tc,use_fixed_alg = convert_input(c)
+                    single_cpi.append(sc)
+                    tuple_cpi.append(tc)
+                else: 
+                    tuple_cpi.append(convert_input(c)[1])
+            if use_fixed_alg: 
+                assert use_all_intervals, "Must use all intervals when interval lengths are fixed!"
                 self.__contiguous_fit(
                     totalCharge,
                     totalTime,
                     moer,
                     OptCharger.__sanitize_emission_multiplier(
                         emission_multiplier_fn, totalCharge
-                    ),
-                    totalIntervals,
-                    ra,
-                    constraints,
+                    ), 
+                    single_cpi, 
+                    constraints
                 )
-        else:
-            raise Exception("Non diagonal risk not implemented!")
+            else: 
+                self.__variable_contiguous_fit(
+                    totalCharge,
+                    totalTime,
+                    moer,
+                    OptCharger.__sanitize_emission_multiplier(
+                        emission_multiplier_fn, totalCharge
+                    ), 
+                    tuple_cpi, 
+                    use_all_intervals,
+                    constraints
+                )
 
     def get_energy_usage_over_time(self) -> list:
         """
@@ -705,24 +632,14 @@ class OptCharger:
         """
         return self.__optimalChargingEmissionsOverTime
 
-    def get_charging_emission(self) -> float:
-        """
-        Returns:
-        --------
-        float
-            The summed emissions due to charging in lbs.
-            This excludes penalty terms due to risk aversion.
-        """
-        return self.__optimalChargingEmission
-
     def get_total_emission(self) -> float:
         """
         Returns:
         --------
         float
-            The summed emissions due to charging and penalty terms in lbs.
+            The summed emissions due to charging in lbs.
         """
-        return self.__optimalTotalEmission
+        return self.__optimalChargingEmission
 
     def get_schedule(self) -> list:
         """
@@ -738,6 +655,5 @@ class OptCharger:
     def summary(self):
         print("-- Model Summary --")
         print("Expected charging emissions: %.2f lbs" % self.__optimalChargingEmission)
-        print("Expected total emissions: %.2f lbs" % self.__optimalTotalEmission)
         print("Optimal charging schedule:", self.__optimalChargingSchedule)
         print("=" * 15)

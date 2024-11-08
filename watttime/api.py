@@ -564,8 +564,9 @@ class WattTimeOptimizer(WattTimeForecast):
         usage_power_kw: Optional[Union[int, float, pd.DataFrame]] = None,
         energy_required_kwh: Optional[float] = None,
         usage_time_uncertainty_minutes: Optional[float] = 0,        
-        charge_per_interval: list = None,
+        charge_per_interval: Optional[list] = None,
         use_all_intervals: bool = True,
+        constraints: Optional[dict] = None,
         optimization_method: Optional[
             Literal["baseline", "simple", "sophisticated", "auto"]
         ] = "baseline",
@@ -596,10 +597,12 @@ class WattTimeOptimizer(WattTimeForecast):
             Energy required in kwh
         usage_time_uncertainty_minutes : Optional[float], default=0
             Uncertainty in usage time, in minutes.
-        charge_per_interval : list, default=None
+        charge_per_interval : Optional[list], default=None
             The minimium and maximum (inclusive) charging amount per interval. If int instead of tuple, interpret as both min and max.
         use_all_intervals : Optional[bool], default=False
             If true, use all intervals provided by charge_per_interval; if false, can use the first few intervals and skip the rest. 
+        constraints : Optional[dict], default=None
+            A dictionary containing contraints on how much usage must be used before the given time point
         optimization_method : Optional[Literal["baseline", "simple", "sophisticated", "auto"]], default="baseline"
             The method used for optimization.
         moer_data_override : Optional[pd.DataFrame], default=None
@@ -626,7 +629,7 @@ class WattTimeOptimizer(WattTimeForecast):
 
         def is_tz_aware(dt):
             return dt.tzinfo is not None and dt.tzinfo.utcoffset(dt) is not None
-        def min_to_unit(x,floor=True):
+        def minutes_to_units(x,floor=True):
             if x: 
                 if floor: 
                     return int(x//self.OPT_INTERVAL)
@@ -636,6 +639,21 @@ class WattTimeOptimizer(WattTimeForecast):
 
         assert is_tz_aware(usage_window_start), "Start time is not tz-aware"
         assert is_tz_aware(usage_window_end), "End time is not tz-aware"
+
+        if constraints is None:
+            constraints = {}
+        else:            
+            # TODO: Rename things here to make it clearer
+            old_constraints = constraints.copy()
+            constraints = {}
+
+            for constraint_time_clock, constraint_usage_minutes in old_constraints.items():
+                constraint_time_minutes = (constraint_time_clock - usage_window_start).total_seconds() / 60
+                constraint_time_units = minutes_to_units(constraint_time_minutes)
+                constraint_usage_units = minutes_to_units(constraint_usage_minutes)
+                
+                constraints.update({constraint_time_units: (constraint_usage_units, None)})
+
 
         num_inputs = 0
         for input in (usage_time_required_minutes, usage_power_kw, energy_required_kwh):
@@ -665,7 +683,6 @@ class WattTimeOptimizer(WattTimeForecast):
         assert optimization_method in ("baseline", "simple", "sophisticated", "auto"), (
             "Unsupported optimization method:" + optimization_method
         )
-        constraints = {}
         if moer_data_override is None:
             forecast_df = self.get_forecast_pandas(
                 region=region,
@@ -690,11 +707,11 @@ class WattTimeOptimizer(WattTimeForecast):
 
         model = optCharger.OptCharger()
 
-        total_charge_units = min_to_unit(usage_time_required_minutes)
+        total_charge_units = minutes_to_units(usage_time_required_minutes)
         if optimization_method == "sophisticated":
             # Give a buffer time equal to the uncertainty
             buffer_time = usage_time_uncertainty_minutes
-            buffer_periods = min_to_unit(buffer_time, False) if buffer_time else 0
+            buffer_periods = minutes_to_units(buffer_time, False) if buffer_time else 0
             # TODO: Check if there is any off-by-1 error here
             buffer_enforce_time = max(
                 total_charge_units, len(moer_values) - buffer_periods
@@ -752,10 +769,10 @@ class WattTimeOptimizer(WattTimeForecast):
             converted_charge_per_interval = []
             for c in charge_per_interval: 
                 if isinstance(c,int): 
-                    converted_charge_per_interval.append(min_to_unit(c))
+                    converted_charge_per_interval.append(minutes_to_units(c))
                 else: 
                     assert(len(c)==2)
-                    converted_charge_per_interval.append((min_to_unit(c[0],False) if c[0] else 0,min_to_unit(c[1]) if c[1] else min_to_unit(usage_time_required_minutes)))
+                    converted_charge_per_interval.append((minutes_to_units(c[0],False) if c[0] else 0,minutes_to_units(c[1]) if c[1] else minutes_to_units(usage_time_required_minutes)))
             # print("Charge per interval:", converted_charge_per_interval)
         else: 
             converted_charge_per_interval = None

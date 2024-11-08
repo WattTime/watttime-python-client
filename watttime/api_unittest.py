@@ -201,4 +201,36 @@ class TestWattTimeOptimizer(unittest.TestCase):
 
 
 if __name__ == "__main__":
-    unittest.main()
+    # unittest.main()
+
+    from datetime import datetime, timedelta
+    import pandas as pd
+    from pytz import UTC
+    from watttime import WattTimeOptimizer
+
+    username = os.getenv("WATTTIME_USER")
+    password = os.getenv("WATTTIME_PASSWORD")
+    wt_opt = WattTimeOptimizer(username, password)
+
+    # Suppose that the time now is 12 midnight
+    now = datetime.now(UTC)
+    window_start = now
+    window_end = now + timedelta(minutes=720)
+    usage_time_required_minutes = 240
+    constraint_time = now + timedelta(minutes=480)
+    constraint_usage_time_required_minutes = 180
+    constraints = {constraint_time:constraint_usage_time_required_minutes}
+    usage_power_kw = 12.0
+    region = "PJM_NJ"
+
+    usage_plan = wt_opt.get_optimal_usage_plan(
+        region=region,
+        usage_window_start=window_start,
+        usage_window_end=window_end,
+        usage_time_required_minutes=240,
+        usage_power_kw=usage_power_kw,
+        constraints=constraints,
+        optimization_method="sophisticated",
+    )
+
+    print(usage_plan)

@@ -239,14 +239,16 @@ class OptCharger:
                 minCharge, maxCharge = 0, totalCharge
             # print("=== Time step", t, "===")
             newMaxUtil = np.full(maxUtil.shape, np.nan)
+            # print("minCharge, maxCharge =",minCharge,maxCharge)
             for c in range(minCharge, maxCharge + 1):
-                ## Do not charge
+                ## not charging
                 initVal = True
                 if not np.isnan(maxUtil[c]):
                     newMaxUtil[c] = maxUtil[c]
                     pathHistory[t-1, c] = c
                     initVal = False
-                if not np.isnan(maxUtil[c-1]):
+                ## charging
+                if (c>0) and not np.isnan(maxUtil[c-1]):
                     # moer.get_emission_at gives lbs/MWh. emission function needs to be how many MWh the interval consumes
                     # which would be power_in_kW * 0.001 * 5/60
                     newUtil = maxUtil[c-1]-moer.get_emission_at(t-1, emission_multiplier_fn(c-1,c))
@@ -315,7 +317,7 @@ class OptCharger:
         This is the __diagonal_fit() algorithm with further constraint on contiguous charging intervals and their respective length 
         """
         print("== Fixed contiguous fit! ==")
-        print("Charge per interval constraints:", charge_per_interval)
+        # print("Charge per interval constraints:", charge_per_interval)
         totalInterval = len(charge_per_interval)
         # This is a matrix with size = number of time states x number of intervals charged so far
         maxUtil = np.full((totalTime+1,totalInterval+1), np.nan)
@@ -423,8 +425,8 @@ class OptCharger:
         This is the __diagonal_fit() algorithm with further constraint on contiguous charging intervals and their respective length 
         """
         print("== Variable contiguous fit! ==")
-        print("Charge per interval constraints:", charge_per_interval)
-        totalInterval = len(charge_per_interval)
+        # print(" erval constraints:", charge_per_interval)
+        totalInterval = len(charge_per_interval) 
         # This is a matrix with size = number of time states x number of charge states x number of intervals charged so far
         maxUtil = np.full((totalTime+1,totalCharge+1,totalInterval+1), np.nan)
         maxUtil[0,0,0] = 0.0
@@ -441,7 +443,6 @@ class OptCharger:
                 minCharge, maxCharge = 0, totalCharge
             for k in range(0, totalInterval + 1):
                 for c in range(minCharge, maxCharge + 1):
-                    # print(t,c,k)
                     ## not charging
                     initVal = True
                     if not np.isnan(maxUtil[t-1, c, k]):

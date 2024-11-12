@@ -10,6 +10,7 @@ import matplotlib.pyplot as plt
 
 from watttime import (
     WattTimeOptimizer,
+    RecalculatingWattTimeOptimizer, 
 )
 
 import unittest
@@ -17,7 +18,6 @@ import unittest
 region = "PJM_NJ"
 username = os.getenv("WATTTIME_USER")
 password = os.getenv("WATTTIME_PASSWORD")
-
 wt_opt = WattTimeOptimizer(username, password)
 
 now = datetime.now(UTC)

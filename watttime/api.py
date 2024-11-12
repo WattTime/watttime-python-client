@@ -536,6 +536,8 @@ class WattTimeForecast(WattTimeBase):
                 out = pd.concat([out, _df])
         return out
 
+OPT_INTERVAL = 5
+MAX_PREDICTION_HOURS = 72
 
 class WattTimeOptimizer(WattTimeForecast):
     """
@@ -822,3 +824,99 @@ class WattTimeMaps(WattTimeBase):
         rsp = requests.get(url, headers=headers, params=params)
         rsp.raise_for_status()
         return rsp.json()
+
+class RecalculatingWattTimeOptimizer:
+    def __init__(
+        self, 
+        watttime_username: str, 
+        watttime_password: str,
+        region: str, usage_time_required_minutes: float, 
+        usage_power_kw:  Union[int, float, pd.DataFrame], 
+        optimization_method: Optional[
+            Literal["baseline", "simple", "sophisticated", "auto"]
+        ],
+    ) -> None:
+        # Settings that stay consistent across calls to get_optimal_usage_plan
+        self.region = region
+        self.total_time_required = usage_time_required_minutes
+        self.usage_power_kw = usage_power_kw
+        self.optimization_method = optimization_method
+        
+        # Setup for us to track schedule/usage
+        self.all_schedules = [] # (schedule, ctx)
+        self.remaining_time_required = usage_time_required_minutes
+
+        # Set up to query for fcsts
+        self.forecast_generator = WattTimeForecast(watttime_username, watttime_password)
+        self.wt_opt = WattTimeOptimizer(watttime_username, watttime_password)
+
+        # Set up to query for actual data
+        self.wt_hist = WattTimeHistorical(watttime_username, watttime_password)
+
+
+    def get_new_schedule(self, new_start_time: datetime, new_end_time: datetime, curr_fcst_data: pd.DataFrame=None) -> pd.DataFrame:
+        if curr_fcst_data is None:
+            # Get new data
+            curr_fcst_data = self.forecast_generator.get_historical_forecast_pandas(
+                start=new_start_time - timedelta(minutes=OPT_INTERVAL), 
+                end=new_start_time,
+                region=self.region,
+                signal_type="co2_moer",
+                horizon_hours=MAX_PREDICTION_HOURS,
+            )
+        curr_fcst_data["point_time"] = pd.to_datetime(curr_fcst_data["point_time"])
+        new_schedule_start_time = curr_fcst_data["point_time"].iloc[0]
+        
+        # If there a previously produced schedule, assume we followed that schedule until getting the new one
+        if len(self.all_schedules) > 0:
+            # Set end time of last ctx
+            schedule, ctx = self.all_schedules[-1]
+            self.all_schedules[-1] = (schedule, (ctx[0], new_schedule_start_time))
+            assert ctx[0] < new_schedule_start_time
+
+            # Calculate remaining time required
+            usage = int(schedule[schedule.index < new_schedule_start_time]["usage"].sum())
+            self.remaining_time_required -= usage
+
+        # Generate new schedule
+        new_schedule = self.wt_opt.get_optimal_usage_plan(
+            self.region, 
+            new_start_time - timedelta(minutes=OPT_INTERVAL), 
+            new_end_time, 
+            self.remaining_time_required, 
+            self.usage_power_kw, 
+            optimization_method=self.optimization_method,
+            moer_data_override=curr_fcst_data,
+        )
+        new_schedule_ctx = (new_schedule_start_time, new_end_time)
+
+        self.all_schedules.append((new_schedule, new_schedule_ctx))
+        return new_schedule
+
+    def get_combined_schedule(self, end_time: datetime = None) -> pd.DataFrame:
+        schedule_segments = []
+        for s, ctx in self.all_schedules:
+            schedule_segments.append(s[s.index < ctx[1]])
+        combined_schedule =  pd.concat(schedule_segments)
+
+        if end_time:
+            # Only keep segments that complete before end_time
+            last_segment_start_time = end_time + timedelta(minutes=OPT_INTERVAL)
+            combined_schedule = combined_schedule[combined_schedule.index <= last_segment_start_time]
+        return combined_schedule
+
+    # def get_predicted_combined_schedule_cost(self, end_time: datetime = None) -> float:
+    #     schedule = self.get_combined_schedule(end_time=end_time)
+    #     return schedule["emissions_co2e_lb"].sum()
+    
+    # def get_actual_combined_schedule_cost(self, end_time: datetime = None) -> float:
+    #     schedule = self.get_combined_schedule(end_time=end_time)
+    #     hist_data = self.wt_hist.get_historical_pandas(
+    #         start=schedule.index[0], 
+    #         end=schedule.index[-1],
+    #         region=self.region,
+    #         signal_type="co2_moer",
+    #     ).set_index("point_time")
+    #     merged_data = pd.merge(schedule["energy_usage_mwh"], hist_data["value"], left_index=True, right_index=True, how="left")
+    #     assert not merged_data.isnull().values.any()
+    #     return merged_data["energy_usage_mwh"].dot(merged_data["value"])

@@ -2,6 +2,7 @@ import os
 import time
 import math
 import math
+import logging
 from datetime import date, datetime, timedelta
 from functools import cache
 from pathlib import Path
@@ -558,6 +559,8 @@ class WattTimeOptimizer(WattTimeForecast):
                            moer_data_override)
         Generates an optimal usage plan for energy consumption.
     """
+    OPT_INTERVAL = 5
+    MAX_PREDICTION_HOURS = 72
 
     OPT_INTERVAL = 5
     MAX_PREDICTION_HOURS = 72
@@ -703,7 +706,9 @@ class WattTimeOptimizer(WattTimeForecast):
         forecast_df = forecast_df.set_index("point_time")
         forecast_df.index = pd.to_datetime(forecast_df.index)
 
-        relevant_forecast_df = forecast_df[usage_window_start:usage_window_end]
+        # relevant_forecast_df = forecast_df[usage_window_start:usage_window_end]
+        relevant_forecast_df = forecast_df[forecast_df.index >= usage_window_start]
+        relevant_forecast_df = relevant_forecast_df[relevant_forecast_df.index < usage_window_end]
         relevant_forecast_df = relevant_forecast_df.rename(
             columns={"value": "pred_moer"}
         )
@@ -931,8 +936,7 @@ class RecalculatingWattTimeOptimizer:
         # Set up to query for actual data
         self.wt_hist = WattTimeHistorical(watttime_username, watttime_password)
 
-
-    def get_new_schedule(self, new_start_time: datetime, new_end_time: datetime, curr_fcst_data: pd.DataFrame=None) -> pd.DataFrame:
+    def _get_new_schedule(self, new_start_time: datetime, new_end_time: datetime, curr_fcst_data: pd.DataFrame=None, charge_per_interval: Optional[list] = None) -> pd.DataFrame:
         if curr_fcst_data is None:
             # Get new data
             curr_fcst_data = self.forecast_generator.get_historical_forecast_pandas(
@@ -942,7 +946,11 @@ class RecalculatingWattTimeOptimizer:
                 signal_type="co2_moer",
                 horizon_hours=MAX_PREDICTION_HOURS,
             )
+            most_recent_data_time = curr_fcst_data["generated_at"].iloc[-1]
+            curr_fcst_data = curr_fcst_data[curr_fcst_data["generated_at"] == most_recent_data_time]
+
         curr_fcst_data["point_time"] = pd.to_datetime(curr_fcst_data["point_time"])
+        curr_fcst_data = curr_fcst_data[curr_fcst_data["point_time"] >= new_start_time]
         new_schedule_start_time = curr_fcst_data["point_time"].iloc[0]
         
         # If there a previously produced schedule, assume we followed that schedule until getting the new one
@@ -965,11 +973,15 @@ class RecalculatingWattTimeOptimizer:
             self.usage_power_kw, 
             optimization_method=self.optimization_method,
             moer_data_override=curr_fcst_data,
+            charge_per_interval=charge_per_interval
         )
         new_schedule_ctx = (new_schedule_start_time, new_end_time)
 
         self.all_schedules.append((new_schedule, new_schedule_ctx))
         return new_schedule
+
+    def get_new_schedule(self, new_start_time: datetime, new_end_time: datetime, curr_fcst_data: pd.DataFrame=None) -> pd.DataFrame:
+        return self._get_new_schedule(new_start_time, new_end_time, curr_fcst_data)
 
     def get_combined_schedule(self, end_time: datetime = None) -> pd.DataFrame:
         schedule_segments = []
@@ -998,3 +1010,49 @@ class RecalculatingWattTimeOptimizer:
     #     merged_data = pd.merge(schedule["energy_usage_mwh"], hist_data["value"], left_index=True, right_index=True, how="left")
     #     assert not merged_data.isnull().values.any()
     #     return merged_data["energy_usage_mwh"].dot(merged_data["value"])
+
+class RecalculatingWattTimeOptimizerWithContiguity(RecalculatingWattTimeOptimizer):
+    def __init__(self, 
+        watttime_username: str, 
+        watttime_password: str,
+        region: str, usage_time_required_minutes: float, 
+        usage_power_kw:  Union[int, float, pd.DataFrame], 
+        optimization_method: Optional[
+            Literal["baseline", "simple", "sophisticated", "auto"]
+        ],
+        charge_per_interval: list = []
+    ):
+        self.remaining_charge_per_interval = charge_per_interval
+        super().__init__(
+            watttime_username, 
+            watttime_password,
+            region, usage_time_required_minutes, 
+            usage_power_kw, 
+            optimization_method
+        )
+    
+    def get_new_schedule(self, new_start_time: datetime, new_end_time: datetime, curr_fcst_data: pd.DataFrame=None) -> pd.DataFrame:
+        if len(self.all_schedules) > 0:
+            recent_schedule = self.all_schedules[-1][0]
+            curr_segment = recent_schedule[recent_schedule.index <= new_start_time].iloc[-1]
+
+            if curr_segment["usage"] > 0:
+                upcoming_segments = recent_schedule[recent_schedule.index > new_start_time]
+                upcoming_no_charge_times = upcoming_segments[upcoming_segments["usage"] == 0]
+
+                # if we charge for the remaining time, return the existing schedule (starting at new_start_time)
+                if upcoming_no_charge_times.empty:
+                    return recent_schedule[recent_schedule.index >= new_start_time]
+
+                # Update start time to be after the curr interval
+                next_unplug_time = upcoming_no_charge_times.index[0]
+                new_start_time = next_unplug_time.to_pydatetime()
+
+            # Update charge_per_interval based on num intervals completed
+            completed_schedule = recent_schedule[recent_schedule.index < new_start_time]
+            charging_indicator = completed_schedule["usage"].apply(lambda x: 1 if x > 0 else 0)
+            num_charging_segments_complete = charging_indicator.diff().value_counts().get(1, 0)
+            self.remaining_charge_per_interval = self.remaining_charge_per_interval[num_charging_segments_complete:]
+
+        return self._get_new_schedule(new_start_time, new_end_time, curr_fcst_data, self.remaining_charge_per_interval)
+

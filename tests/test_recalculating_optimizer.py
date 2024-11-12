@@ -1,14 +1,15 @@
 import unittest
-from watttime import RecalculatingWattTimeOptimizer, WattTimeOptimizer, WattTimeForecast
+from watttime import RecalculatingWattTimeOptimizer, WattTimeOptimizer, WattTimeForecast, RecalculatingWattTimeOptimizerWithContiguity
 from evaluation import eval_framework as efu
 from datetime import datetime, timedelta
+import pandas as pd
 
 class TestRecalculatingOptimizer(unittest.TestCase):
     def setUp(self):
         self.region = "PJM_NJ"
         self.username = ""
         self.password = ""
-        
+
         # Seems that the watttime API considers both start and end to be inclusive 
         self.static_start_time = efu.convert_to_utc(datetime(2024, 1, 1, hour=20, second=1), local_tz_str="America/New_York")
         self.static_end_time = efu.convert_to_utc(datetime(2024, 1, 2, hour=8, second=1), local_tz_str="America/New_York")
@@ -127,7 +128,63 @@ class TestRecalculatingOptimizer(unittest.TestCase):
         
         second_combined_schedule = recalculating_optimizer.get_combined_schedule()
         self.assertNotEqual(first_combined_schedule["usage"].tolist(), second_combined_schedule["usage"].tolist())
-        self.assertEqual(first_combined_schedule["usage"].tolist()[:12], second_combined_schedule["usage"].tolist()[:12])
+        self.assertEqual(first_combined_schedule["usage"].tolist()[:12], second_combined_schedule["usage"].tolist()[:12]) 
 
 
-    
+def check_num_intervals(schedule: pd.DataFrame) -> int:
+    charging_indicator = schedule["usage"].apply(lambda x: 1 if x > 0 else 0)
+    return charging_indicator.diff().value_counts()[1]
+
+
+class TestRecalculatingOptimizerWithConstraints(unittest.TestCase):
+    def setUp(self):
+        self.region = "PJM_NJ"
+        self.username = ""
+        self.password = ""
+        self.username = "annie"
+        self.password = "dcxwt2024!"
+
+        # Seems that the watttime API considers both start and end to be inclusive 
+        self.static_start_time = efu.convert_to_utc(datetime(2024, 1, 1, hour=20, second=1), local_tz_str="America/New_York")
+        self.static_end_time = efu.convert_to_utc(datetime(2024, 1, 2, hour=8, second=1), local_tz_str="America/New_York")
+        
+        self.wth = WattTimeForecast(self.username, self.password)
+        self.curr_fcst_data = self.wth.get_historical_forecast_pandas(
+            start=self.static_start_time - timedelta(minutes=5), 
+            end=self.static_end_time,
+            region=self.region,
+            signal_type="co2_moer",
+            horizon_hours=72,
+        )
+        self.data_times = self.curr_fcst_data["generated_at"]
+
+    # Test one completed interval
+
+    # Test mid-interval
+
+
+
+    def test_init_recalculating_contiguity_optimizer(self) -> None:
+        """Test init"""
+
+        recalculating_optimizer = RecalculatingWattTimeOptimizerWithContiguity(
+            region=self.region, 
+            watttime_username=self.username, 
+            watttime_password=self.password, 
+            usage_time_required_minutes=240,
+            usage_power_kw=2,
+            optimization_method="sophisticated",
+            charge_per_interval=[(0, 200), (0, 200)],
+        )
+
+        for i in range(12):
+            schedule = recalculating_optimizer.get_new_schedule(
+                self.static_start_time +  timedelta(hours=i), 
+                self.static_end_time,
+            )
+            print(schedule.to_string())
+
+        print(recalculating_optimizer.get_combined_schedule().to_string())
+        print(check_num_intervals(recalculating_optimizer.get_combined_schedule()))
+
+        # self.assertEqual(check_num_intervals(recalculating_optimizer.get_combined_schedule()), 2)

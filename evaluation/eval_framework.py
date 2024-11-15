@@ -19,8 +19,10 @@ import watttime.optimizer.alg.optCharger as optC
 import watttime.optimizer_v0.alg.optCharger as optC_v0
 import watttime.optimizer.alg.moer as Moer
 
-username = os.getenv("WATTTIME_USER")
-password = os.getenv("WATTTIME_PASSWORD")
+# username = os.getenv("WATTTIME_USER")
+# password = os.getenv("WATTTIME_PASSWORD")
+username = "annie"
+password = "dcxwt2024!"
 
 start = "2024-02-15 00:00Z"
 end = "2024-02-16 00:00Z"

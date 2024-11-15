@@ -1032,6 +1032,7 @@ class RecalculatingWattTimeOptimizerWithContiguity(RecalculatingWattTimeOptimize
         )
     
     def get_new_schedule(self, new_start_time: datetime, new_end_time: datetime, curr_fcst_data: pd.DataFrame=None) -> pd.DataFrame:
+        remaining_old_schedule = None
         if len(self.all_schedules) > 0:
             recent_schedule = self.all_schedules[-1][0]
             curr_segment = recent_schedule[recent_schedule.index <= new_start_time].iloc[-1]
@@ -1044,9 +1045,15 @@ class RecalculatingWattTimeOptimizerWithContiguity(RecalculatingWattTimeOptimize
                 if upcoming_no_charge_times.empty:
                     return recent_schedule[recent_schedule.index >= new_start_time]
 
-                # Update start time to be after the curr interval
                 next_unplug_time = upcoming_no_charge_times.index[0]
-                new_start_time = next_unplug_time.to_pydatetime()
+                next_unplug_time = next_unplug_time.to_pydatetime()
+
+                # Get the section of old schedule to follow
+                remaining_old_schedule = recent_schedule[recent_schedule.index < next_unplug_time]
+                remaining_old_schedule = recent_schedule[recent_schedule.index >= new_start_time]
+
+                # Update start time to be after the curr interval
+                new_start_time = next_unplug_time
 
             # Update charge_per_interval based on num intervals completed
             completed_schedule = recent_schedule[recent_schedule.index < new_start_time]
@@ -1054,5 +1061,8 @@ class RecalculatingWattTimeOptimizerWithContiguity(RecalculatingWattTimeOptimize
             num_charging_segments_complete = charging_indicator.diff().value_counts().get(1, 0)
             self.remaining_charge_per_interval = self.remaining_charge_per_interval[num_charging_segments_complete:]
 
-        return self._get_new_schedule(new_start_time, new_end_time, curr_fcst_data, self.remaining_charge_per_interval)
+        new_schedule = self._get_new_schedule(new_start_time, new_end_time, curr_fcst_data, self.remaining_charge_per_interval)
 
+        if remaining_old_schedule is not None:
+            new_schedule = pd.concat([remaining_old_schedule, new_schedule])
+        return new_schedule

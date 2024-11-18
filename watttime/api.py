@@ -773,12 +773,15 @@ class WattTimeOptimizer(WattTimeForecast):
                 if isinstance(c,int): 
                     converted_charge_per_interval.append(minutes_to_units(c))
                 else: 
-                    assert(len(c)==2)
-                    converted_charge_per_interval.append((minutes_to_units(c[0],False) if c[0] else 0,minutes_to_units(c[1]) if c[1] else minutes_to_units(usage_time_required_minutes)))
+                    assert len(c) == 2, "Length of tuples in charge_per_interval is not 2"
+                    if c[1]:
+                        converted_charge_per_interval.append(((minutes_to_units(c[0]) if c[0] else 0),minutes_to_units(c[1])))
+                    else:
+                        converted_charge_per_interval.append(minutes_to_units(usage_time_required_minutes))
             # print("Charge per interval:", converted_charge_per_interval)
         else: 
             converted_charge_per_interval = None
-                
+        print("CCPI:", converted_charge_per_interval)
         model.fit(
             totalCharge=total_charge_units,
             totalTime=len(moer_values),

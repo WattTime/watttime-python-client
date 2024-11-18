@@ -145,7 +145,7 @@ def generate_synthetic_user_data(
     average_battery_starting_capacity: float = 0.2,
     start_hour="17:00:00",
     end_hour="21:00:00",
-    power_output_max_rates = [11, 7.4, 22]
+    power_output_max_rates = [11, 7.4, 22],
 ) -> pd.DataFrame:
     """
     Generate synthetic user data for electric vehicle charging sessions.

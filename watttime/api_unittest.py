@@ -12,6 +12,38 @@ def get_usage_plan_mean_power(usage_plan):
 
     return usage_plan_when_active["power_kw"].mean()
 
+def get_contiguity_info(usage_plan):
+    """
+    Extract contiguous non-zero components from a DataFrame column 'usage'
+    and compute the sum for each component.
+
+    Args:
+        usage_plan (pd.DataFrame): DataFrame with a column named 'usage'.
+
+    Returns:
+        List[Dict]: A list of dictionaries, each containing the indices and sum
+                    of a contiguous non-zero component.
+    """
+    components = []
+    current_component = []
+    current_sum = 0
+
+    for index, value in usage_plan['usage'].items():
+        if value != 0:
+            current_component.append(index) 
+            current_sum += value
+        else:
+            if current_component:
+                components.append({'indices': current_component, 'sum': current_sum})
+                current_component = []
+                current_sum = 0
+
+    # Add the last component if the dataframe ends with a non-zero sequence
+    if current_component:
+        components.append({'indices': current_component, 'sum': current_sum})
+
+    return components
+
 class TestWattTimeOptimizer(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
@@ -43,7 +75,9 @@ class TestWattTimeOptimizer(unittest.TestCase):
         # Check power
         self.assertAlmostEqual(get_usage_plan_mean_power(usage_plan), self.usage_power_kw)
         # Check energy required
-        self.assertAlmostEqual(usage_plan["energy_usage_mwh"].sum() * 1000, 240 * self.usage_power_kw / 60)
+        self.assertAlmostEqual(usage_plan["energy_usage_mwh"].sum() * 1000, 240 * self.usage_power_kw / 60)        
+        # Check number of components (1 for baseline)
+        self.assertEqual(len(get_contiguity_info(usage_plan)), 1)
     
     def test_dp_fixed_power_rate(self):
         """Test the sophisticated plan with a fixed power rate."""
@@ -198,39 +232,78 @@ class TestWattTimeOptimizer(unittest.TestCase):
         self.assertAlmostEqual(get_usage_plan_mean_power(usage_plan), self.usage_power_kw)
         # Check energy required
         self.assertAlmostEqual(usage_plan["energy_usage_mwh"].sum() * 1000, 160 * self.usage_power_kw / 60)
+        # Check number of components
+        self.assertLessEqual(len(get_contiguity_info(usage_plan)), 2)
 
+
+    def test_dp_two_intervals_exact(self):
+        """Test auto mode with two intervals."""
+        usage_plan = self.wt_opt.get_optimal_usage_plan(
+            region=self.region,
+            usage_window_start=self.window_start_test,
+            usage_window_end=self.window_end_test,
+            usage_time_required_minutes=160,
+            usage_power_kw=self.usage_power_kw,
+            charge_per_interval=[(60,60), (100,100)],
+            optimization_method="auto",
+        )
+        print("Using auto mode, but with two intervals")
+        print(usage_plan["usage"].tolist())
+        print(usage_plan.sum())
+
+        # Check time required
+        self.assertAlmostEqual(usage_plan["usage"].sum(), 160)
+        # Check power
+        self.assertAlmostEqual(get_usage_plan_mean_power(usage_plan), self.usage_power_kw)
+        # Check energy required
+        self.assertAlmostEqual(usage_plan["energy_usage_mwh"].sum() * 1000, 160 * self.usage_power_kw / 60)
+
+        contiguity_info = get_contiguity_info(usage_plan)
+        # Check number of components
+        self.assertLessEqual(len(contiguity_info), 2)
+        if len(contiguity_info) == 2:
+            # Check first component length
+            self.assertAlmostEqual(contiguity_info[0]["sum"], 60)
+            # Check second component length
+            self.assertAlmostEqual(contiguity_info[1]["sum"], 100)
+        else:
+            # Check combined component length
+            self.assertAlmostEqual(contiguity_info[0]["sum"], 160)
+            
+    def test_dp_two_intervals_exact_unround(self):
+        """Test auto mode with two intervals."""
+        usage_plan = self.wt_opt.get_optimal_usage_plan(
+            region=self.region,
+            usage_window_start=self.window_start_test,
+            usage_window_end=self.window_end_test,
+            usage_time_required_minutes=160,
+            usage_power_kw=self.usage_power_kw,
+            charge_per_interval=[(67,67), (93,93)],
+            optimization_method="auto",
+        )
+        print("Using auto mode, but with two intervals")
+        print(usage_plan["usage"].tolist())
+        print(usage_plan.sum())
+
+        # Check time required
+        self.assertAlmostEqual(usage_plan["usage"].sum(), 160)
+        # Check power
+        self.assertAlmostEqual(get_usage_plan_mean_power(usage_plan), self.usage_power_kw)
+        # Check energy required
+        self.assertAlmostEqual(usage_plan["energy_usage_mwh"].sum() * 1000, 160 * self.usage_power_kw / 60)
+
+        contiguity_info = get_contiguity_info(usage_plan)
+        # Check number of components
+        self.assertLessEqual(len(contiguity_info), 2)
+        if len(contiguity_info) == 2:
+            # Check first component length
+            self.assertAlmostEqual(contiguity_info[0]["sum"], 67)
+            # Check second component length
+            self.assertAlmostEqual(contiguity_info[1]["sum"], 93)
+        else:
+            # Check combined component length
+            self.assertAlmostEqual(contiguity_info[0]["sum"], 160)
+            
 
 if __name__ == "__main__":
-    # unittest.main()
-
-    from datetime import datetime, timedelta
-    import pandas as pd
-    from pytz import UTC
-    from watttime import WattTimeOptimizer
-
-    username = os.getenv("WATTTIME_USER")
-    password = os.getenv("WATTTIME_PASSWORD")
-    wt_opt = WattTimeOptimizer(username, password)
-
-    # Suppose that the time now is 12 midnight
-    now = datetime.now(UTC)
-    window_start = now
-    window_end = now + timedelta(minutes=720)
-    usage_time_required_minutes = 240
-    constraint_time = now + timedelta(minutes=480)
-    constraint_usage_time_required_minutes = 180
-    constraints = {constraint_time:constraint_usage_time_required_minutes}
-    usage_power_kw = 12.0
-    region = "PJM_NJ"
-
-    usage_plan = wt_opt.get_optimal_usage_plan(
-        region=region,
-        usage_window_start=window_start,
-        usage_window_end=window_end,
-        usage_time_required_minutes=240,
-        usage_power_kw=usage_power_kw,
-        constraints=constraints,
-        optimization_method="sophisticated",
-    )
-
-    print(usage_plan)
+    unittest.main()

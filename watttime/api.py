@@ -781,10 +781,9 @@ class WattTimeOptimizer(WattTimeForecast):
             # print("Charge per interval:", converted_charge_per_interval)
         else: 
             converted_charge_per_interval = None
-        print("CCPI:", converted_charge_per_interval)
         model.fit(
-            totalCharge=total_charge_units,
-            totalTime=len(moer_values),
+            total_charge=total_charge_units,
+            total_time=len(moer_values),
             moer=m,
             constraints=constraints,
             charge_per_interval=converted_charge_per_interval,

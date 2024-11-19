@@ -236,7 +236,7 @@ class TestWattTimeOptimizer(unittest.TestCase):
         self.assertLessEqual(len(get_contiguity_info(usage_plan)), 2)
 
 
-    def test_dp_two_intervals_exact(self):
+    def test_dp_two_intervals_exact_input_a(self):
         """Test auto mode with two intervals."""
         usage_plan = self.wt_opt.get_optimal_usage_plan(
             region=self.region,
@@ -245,6 +245,40 @@ class TestWattTimeOptimizer(unittest.TestCase):
             usage_time_required_minutes=160,
             usage_power_kw=self.usage_power_kw,
             charge_per_interval=[(60,60), (100,100)],
+            optimization_method="auto",
+        )
+        print("Using auto mode, but with two intervals")
+        print(usage_plan["usage"].tolist())
+        print(usage_plan.sum())
+
+        # Check time required
+        self.assertAlmostEqual(usage_plan["usage"].sum(), 160)
+        # Check power
+        self.assertAlmostEqual(get_usage_plan_mean_power(usage_plan), self.usage_power_kw)
+        # Check energy required
+        self.assertAlmostEqual(usage_plan["energy_usage_mwh"].sum() * 1000, 160 * self.usage_power_kw / 60)
+
+        contiguity_info = get_contiguity_info(usage_plan)
+        # Check number of components
+        self.assertLessEqual(len(contiguity_info), 2)
+        if len(contiguity_info) == 2:
+            # Check first component length
+            self.assertAlmostEqual(contiguity_info[0]["sum"], 60)
+            # Check second component length
+            self.assertAlmostEqual(contiguity_info[1]["sum"], 100)
+        else:
+            # Check combined component length
+            self.assertAlmostEqual(contiguity_info[0]["sum"], 160)
+
+    def test_dp_two_intervals_exact_input_b(self):
+        """Test auto mode with two intervals."""
+        usage_plan = self.wt_opt.get_optimal_usage_plan(
+            region=self.region,
+            usage_window_start=self.window_start_test,
+            usage_window_end=self.window_end_test,
+            usage_time_required_minutes=160,
+            usage_power_kw=self.usage_power_kw,
+            charge_per_interval=[60, 100],
             optimization_method="auto",
         )
         print("Using auto mode, but with two intervals")
@@ -303,7 +337,35 @@ class TestWattTimeOptimizer(unittest.TestCase):
         else:
             # Check combined component length
             self.assertAlmostEqual(contiguity_info[0]["sum"], 160)
+
+    def test_dp_two_intervals_exact_inconsistent_b(self):
+        """Test auto mode with one interval that is inconsistent with usage_time_required."""
+        usage_plan = self.wt_opt.get_optimal_usage_plan(
+            region=self.region,
+            usage_window_start=self.window_start_test,
+            usage_window_end=self.window_end_test,
+            usage_time_required_minutes=160,
+            usage_power_kw=self.usage_power_kw,
+            charge_per_interval=[(65,65)],
+            optimization_method="auto",
+        )
+        print("Using auto mode, but with two intervals")
+        print(usage_plan["usage"].tolist())
+        print(usage_plan.sum())
+
+        # Check time required
+        self.assertAlmostEqual(usage_plan["usage"].sum(), 65)
+        # Check power
+        self.assertAlmostEqual(get_usage_plan_mean_power(usage_plan), self.usage_power_kw)
+        # Check energy required
+        self.assertAlmostEqual(usage_plan["energy_usage_mwh"].sum() * 1000, 65 * self.usage_power_kw / 60)
+
+        contiguity_info = get_contiguity_info(usage_plan)
+        # Check number of components
+        self.assertEqual(len(contiguity_info), 1)
             
 
 if __name__ == "__main__":
     unittest.main()
+    # TestWattTimeOptimizer.setUpClass()
+    # TestWattTimeOptimizer().test_dp_two_intervals_exact_inconsistent()

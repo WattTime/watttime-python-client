@@ -576,7 +576,8 @@ class OptCharger:
             )
         else:
             single_cpi, tuple_cpi, use_fixed_alg = [], [], True
-            def convert_input(c): 
+            def convert_input(c):
+                ## Converts the interval format
                 if isinstance(c,int): 
                     return c,(c,c),True
                 if c[0]==c[1]: 

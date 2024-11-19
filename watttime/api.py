@@ -644,12 +644,12 @@ class WattTimeOptimizer(WattTimeForecast):
 
         if constraints is None:
             constraints = {}
-        else:            
-            # TODO: Rename things here to make it clearer
-            old_constraints = constraints.copy()
+        else:
+            # Covnert constraints to a standardized format
+            raw_constraints = constraints.copy()
             constraints = {}
 
-            for constraint_time_clock, constraint_usage_minutes in old_constraints.items():
+            for constraint_time_clock, constraint_usage_minutes in raw_constraints.items():
                 constraint_time_minutes = (constraint_time_clock - usage_window_start).total_seconds() / 60
                 constraint_time_units = minutes_to_units(constraint_time_minutes)
                 constraint_usage_units = minutes_to_units(constraint_usage_minutes)
@@ -743,7 +743,6 @@ class WattTimeOptimizer(WattTimeForecast):
             def emission_multiplier_fn(sc: float, ec: float) -> float:
                 """
                 Calculate the energy used for a given time range in the charging schedule.
-
                 This gives us the MWh used per OPT_INTERVAL.
 
                 Parameters:
@@ -757,7 +756,6 @@ class WattTimeOptimizer(WattTimeForecast):
                 --------
                 float
                     Energy used for a given time range
-
                 """
                 value = (
                     usage_power_kw[sc : max(sc, ec - 1e-12)]["power_kw"].mean()

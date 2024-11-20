@@ -9,20 +9,23 @@ import random
 import pytz
 from tqdm import tqdm
 from datetime import datetime, timedelta, date
-from watttime import WattTimeHistorical, WattTimeForecast, WattTimeOptimizer, RecalculatingWattTimeOptimizer, RecalculatingWattTimeOptimizer
+from watttime import WattTimeHistorical, WattTimeForecast, WattTimeOptimizer, RecalculatingWattTimeOptimizer, RecalculatingWattTimeOptimizer, RecalculatingWattTimeOptimizerWithContiguity
 import math
 from typing import Union
+import contextlib
+import io
+from concurrent.futures import ProcessPoolExecutor, as_completed
 
 from evaluation.config import TZ_DICTIONARY
 
 import watttime.optimizer.alg.optCharger as optC
 import watttime.optimizer_v0.alg.optCharger as optC_v0
 import watttime.optimizer.alg.moer as Moer
+import data.s3 as s3u
+s3 = s3u.s3_utils()
 
-# username = os.getenv("WATTTIME_USER")
-# password = os.getenv("WATTTIME_PASSWORD")
-username = "annie"
-password = "dcxwt2024!"
+username = os.getenv("WATTTIME_USER")
+password = os.getenv("WATTTIME_PASSWORD")
 
 start = "2024-02-15 00:00Z"
 end = "2024-02-16 00:00Z"
@@ -148,6 +151,7 @@ def generate_synthetic_user_data(
     start_hour="17:00:00",
     end_hour="21:00:00",
     power_output_max_rates = [11, 7.4, 22],
+    proportion_contiguous = 0,
 ) -> pd.DataFrame:
     """
     Generate synthetic user data for electric vehicle charging sessions.
@@ -184,6 +188,7 @@ def generate_synthetic_user_data(
     total_capacity = round(random.uniform(21, 123))
     mean_length_charge = round(random.uniform(20000, 30000))
     std_length_charge = round(random.uniform(6800, 8000))
+    contiguous = random.uniform(0, 1) < proportion_contiguous
 
     # print(
     #   f"working on user with {total_capacity} total_capacity, {power_output_max_rate} rate of charge, and ({mean_length_charge/3600},{std_length_charge/3600}) charging behavior."
@@ -206,6 +211,8 @@ def generate_synthetic_user_data(
         + str(mean_length_charge)
         + "_sdlc"
         + str(std_length_charge)
+        + "_cont"
+        + str(contiguous)
     )
 
     user_df["session_start_time"] = user_df["distinct_dates"].apply(
@@ -260,6 +267,16 @@ def generate_synthetic_user_data(
     )
     user_df["charged_MWh_actual"] = user_df["charged_kWh_actual"] / 1000
     user_df["MWh_fraction"] = user_df["power_output_rate"].apply(intervalize_power_rate)
+
+    user_df["usage_time_required_minutes"] = np.ceil(
+        np.minimum(user_df["total_seconds_to_95"], user_df["length_of_session_in_seconds"]) / 60
+    )
+    user_df['contiguous_block'] = contiguous
+
+    user_df["charge_per_interval"] = user_df.apply(
+        lambda row: [row["usage_time_required_minutes"]] if row["contiguous_block"] else None,
+        axis=1
+)
 
     return user_df
 
@@ -659,6 +676,7 @@ def get_schedule_and_cost_api_requerying(
     end_time,
     optimization_method="sophisticated",
     moer_list = None,
+    charge_per_interval = None,
     requery_interval_minutes = 60
 ):
     """
@@ -687,14 +705,26 @@ def get_schedule_and_cost_api_requerying(
     This function uses the WattTimeOptimizer to generate an optimal charging schedule.
     It prints a warning if the resulting emissions are 0.0 lb of CO2e.
     """
-    wt_opt_rc = RecalculatingWattTimeOptimizer(
-        region=region, 
-        watttime_username=username, 
-        watttime_password=password, 
-        usage_time_required_minutes=time_needed,
-        usage_power_kw=usage_power_kw,
-        optimization_method=optimization_method
-    )
+    if charge_per_interval is None:
+        wt_opt_rc = RecalculatingWattTimeOptimizer(
+            region=region, 
+            watttime_username=username, 
+            watttime_password=password, 
+            usage_time_required_minutes=time_needed,
+            usage_power_kw=usage_power_kw,
+            optimization_method=optimization_method
+        )
+    else:
+        print("Using contiguous optimizer")
+        wt_opt_rc = RecalculatingWattTimeOptimizerWithContiguity(
+            username,
+            password,
+            region,
+            usage_time_required_minutes = time_needed,
+            usage_power_kw=usage_power_kw,
+            optimization_method=optimization_method,
+            charge_per_interval=charge_per_interval
+        )
     
     new_start_time = start_time
 
@@ -731,7 +761,165 @@ def get_schedule_and_cost_api_requerying(
 
     return dp_usage_plan
 
+def full_requery_sim(region: str,
+                    full_forecast: pd.DataFrame,
+                    full_history: pd.DataFrame,
+                    increments: list,
+                    start_time: datetime,
+                    end_time: datetime,
+                    usage_power_kw,
+                    time_needed,
+                    method = "auto",
+                    charge_per_interval = None):
+    results = {}
+    all_relevant_forecasts = full_forecast.set_index("generated_at")[start_time - timedelta(minutes = 5):end_time].reset_index()
+    all_relevant_forecasts = all_relevant_forecasts.set_index("generated_at")[start_time - timedelta(minutes = 5):end_time]
+    baseline_forecast = all_relevant_forecasts.loc[all_relevant_forecasts.index.min()].reset_index()
+    schedules = []
+    # Generate ideal schedule with historical actuals
+    ideal = get_schedule_and_cost_api_requerying(region = region,
+                                        usage_power_kw = usage_power_kw,
+                                        time_needed = time_needed,
+                                        start_time = start_time,
+                                        end_time = end_time, 
+                                        optimization_method=method,
+                                        moer_list = [full_history.set_index("point_time")[start_time - timedelta(minutes = 5):end_time].reset_index()],
+                                        charge_per_interval = charge_per_interval).reset_index().rename({"pred_moer" : "actual_moer"}, axis = 1)
 
+    results["ideal_emissions"] = round(ideal["emissions_co2e_lb"].sum(), 2)
+    ideal["increment"] = "Ideal"
+    ideal["pred_moer"] = ideal["actual_moer"]
+    ideal["actual_emissions"] = ideal["actual_moer"]*ideal["energy_usage_mwh"]
+    schedules.append(ideal)
+
+    # Generate baseline schedule
+    baseline = get_schedule_and_cost_api_requerying(region = region,
+                                        usage_power_kw = usage_power_kw,
+                                        time_needed = time_needed,
+                                        start_time = start_time,
+                                        end_time = end_time, 
+                                        optimization_method="baseline",
+                                        moer_list = [baseline_forecast],
+                                        charge_per_interval = charge_per_interval).reset_index()
+
+    baseline = baseline.merge(ideal[["point_time", "actual_moer"]])
+
+    baseline["increment"] = "Baseline"
+    baseline["actual_emissions"] = baseline["actual_moer"]*baseline["energy_usage_mwh"]
+
+    schedules.append(baseline)
+
+    results["baseline_predicted_emissions"] = round(baseline["emissions_co2e_lb"].sum(), 2)
+    results["baseline_actual_emissions"] = round((baseline["actual_moer"]*baseline["energy_usage_mwh"]).sum(), 2)
+    
+    # Generate non-requeried schedule
+    no_requery = get_schedule_and_cost_api_requerying(region = region,
+                                        usage_power_kw = usage_power_kw,
+                                        time_needed = time_needed,
+                                        start_time = start_time,
+                                        end_time = end_time, 
+                                        optimization_method=method,
+                                        moer_list = [baseline_forecast],
+                                        charge_per_interval = charge_per_interval).reset_index()
+
+    no_requery = no_requery.merge(ideal[["point_time", "actual_moer"]])
+    no_requery["increment"] = "No requery"
+    no_requery["actual_emissions"] = no_requery["actual_moer"]*no_requery["energy_usage_mwh"]
+    schedules.append(no_requery)
+
+    results["no_requery_predicted_emissions"] = round(no_requery["emissions_co2e_lb"].sum(), 2)
+    results["no_requery_actual_emissions"] = round((no_requery["actual_moer"]*no_requery["energy_usage_mwh"]).sum(), 2)
+
+
+    # Generate requery schedules at each increment 
+    for increment in increments:
+        inc_times = pd.date_range(all_relevant_forecasts.index.min(), all_relevant_forecasts.index.max(), freq=timedelta(minutes=increment))
+        moer_list = [all_relevant_forecasts.loc[timestamp].reset_index() for timestamp in inc_times]
+
+        print(len(moer_list))
+
+        schedule = get_schedule_and_cost_api_requerying(region = region,
+                                        usage_power_kw = usage_power_kw,
+                                        time_needed = time_needed,
+                                        start_time = start_time,
+                                        end_time = end_time, 
+                                        optimization_method=method,
+                                        moer_list = moer_list,
+                                        charge_per_interval = charge_per_interval).reset_index()
+        
+        
+        schedule = schedule.merge(ideal[["point_time", "actual_moer"]])
+        schedule["actual_emissions"] = schedule["actual_moer"]*schedule["energy_usage_mwh"]
+        schedule["increment"] = f"Requery {increment} minutes"
+        schedules.append(schedule)
+
+
+        results[f"schedule_predicted_emissions_requery_{increment}"] = round(schedule["emissions_co2e_lb"].sum(), 2)
+        results[f"schedule_actual_emissions_requery_{increment}"] = round((schedule["actual_moer"]*schedule["energy_usage_mwh"]).sum(), 2)
+
+    increment_order = [f"Requery {increment} minutes" for increment in increments]
+    order = ["Ideal", "Baseline", "No requery"] + increment_order[::-1]
+    full_schedules = pd.concat(schedules)
+    full_schedules["increment"] = pd.Categorical(full_schedules["increment"], order, ordered = True)
+    print("What is going on")
+    return full_schedules
+
+def process_requery_region(region, synthetic_data, increments):
+    results = []
+    try:
+        print(f"Processing {region}...")
+        
+        full_forecast = s3.load_parquetdataframe(f"complete_2023_forecast_history/{region}.parquet").drop_duplicates()
+        full_forecast['point_time'] = pd.to_datetime(full_forecast['point_time'], utc=True)
+        full_history = s3.load_parquetdataframe(f"complete_2023_actual_history/{region}.parquet").drop_duplicates()
+        
+        for _, row in synthetic_data.iterrows():
+            try:
+                with contextlib.redirect_stdout(io.StringIO()):
+                    schedules = full_requery_sim(
+                        region=region,
+                        full_forecast=full_forecast,
+                        full_history=full_history,
+                        increments=increments,
+                        start_time=row['session_start_time'],
+                        end_time=row['session_end_time'],
+                        usage_power_kw=row['power_output_rate'],
+                        time_needed=row['usage_time_required_minutes'],
+                        method="auto",
+                        charge_per_interval=row["charge_per_interval"]
+                    )
+
+                schedules["init_time"] = row['session_start_time']
+                schedules["user_type"] = row['user_type']
+                schedules["distinct_dates"] = row['distinct_dates']
+                schedules["region"] = region
+                results.append(schedules)
+             
+            except Exception as e:
+                print(f"Error processing region {region}, session start {row['session_start_time']}: {e}")
+    except Exception as e:
+        print(f"Error loading data for region {region}: {e}")
+    
+    return results
+
+def main_requery_results(regions, synthetic_data, increments, schedule_out_name_s3, synthetic_data_out_name_s3):
+    out = []
+    with ProcessPoolExecutor() as executor:
+        futures = {executor.submit(process_requery_region, region, synthetic_data, increments): region for region in regions}
+        
+        for future in tqdm(as_completed(futures), total=len(futures)):
+            try:
+                region_results = future.result()
+                out.extend(region_results)
+            except Exception as e:
+                print(f"Error processing region {futures[future]}: {e}")
+
+    if out:
+        out_df = pd.concat(out, ignore_index=True)
+        s3.store_parquetdataframe(out_df, schedule_out_name_s3)
+        s3.store_parquetdataframe(out_df, synthetic_data_out_name_s3)
+    else:
+        print("No schedules were generated.")
 
 def get_total_emission(moer, schedule):
     x = np.array(schedule).flatten()

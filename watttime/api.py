@@ -13,6 +13,8 @@ import requests
 from dateutil.parser import parse
 from pytz import UTC
 from watttime.optimizer.alg import optCharger, moer
+from itertools import accumulate
+import bisect
 
 class WattTimeBase:
     url_base = "https://api.watttime.org"
@@ -775,7 +777,7 @@ class WattTimeOptimizer(WattTimeForecast):
             # Handle the charge_per_interval input by converting it from minutes to units, rounding up
             converted_charge_per_interval = []
             for c in charge_per_interval: 
-                if isinstance(c,int): 
+                if isinstance(c,int) or isinstance(c,float): 
                     converted_charge_per_interval.append(minutes_to_units(c))
                 else: 
                     assert len(c) == 2, "Length of tuples in charge_per_interval is not 2"
@@ -1070,7 +1072,8 @@ class RecalculatingWattTimeOptimizerWithContiguity(RecalculatingWattTimeOptimize
         super().__init__(
             watttime_username, 
             watttime_password,
-            region, usage_time_required_minutes, 
+            region, 
+            usage_time_required_minutes, 
             usage_power_kw, 
             optimization_method
         )
@@ -1087,8 +1090,9 @@ class RecalculatingWattTimeOptimizerWithContiguity(RecalculatingWattTimeOptimize
 
         # Get num charging intervals completed so far
         completed_schedule = curr_combined_schedule[curr_combined_schedule.index < new_start_time]
-        charging_indicator = completed_schedule["usage"].apply(lambda x: 1 if x > 0 else 0)
-        num_charging_segments_complete = charging_indicator.diff().value_counts().get(-1, 0)
+        charging_indicator = completed_schedule["usage"].apply(lambda x: 1 if x > 0 else 0).sum()
+        num_charging_segments_complete = bisect.bisect_right(list(accumulate(self.all_charge_per_interval)), 
+                                                             charging_indicator * 5)
 
         # Get the current status
         curr_segment = curr_combined_schedule[curr_combined_schedule.index <= new_start_time].iloc[-1]
@@ -1107,10 +1111,15 @@ class RecalculatingWattTimeOptimizerWithContiguity(RecalculatingWattTimeOptimize
             remaining_old_schedule = curr_combined_schedule[curr_combined_schedule.index < next_unplug_time]
             remaining_old_schedule = remaining_old_schedule[remaining_old_schedule.index >= new_start_time]
 
+            # Update completed segments to reflect portion of old schedule
+            additional_charge_segments = remaining_old_schedule["usage"].apply(lambda x: 1 if x > 0 else 0).sum()
+            num_charging_segments_complete = bisect.bisect_right(list(accumulate(self.all_charge_per_interval)), 
+                                                                 (charging_indicator + additional_charge_segments) * 5)
+
             # Get schedule for after this segment completes
             new_schedule, ctx = self._get_new_schedule(
                 next_unplug_time, new_end_time, curr_fcst_data, 
-                self.all_charge_per_interval[num_charging_segments_complete + 1:]
+                self.all_charge_per_interval[num_charging_segments_complete:]
             )
 
             # Construct the schedule from start_time

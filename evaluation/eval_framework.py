@@ -917,7 +917,7 @@ def main_requery_results(regions, synthetic_data, increments, schedule_out_name_
     if out:
         out_df = pd.concat(out, ignore_index=True)
         s3.store_parquetdataframe(out_df, schedule_out_name_s3)
-        s3.store_parquetdataframe(out_df, synthetic_data_out_name_s3)
+        s3.store_parquetdataframe(synthetic_data, synthetic_data_out_name_s3)
     else:
         print("No schedules were generated.")
 

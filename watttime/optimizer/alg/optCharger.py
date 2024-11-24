@@ -112,10 +112,7 @@ class OptCharger:
             if (sc < total_charge)
             else 0.0
         )
-    @staticmethod
-    def __avg_to_interval(emission_multiplier_fn, sc, ec): 
-        # TODO: There is probably a better way to implement this; any thoughts @yhlim?
-        return [emission_multiplier_fn(x,x+1) for x in range(sc,ec)]
+    
     @staticmethod
     def __check_constraint(t_start, c_start, dc, constraints): 
         # assuming constraints[t] is the bound on total charge after t intervals
@@ -144,12 +141,12 @@ class OptCharger:
         """
         print("== Baseline fit! ==")
         charge_to_do = total_charge
-        cs, t = [], 0
+        schedule, t = [], 0
         while (charge_to_do > 0) and (t < total_time):
             charge_to_do -= 1
-            cs.append(1)
+            schedule.append(1)
             t += 1
-        self.__optimal_charging_schedule = cs + [0] * (total_time - t)
+        self.__optimal_charging_schedule = schedule + [0] * (total_time - t)
         self.__collect_results(moer)
 
     def __simple_fit(self, total_charge: int, total_time: int, moer: Moer):
@@ -179,13 +176,12 @@ class OptCharger:
             )
         ]
         charge_to_do = total_charge
-        cs, schedule, t = [0] * total_time, [0] * total_time, 0
+        schedule, t = [0] * total_time, 0
         while (charge_to_do > 0) and (t < total_time):
             charge_to_do -= 1
-            cs[sorted_times[t]] = 1
             schedule[sorted_times[t]] = 1
             t += 1
-        self.__optimal_charging_schedule = cs
+        self.__optimal_charging_schedule = schedule
         self.__collect_results(moer)
 
     def __diagonal_fit(
@@ -280,7 +276,7 @@ class OptCharger:
         total_time: int,
         moer: Moer,
         emission_multiplier_fn,
-        charge_per_interval: list = [], # list of ints
+        charge_per_interval: list = [],
         constraints: dict = {},
     ):
         """
@@ -328,6 +324,8 @@ class OptCharger:
         cum_charge = [0]
         for c in charge_per_interval: 
             cum_charge.append(cum_charge[-1]+c)
+
+        charge_array_cache = [emission_multiplier_fn(x,x+1) for x in range(0,total_charge+1)]
         print("Cumulative charge", cum_charge)
         for t in range(1, total_time+1):
             if t in constraints:
@@ -348,8 +346,8 @@ class OptCharger:
                 if (k>0) and (charge_per_interval[k-1]<=t): 
                     dc = charge_per_interval[k-1]
                     if not np.isnan(max_util[t-dc,k-1]) and OptCharger.__check_constraint(t-dc,cum_charge[k-1],dc,constraints): 
-                        marginalcost = moer.get_emission_interval(t-dc,t,OptCharger.__avg_to_interval(emission_multiplier_fn,cum_charge[k-1],cum_charge[k]))
-                        new_util = max_util[t-dc,k-1] - marginalcost
+                        marginal_cost = moer.get_emission_interval(t-dc,t,charge_array_cache[cum_charge[k-1]:cum_charge[k]])
+                        new_util = max_util[t-dc,k-1] - marginal_cost
                         if init_val or (new_util > max_util[t,k]): 
                             max_util[t,k] = new_util
                             path_history[t-1,k] = True
@@ -385,7 +383,7 @@ class OptCharger:
         total_time: int,
         moer: Moer,
         emission_multiplier_fn,
-        charge_per_interval: list = [], # list of tuples
+        charge_per_interval: list = [],
         use_all_intervals: bool = True,
         constraints: dict = {},
     ):
@@ -433,6 +431,9 @@ class OptCharger:
         path_history = np.full(
             (total_time, total_charge + 1, total_interval + 1, 2), 0, dtype=int
         )
+
+        charge_array_cache = [emission_multiplier_fn(x,x+1) for x in range(0,total_charge+1)]
+
         for t in range(1, total_time+1):
             if t in constraints:
                 min_charge, max_charge = constraints[t]
@@ -452,9 +453,9 @@ class OptCharger:
                     ## charging
                     if k > 0: 
                         for dc in range(charge_per_interval[k-1][0],min(charge_per_interval[k-1][1],t,c)+1):
-                            if not np.isnan(max_util[t-dc,c-dc,k-1]) and OptCharger.__check_constraint(t-dc,c-dc,dc,constraints): 
-                                marginalcost = moer.get_emission_interval(t-dc,t,OptCharger.__avg_to_interval(emission_multiplier_fn,c-dc,c))
-                                new_util = max_util[t-dc,c-dc,k-1] - marginalcost
+                            if not np.isnan(max_util[t-dc,c-dc,k-1]) and OptCharger.__check_constraint(t-dc,c-dc,dc,constraints):
+                                marginal_cost = moer.get_emission_interval(t-dc,t,charge_array_cache[c-dc:c])
+                                new_util = max_util[t-dc,c-dc,k-1] - marginal_cost
                                 if init_val or (new_util > max_util[t,c,k]): 
                                     max_util[t,c,k] = new_util
                                     path_history[t-1,c,k,:] = [dc,1]
@@ -617,39 +618,25 @@ class OptCharger:
 
     def get_energy_usage_over_time(self) -> list:
         """
-        Returns:
-        --------
-        list
-            The energy due to charging at each interval in MWh.
+        Returns list of the energy due to charging at each interval in MWh.
         """
         return self.__optimal_charging_energy_over_time
 
     def get_charging_emissions_over_time(self) -> list:
         """
-        Returns:
-        --------
-        list
-            The emissions due to charging at each interval in lbs.
+        Returns list of the emissions due to charging at each interval in lbs.
         """
         return self.__optimal_charging_emissions_over_time
 
     def get_total_emission(self) -> float:
         """
-        Returns:
-        --------
-        float
-            The summed emissions due to charging in lbs.
+        Returns the summed emissions due to charging in lbs.
         """
         return self.__optimal_charging_emission
 
     def get_schedule(self) -> list:
         """
-        Returns the optimal charging schedule.
-
-        Returns:
-        --------
-        list
-            The charging schedule as a list, in minutes to charge for each interval.
+        Returns list of the optimal charging schedule of units to charge for each interval.
         """
         return self.__optimal_charging_schedule
 

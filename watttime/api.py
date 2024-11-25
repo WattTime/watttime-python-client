@@ -556,6 +556,7 @@ class WattTimeOptimizer(WattTimeForecast):
 
     OPT_INTERVAL = 5
     MAX_PREDICTION_HOURS = 72
+    MAX_INT = 99999999999999999
 
     def get_optimal_usage_plan(
         self,
@@ -600,7 +601,7 @@ class WattTimeOptimizer(WattTimeForecast):
         usage_time_uncertainty_minutes : Optional[float], default=0
             Uncertainty in usage time, in minutes.
         charge_per_interval : Optional[list], default=None
-            The minimium and maximum (inclusive) charging amount per interval. If int instead of tuple, interpret as both min and max.
+            The minimium and maximum (inclusive) charging minutes per interval. If int instead of tuple, interpret as both min and max.
         use_all_intervals : Optional[bool], default=False
             If true, use all intervals provided by charge_per_interval; if false, can use the first few intervals and skip the rest. 
         constraints : Optional[dict], default=None
@@ -631,7 +632,7 @@ class WattTimeOptimizer(WattTimeForecast):
 
         def is_tz_aware(dt):
             return dt.tzinfo is not None and dt.tzinfo.utcoffset(dt) is not None
-        def minutes_to_units(x,floor=True):
+        def minutes_to_units(x,floor=False):
             if x: 
                 if floor: 
                     return int(x//self.OPT_INTERVAL)
@@ -644,12 +645,12 @@ class WattTimeOptimizer(WattTimeForecast):
 
         if constraints is None:
             constraints = {}
-        else:            
-            # TODO: Rename things here to make it clearer
-            old_constraints = constraints.copy()
+        else:
+            # Convert constraints to a standardized format
+            raw_constraints = constraints.copy()
             constraints = {}
 
-            for constraint_time_clock, constraint_usage_minutes in old_constraints.items():
+            for constraint_time_clock, constraint_usage_minutes in raw_constraints.items():
                 constraint_time_minutes = (constraint_time_clock - usage_window_start).total_seconds() / 60
                 constraint_time_units = minutes_to_units(constraint_time_minutes)
                 constraint_usage_units = minutes_to_units(constraint_usage_minutes)
@@ -713,7 +714,7 @@ class WattTimeOptimizer(WattTimeForecast):
         if optimization_method == "sophisticated":
             # Give a buffer time equal to the uncertainty
             buffer_time = usage_time_uncertainty_minutes
-            buffer_periods = minutes_to_units(buffer_time, False) if buffer_time else 0
+            buffer_periods = minutes_to_units(buffer_time) if buffer_time else 0
             # TODO: Check if there is any off-by-1 error here
             buffer_enforce_time = max(
                 total_charge_units, len(moer_values) - buffer_periods
@@ -743,7 +744,6 @@ class WattTimeOptimizer(WattTimeForecast):
             def emission_multiplier_fn(sc: float, ec: float) -> float:
                 """
                 Calculate the energy used for a given time range in the charging schedule.
-
                 This gives us the MWh used per OPT_INTERVAL.
 
                 Parameters:
@@ -757,7 +757,6 @@ class WattTimeOptimizer(WattTimeForecast):
                 --------
                 float
                     Energy used for a given time range
-
                 """
                 value = (
                     usage_power_kw[sc : max(sc, ec - 1e-12)]["power_kw"].mean()
@@ -769,19 +768,24 @@ class WattTimeOptimizer(WattTimeForecast):
         
         if charge_per_interval: 
             converted_charge_per_interval = []
+            minutes_to_trim_per_interval = []
             for c in charge_per_interval: 
                 if isinstance(c,int): 
                     converted_charge_per_interval.append(minutes_to_units(c))
+                    minutes_to_trim_per_interval.append(minutes_to_units(c) - c)
                 else: 
-                    assert(len(c)==2)
-                    converted_charge_per_interval.append((minutes_to_units(c[0],False) if c[0] else 0,minutes_to_units(c[1]) if c[1] else minutes_to_units(usage_time_required_minutes)))
+                    assert len(c) == 2, "Length of tuples in charge_per_interval is not 2"
+                    interval_start_units = minutes_to_units(c[0]) if c[0] else 0
+                    interval_end_units = minutes_to_units(c[1]) if c[1] else self.MAX_INT
+                    converted_charge_per_interval.append((interval_start_units, interval_end_units))
+                    # TODO: Figure out how to calculate this
+                    minutes_to_trim_per_interval.append(0)                    
             # print("Charge per interval:", converted_charge_per_interval)
         else: 
             converted_charge_per_interval = None
-                
         model.fit(
-            totalCharge=total_charge_units,
-            totalTime=len(moer_values),
+            total_charge=total_charge_units,
+            total_time=len(moer_values),
             moer=m,
             constraints=constraints,
             charge_per_interval=converted_charge_per_interval,
@@ -791,12 +795,93 @@ class WattTimeOptimizer(WattTimeForecast):
         )
 
         optimizer_result = model.get_schedule()
-        result_df["usage"] = [x * float(self.OPT_INTERVAL) for x in optimizer_result]
-        result_df["emissions_co2e_lb"] = model.get_charging_emissions_over_time()
-        result_df["energy_usage_mwh"] = model.get_energy_usage_over_time()
+        result_df = self._reconcile_constraints(optimizer_result, result_df, model, usage_time_required_minutes, charge_per_interval)
 
         return result_df
 
+    def _reconcile_constraints(self, optimizer_result, result_df, model, usage_time_required_minutes, charge_per_interval):
+        # Make a copy of charge_per_interval if necessary
+        if charge_per_interval is not None:
+            charge_per_interval = charge_per_interval[::]
+            for i in range(len(charge_per_interval)):
+                if type(charge_per_interval[i]) == int:
+                    charge_per_interval[i] = (charge_per_interval[i], charge_per_interval[i])
+                
+                assert len(charge_per_interval[i]) == 2
+                processed_start = charge_per_interval[i][0] if charge_per_interval[i][0] is not None else 0
+                processed_end = charge_per_interval[i][1] if charge_per_interval[i][1] is not None else self.MAX_INT
+                
+                charge_per_interval[i] = (processed_start, processed_end)
+
+        if not charge_per_interval:
+            # Handle case without charge_per_interval constraints
+            total_usage_intervals = sum(optimizer_result)
+            current_usage_intervals = 0
+            usage_list = []
+            for to_charge_binary in optimizer_result:
+                current_usage_intervals += to_charge_binary
+                if current_usage_intervals < total_usage_intervals:
+                    usage_list.append(to_charge_binary * float(self.OPT_INTERVAL))
+                else:
+                    # Partial interval
+                    minutes_to_trim = total_usage_intervals * self.OPT_INTERVAL - usage_time_required_minutes
+                    usage_list.append(to_charge_binary * float(self.OPT_INTERVAL - minutes_to_trim))
+            result_df["usage"] = usage_list
+            # TODO: Recalculate these fields accurately
+            result_df["emissions_co2e_lb"] = model.get_charging_emissions_over_time() * result_df["usage"] / self.OPT_INTERVAL
+            result_df["energy_usage_mwh"] = model.get_energy_usage_over_time() * result_df["usage"] / self.OPT_INTERVAL
+        else:
+            # Process charge_per_interval constraints
+            result_df["usage"] = [x * float(self.OPT_INTERVAL) for x in optimizer_result]
+            usage = result_df["usage"].values
+            sections = []
+            
+            # Identify contiguous non-zero usage sections
+            start_idx = None
+            for idx, value in enumerate(usage):
+                if value > 0:
+                    if start_idx is None:
+                        start_idx = idx
+                else:
+                    if start_idx is not None:
+                        sections.append((start_idx, idx - 1))
+                        start_idx = None
+            if start_idx is not None:
+                sections.append((start_idx, len(usage) - 1))
+
+            # Adjust sections to satisfy charge_per_interval constraints
+            for i, (start, end) in enumerate(sections):
+                section_usage = usage[start:end + 1]
+                total_minutes = section_usage.sum()
+                
+                # Get the constraints for this section
+                if isinstance(charge_per_interval[i], int):
+                    min_minutes, max_minutes = charge_per_interval[i], charge_per_interval[i]
+                else:
+                    min_minutes, max_minutes = charge_per_interval[i]
+                
+                # Adjust the section to fit the constraints
+                if total_minutes < min_minutes:
+                    raise ValueError(f"Cannot meet the minimum charging constraint of {min_minutes} minutes for section {i}.")
+                elif total_minutes > max_minutes:
+                    # Reduce usage to fit within the max_minutes
+                    excess_minutes = total_minutes - max_minutes
+                    for j in range(len(section_usage)):
+                        if section_usage[j] > 0:
+                            reduction = min(section_usage[j], excess_minutes)
+                            section_usage[j] -= reduction
+                            excess_minutes -= reduction
+                            if excess_minutes <= 0:
+                                break
+                    usage[start:end + 1] = section_usage
+
+            # Update result_df
+            result_df["usage"] = usage
+            # TODO: Recalculate these fields accurately
+            result_df["emissions_co2e_lb"] = model.get_charging_emissions_over_time() * result_df["usage"] / self.OPT_INTERVAL
+            result_df["energy_usage_mwh"] = model.get_energy_usage_over_time() * result_df["usage"] / self.OPT_INTERVAL
+
+        return result_df        
 
 class WattTimeMaps(WattTimeBase):
     def get_maps_json(

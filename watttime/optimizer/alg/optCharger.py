@@ -140,13 +140,8 @@ class OptCharger:
         Calls __collect_results to process the results.
         """
         print("== Baseline fit! ==")
-        charge_to_do = total_charge
-        schedule, t = [], 0
-        while (charge_to_do > 0) and (t < total_time):
-            charge_to_do -= 1
-            schedule.append(1)
-            t += 1
-        self.__optimal_charging_schedule = schedule + [0] * (total_time - t)
+        schedule = [1] * min(total_charge, total_time) + [0] * max(0, total_time - total_charge)
+        self.__optimal_charging_schedule = schedule
         self.__collect_results(moer)
 
     def __simple_fit(self, total_charge: int, total_time: int, moer: Moer):
@@ -169,12 +164,8 @@ class OptCharger:
         Calls __collect_results to process the results.
         """
         print("== Simple fit! ==")
-        sorted_times = [
-            x
-            for _, x in sorted(
-                zip(moer.get_emission_interval(0, total_time,1), range(total_time))
-            )
-        ]
+        sorted_times = np.argsort(moer.get_emission_interval(0, total_time, 1))
+
         charge_to_do = total_charge
         schedule, t = [0] * total_time, 0
         while (charge_to_do > 0) and (t < total_time):
@@ -362,8 +353,8 @@ class OptCharger:
         schedule = []
         interval_ids_reversed = []
         while t_curr > 0: 
-            di = path_history[t_curr-1, curr_state]
-            if not di: 
+            delta_interval = path_history[t_curr-1, curr_state]
+            if not delta_interval: 
                 ## did not charge 
                 schedule.append(0)
                 interval_ids_reversed.append(-1)
@@ -478,8 +469,8 @@ class OptCharger:
         schedule = []
         interval_ids_reversed = []
         while t_curr > 0: 
-            dc,di = path_history[t_curr-1, curr_state[0], curr_state[1], :]
-            if di==0: 
+            dc,delta_interval = path_history[t_curr-1, curr_state[0], curr_state[1], :]
+            if delta_interval==0: 
                 ## did not charge 
                 schedule.append(0)
                 interval_ids_reversed.append(-1)
@@ -487,7 +478,7 @@ class OptCharger:
             else: 
                 ## charge
                 t_curr -= dc
-                curr_state = [curr_state[0]-dc, curr_state[1]-di]
+                curr_state = [curr_state[0]-dc, curr_state[1]-delta_interval]
                 if dc>0: 
                     schedule.extend([1]*dc)
                     interval_ids_reversed.extend([curr_state[1]]*dc)

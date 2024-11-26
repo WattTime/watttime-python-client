@@ -360,11 +360,13 @@ class OptCharger:
         curr_state, t_curr = total_interval, total_time
         # This gives the schedule in reverse
         schedule = []
+        interval_ids_reversed = []
         while t_curr > 0: 
             di = path_history[t_curr-1, curr_state]
             if not di: 
                 ## did not charge 
                 schedule.append(0)
+                interval_ids_reversed.append(-1)
                 t_curr -= 1  
             else: 
                 ## charge
@@ -372,9 +374,11 @@ class OptCharger:
                 t_curr -= dc
                 curr_state -= 1
                 if dc>0: 
-                    schedule.extend([1]*dc)         
+                    schedule.extend([1]*dc)    
+                    interval_ids_reversed.extend([curr_state]*dc)     
         optimal_path = np.array(schedule)[::-1]
         self.__optimal_charging_schedule = list(optimal_path)
+        self.__interval_ids = list(interval_ids_reversed[::-1])
         self.__collect_results(moer)
 
     def __variable_contiguous_fit(
@@ -472,20 +476,24 @@ class OptCharger:
         curr_state, t_curr = [total_charge,optimal_interval], total_time
         # This gives the schedule in reverse
         schedule = []
+        interval_ids_reversed = []
         while t_curr > 0: 
             dc,di = path_history[t_curr-1, curr_state[0], curr_state[1], :]
             if di==0: 
                 ## did not charge 
                 schedule.append(0)
+                interval_ids_reversed.append(-1)
                 t_curr -= 1  
             else: 
                 ## charge
                 t_curr -= dc
                 curr_state = [curr_state[0]-dc, curr_state[1]-di]
                 if dc>0: 
-                    schedule.extend([1]*dc)         
+                    schedule.extend([1]*dc)
+                    interval_ids_reversed.extend([curr_state[1]]*dc)
         optimal_path = np.array(schedule)[::-1]
         self.__optimal_charging_schedule = list(optimal_path)
+        self.__interval_ids = list(interval_ids_reversed[::-1])
         self.__collect_results(moer)
 
     def fit(
@@ -639,6 +647,15 @@ class OptCharger:
         Returns list of the optimal charging schedule of units to charge for each interval.
         """
         return self.__optimal_charging_schedule
+
+    def get_interval_ids(self) -> list:
+        """
+        Returns list of the interval ids for each interval. Has a value of -1 for non-charging intervals.
+        Intervals are labeled starting from 0 to n-1 when there are n intervals
+
+        Only defined when charge_per_interval variable is given to some fit function
+        """
+        return self.__interval_ids
 
     def summary(self):
         print("-- Model Summary --")

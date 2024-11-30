@@ -652,3 +652,4 @@ class OptCharger:
         print("-- Model Summary --")
         print("Expected charging emissions: %.2f lbs" % self.__optimal_charging_emission)
         print("Optimal charging schedule:", self.__optimal_charging_schedule)
+        print("=" * 15)

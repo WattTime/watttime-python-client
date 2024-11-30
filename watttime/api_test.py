@@ -1,19 +1,14 @@
 # /bin/python3 -m watttime.api_test /home/annie.zhu/watttime-python-client-aer-algo/watttime/api_test.py 
 import os
-import time
-from datetime import date, datetime, timedelta
+from datetime import datetime, timedelta
 
-import pandas as pd
 from dateutil.parser import parse
 from pytz import UTC, timezone
-import matplotlib.pyplot as plt
 
 from watttime import (
     WattTimeOptimizer,
     RecalculatingWattTimeOptimizer, 
 )
-
-import unittest
 
 region = "PJM_NJ"
 username = os.getenv("WATTTIME_USER")

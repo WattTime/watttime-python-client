@@ -835,19 +835,17 @@ class WattTimeOptimizer(WattTimeForecast):
             result_df["usage"] = [x * float(self.OPT_INTERVAL) for x in optimizer_result]
             usage = result_df["usage"].values
             sections = []
-            
-            # Identify contiguous non-zero usage sections
-            start_idx = None
-            for idx, value in enumerate(usage):
-                if value > 0:
-                    if start_idx is None:
-                        start_idx = idx
-                else:
-                    if start_idx is not None:
-                        sections.append((start_idx, idx - 1))
-                        start_idx = None
-            if start_idx is not None:
-                sections.append((start_idx, len(usage) - 1))
+            interval_ids = model.get_interval_ids()
+
+            def get_min_max_indices(lst, x):
+                # Find the first occurrence of x
+                min_index = lst.index(x)
+                # Find the last occurrence of x
+                max_index = len(lst) - 1 - lst[::-1].index(x)
+                return min_index, max_index
+            for interval_id in range(0, max(interval_ids)+1):
+                assert interval_id in interval_ids, "interval_id not found in interval_ids"
+                sections.append(get_min_max_indices(interval_ids, interval_id))
 
             # Adjust sections to satisfy charge_per_interval constraints
             for i, (start, end) in enumerate(sections):

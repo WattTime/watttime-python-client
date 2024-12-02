@@ -166,7 +166,14 @@ class WattTimeBase:
             "signal_type": signal_type,
         }
         rsp = requests.get(url, headers=headers, params=params)
-        rsp.raise_for_status()
+        if not rsp.ok:
+            if rsp.status_code == 404:
+                # here we specifically cannot find a location that was provided
+                raise Exception(
+                    f"\nAPI Response Error: {rsp.status_code}, {rsp.text} [{rsp.headers.get('x-request-id')}]"
+                )
+            else:
+                rsp.raise_for_status()
         return rsp.json()
 
 
@@ -264,6 +271,7 @@ OP        Base function to scrape historical data, returning a list of .json res
         df = pd.json_normalize(
             responses, record_path="data", meta=["meta"] if include_meta else []
         )
+
 
         df["point_time"] = pd.to_datetime(df["point_time"])
 

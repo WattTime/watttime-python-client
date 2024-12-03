@@ -1,5 +1,4 @@
 import os
-
 PATH = os.getenv("HOME")
 os.chdir(f"{PATH}/watttime-python-client-aer-algo")
 
@@ -24,7 +23,6 @@ actual_data = WattTimeHistorical(username, password)
 hist_data = WattTimeForecast(username, password)
 
 s3 = s3u.s3_utils()
-
 
 def random_date_with_time(start, end):
 

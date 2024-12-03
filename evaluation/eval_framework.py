@@ -2,7 +2,7 @@
 # coding: utf-8
 
 import os
-from typing import List, Any, Optional
+from typing import List, Any
 import numpy as np
 import pandas as pd
 import random
@@ -18,21 +18,11 @@ from concurrent.futures import ProcessPoolExecutor, as_completed
 
 from evaluation.config import TZ_DICTIONARY
 
-import watttime.optimizer.alg.optCharger as optC
-import watttime.optimizer_v0.alg.optCharger as optC_v0
-import watttime.optimizer.alg.moer as Moer
 import data.s3 as s3u
 s3 = s3u.s3_utils()
 
 username = os.getenv("WATTTIME_USER")
 password = os.getenv("WATTTIME_PASSWORD")
-
-start = "2024-02-15 00:00Z"
-end = "2024-02-16 00:00Z"
-distinct_date_list = [
-    pd.Timestamp(date) for date in pd.date_range(start, end, freq="d").values
-]
-
 
 def intervalize_power_rate(kW_value: float, convert_to_MWh=True) -> float:
     """
@@ -110,35 +100,60 @@ def generate_random_session_start_time(
     return random_datetime
 
 
-def generate_random_session_end_time(random_start_time, mean, stddev):
+def generate_random_session_end_time(
+        random_start_time, method:str='normal', mean=None, stddev=None, elements:List[Any] = None
+):
     """
-    Adds a number of seconds drawn from a normal distribution to the given datetime.
-
+    Adds a number of seconds drawn from either a normal or uniform distribution to the given datetime.
+    
     Parameters:
     -----------
     random_start_time : datetime
         The initial plug-in time.
-    mean : float
+    distribution : str
+        Type of distribution to use ('normal' or 'random choice'). Default is 'normal'.
+    mean : float, optional
         The mean of the normal distribution for generating random seconds.
-    stddev : float
+        Required if method='normal'.
+    stddev : float, optional
         The standard deviation of the normal distribution for generating random seconds.
-
+        Required if method='normal'.
+    elements : List[Any], optional
+        Options for uniform distribution in seconds.
+        Required if method='random_choice'.
+        
     Returns:
     --------
     pd.Timestamp
         The new datetime after adding the random seconds.
-
+        
     Example:
     --------
     >>> plug_time = datetime(2023, 8, 29, 19, 0, 0)
-    >>> generate_random_session_end_time(random_start_time, 3600, 900)
-    Timestamp('2023-08-29 20:01:23.456789')  # Example output
+    >>> # Using normal distribution
+    >>> generate_random_session_end_time(plug_time, 'normal', mean=3600, stddev=900)
+    Timestamp('2023-08-29 20:01:23.456789')
+    >>> # Using random_choice distribution
+    >>> generate_random_session_end_time(plug_time, 'random_choice', elements=[10800, 21600,43200])
+    Timestamp('2023-08-29 19:45:30.123456')
     """
-    random_seconds = abs(np.random.normal(loc=mean, scale=stddev))
+    if method == 'normal':
+        if mean is None or stddev is None:
+            raise ValueError("Mean and standard deviation must be provided for normal distribution")
+        random_seconds = abs(np.random.normal(loc=mean, scale=stddev))
+    elif method == 'random_choice':
+        if elements is None:
+            raise ValueError("List of elements must be provided for random choice")
+        random_seconds = random.choice(elements)
+    else:
+        raise ValueError("Distribution must be either 'normal' or 'random choice'")
+        
     random_timedelta = timedelta(seconds=random_seconds)
     new_datetime = random_start_time + random_timedelta
+    
     if not isinstance(new_datetime, pd.Timestamp):
         new_datetime = pd.Timestamp(new_datetime)
+        
     return new_datetime
 
 
@@ -152,6 +167,7 @@ def generate_synthetic_user_data(
     end_hour="21:00:00",
     power_output_max_rates = [11, 7.4, 22],
     proportion_contiguous = 0,
+    session_lengths:List[Any] = None
 ) -> pd.DataFrame:
     """
     Generate synthetic user data for electric vehicle charging sessions.
@@ -175,7 +191,11 @@ def generate_synthetic_user_data(
         The earliest possible random start time generated. Formatted as HH:MM:SS.
     end_hour:
         The latest possible random start time generated. Formatted as HH:MM:SS.
+    session_lengths : List[Any], optional
+        Selection of session lengths.
+        Required for generate_random_session_end_time() method='random_choice'.
 
+        
     Returns:
     --------
     pd.DataFrame
@@ -218,11 +238,19 @@ def generate_synthetic_user_data(
     user_df["session_start_time"] = user_df["distinct_dates"].apply(
         generate_random_session_start_time, args=(start_hour, end_hour)
     )
-    user_df["session_end_time"] = user_df["session_start_time"].apply(
-        lambda x: generate_random_session_end_time(
-            x, mean_length_charge, std_length_charge
+
+    if session_lengths is None:
+        user_df["session_end_time"] = user_df["session_start_time"].apply(
+            lambda x: generate_random_session_end_time(
+                x, mean_length_charge, std_length_charge
+            )
         )
-    )
+    else:
+        user_df["session_end_time"] = user_df["session_start_time"].apply(
+            lambda x: generate_random_session_end_time(
+                x, method="random_choice", elements=session_lengths
+            )
+        )
 
     # Another random parameter, this time at the session level, 
     # it's the initial charge of the battery as a percentage.
@@ -506,45 +534,6 @@ def get_historical_actual_data(session_start_time, horizon, region):
         region=region,
     )
 
-
-# Set up OptCharger based on moer fcsts and get info on projected schedule
-def get_schedule_and_cost(
-    charge_rate_per_window, charge_needed, total_time_horizon, moer_data, asap=False
-):
-    """
-    Generate an optimal charging schedule and associated cost based on MOER forecasts.
-
-    Parameters:
-    -----------
-    charge_rate_per_window : int
-        The charge rate per time window.
-    charge_needed : int
-        The total charge needed.
-    total_time_horizon : int
-        The total time horizon for scheduling.
-    moer_data : pd.DataFrame
-        MOER (Marginal Operating Emissions Rate) forecast data.
-    asap : bool, optional
-        Whether to charge as soon as possible (default is False).
-
-    Returns:
-    --------
-    OptCharger
-        An OptCharger object containing the optimal charging schedule and cost.
-    """
-    charger = optC_v0.OptCharger(
-        charge_rate_per_window
-    )  # charge rate needs to be an int
-    moer = Moer.Moer(moer_data["value"])
-
-    charger.fit(
-        totalCharge=charge_needed,  # also currently an int value
-        totalTime=total_time_horizon,
-        moer=moer,
-        asap=asap,
-    )
-    return charger
-
 def get_time_needed(
     total_capacity_kWh: float,
     usage_power_kW: Union[float, pd.DataFrame],
@@ -674,7 +663,7 @@ def get_schedule_and_cost_api_requerying(
     time_needed,
     start_time,
     end_time,
-    optimization_method="sophisticated",
+    optimization_method="auto",
     moer_list = None,
     charge_per_interval = None,
     requery_interval_minutes = 60
@@ -690,7 +679,7 @@ def get_schedule_and_cost_api_requerying(
         The time needed for charging in minutes.
     total_time_horizon : int
         The total time horizon for scheduling.
-    moer_data : pd.DataFrame
+    moer_list : pd.DataFrame
         MOER (Marginal Operating Emissions Rate) forecast data.
     optimization_method : str, optional
         The optimization method to use (default is "sophisticated").

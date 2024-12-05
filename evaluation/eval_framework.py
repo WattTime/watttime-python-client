@@ -759,7 +759,7 @@ def get_schedule_and_cost_api_requerying(
     else:
         for curr_fcst_data in moer_list:
             new_start_time = pd.Timestamp(curr_fcst_data["point_time"].min())
-            # assert new_start_time < end_time
+            assert new_start_time < end_time
             wt_opt_rc.get_new_schedule(
                 new_start_time=new_start_time,
                 new_end_time=end_time,
@@ -771,7 +771,6 @@ def get_schedule_and_cost_api_requerying(
     if dp_usage_plan["emissions_co2e_lb"].sum() == 0.0:
         print(
             "Warning using 0.0 lb of CO2e:",
-            usage_power_kw,
             usage_power_kw,
             time_needed,
             dp_usage_plan["usage"].sum(),

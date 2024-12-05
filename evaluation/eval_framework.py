@@ -749,22 +749,19 @@ def get_schedule_and_cost_api_requerying(
         assert requery_interval_minutes is not None
         while new_start_time < end_time:
             new_start_time = new_start_time
-
             wt_opt_rc.get_new_schedule(new_start_time, end_time)
-
             new_start_time = new_start_time + timedelta(
                 minutes=requery_interval_minutes
             )
-
     else:
         for curr_fcst_data in moer_list:
             new_start_time = pd.Timestamp(curr_fcst_data["point_time"].min())
-            assert new_start_time < end_time
-            wt_opt_rc.get_new_schedule(
-                new_start_time=new_start_time,
-                new_end_time=end_time,
-                curr_fcst_data=curr_fcst_data,
-            )
+            while new_start_time < end_time:
+                wt_opt_rc.get_new_schedule(
+                    new_start_time=new_start_time,
+                    new_end_time=end_time,
+                    curr_fcst_data=curr_fcst_data,
+                )
 
     dp_usage_plan = wt_opt_rc.get_combined_schedule()
 

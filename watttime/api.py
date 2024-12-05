@@ -1089,23 +1089,6 @@ class RecalculatingWattTimeOptimizer:
         curr_fcst_data: pd.DataFrame = None,
         charge_per_interval: Optional[list] = None,
     ) -> tuple[pd.DataFrame, tuple[str, str]]:
-        # if curr_fcst_data is None:
-        #     # Get new data
-        #     curr_fcst_data = self.forecast_generator.get_historical_forecast_pandas(
-        #         start=new_start_time - timedelta(minutes=OPT_INTERVAL),
-        #         end=new_start_time,
-        #         region=self.region,
-        #         signal_type="co2_moer",
-        #         horizon_hours=MAX_PREDICTION_HOURS,
-        #     )
-        #     most_recent_data_time = curr_fcst_data["generated_at"].iloc[-1]
-        #     curr_fcst_data = curr_fcst_data[curr_fcst_data["generated_at"] == most_recent_data_time]
-
-        #     # Calculate remaining time required
-        #     usage = int(schedule[schedule.index < new_schedule_start_time]["usage"].sum())
-        #     self.remaining_time_required -= usage
-
-        # Get the next available charging segment
 
         if curr_fcst_data is None:
             curr_fcst_data = self._query_api_for_fcst_data(new_start_time)

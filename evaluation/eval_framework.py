@@ -731,8 +731,8 @@ def get_schedule_and_cost_api_requerying(
     
     else:
         for curr_fcst_data in moer_list:
-            new_start_time = curr_fcst_data["point_time"].min()
-            assert new_start_time < end_time
+            new_start_time = pd.Timestamp(curr_fcst_data["point_time"].min())
+            #assert new_start_time < end_time
             wt_opt_rc.get_new_schedule(new_start_time=new_start_time, new_end_time=end_time, curr_fcst_data=curr_fcst_data)
 
     
@@ -858,13 +858,19 @@ def process_requery_region(region, synthetic_data, increments):
     try:
         print(f"Processing {region}...")
         
-        full_forecast = s3.load_parquetdataframe(f"complete_2023_forecast_history/{region}.parquet").drop_duplicates()
+        full_forecast = s3.load_parquetdataframe(f"complete_2024_forecast_history/{region}.parquet").drop_duplicates()
         full_forecast['point_time'] = pd.to_datetime(full_forecast['point_time'], utc=True)
-        full_history = s3.load_parquetdataframe(f"complete_2023_actual_history/{region}.parquet").drop_duplicates()
+        full_history = s3.load_parquetdataframe(f"complete_2024_actual_history/{region}.parquet").drop_duplicates()
         
         for _, row in synthetic_data.iterrows():
+            print('trying iterrows')
             try:
                 with contextlib.redirect_stdout(io.StringIO()):
+                    time_zone = get_timezone_from_dict(region)
+                    row['session_start_time'] = pd.Timestamp(convert_to_utc(row['session_start_time'].round('5min') , time_zone))
+                    row['session_end_time'] = pd.Timestamp(convert_to_utc(row['session_end_time'].round('5min'), time_zone))
+                    print(row['session_start_time'])
+                    print(row['session_end_time'])
                     schedules = full_requery_sim(
                         region=region,
                         full_forecast=full_forecast,
@@ -873,9 +879,9 @@ def process_requery_region(region, synthetic_data, increments):
                         start_time=row['session_start_time'],
                         end_time=row['session_end_time'],
                         usage_power_kw=row['power_output_rate'],
-                        time_needed=row['usage_time_required_minutes'],
+                        time_needed=row['sanitize_time_needed'],
                         method="auto",
-                        charge_per_interval=row["charge_per_interval"]
+                        charge_per_interval=None
                     )
 
                 schedules["init_time"] = row['session_start_time']

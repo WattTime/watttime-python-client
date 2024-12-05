@@ -937,7 +937,7 @@ class RecalculatingWattTimeOptimizer:
         # Set up to query for actual data
         self.wt_hist = WattTimeHistorical(watttime_username, watttime_password)
     
-    def _get_curr_fcst_data(new_start_time: datetime):
+    def _get_curr_fcst_data(self,new_start_time: datetime):
         curr_fcst_data = self.forecast_generator.get_historical_forecast_pandas(
             start=new_start_time - timedelta(minutes=OPT_INTERVAL), 
             end=new_start_time,
@@ -966,6 +966,9 @@ class RecalculatingWattTimeOptimizer:
             # Set end time of last ctx
             schedule, ctx = self.all_schedules[-1]
             self.all_schedules[-1] = (schedule, (ctx[0], new_schedule_start_time))
+            print(self.all_schedules[-1])
+            print(ctx[0])
+            print(new_schedule_start_time)
             assert ctx[0] < new_schedule_start_time
 
     def _query_api_for_fcst_data(self, new_start_time: datetime):

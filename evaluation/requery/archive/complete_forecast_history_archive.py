@@ -48,7 +48,7 @@ def get_daily_historical_data(date, region):
 
 for region in regions:
     with concurrent.futures.ThreadPoolExecutor(max_workers=100) as executor:
-        print(f"Getting 2023 actuals data for {region}")
+        print(f"Getting 2024 actuals data for {region}")
 
         result = list(
             tqdm(
@@ -93,5 +93,5 @@ for region in regions:
         )
 
     out = pd.concat(result, ignore_index=True)
-    s3.store_parquetdataframe(out, f"complete_2023_forecast_history/{region}.parquet")
+    s3.store_parquetdataframe(out, f"complete_2024_forecast_history/{region}.parquet")
     print("Wrote parquet file to s3")

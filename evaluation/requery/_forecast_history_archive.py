@@ -8,6 +8,7 @@ import concurrent.futures
 from tqdm import tqdm
 from watttime import WattTimeForecast, WattTimeHistorical
 import data.s3 as s3u
+import evaluation.eval_framework as evu
 
 s3 = s3u.s3_utils()
 
@@ -49,31 +50,36 @@ def add_next_day(date):
     """
     return date + timedelta(days=1)
 
-def get_daily_historical_data(date, region):
+def get_daily_historical_data_in_utc(date, region):
+    time_zone = evu.get_timezone_from_dict(region)
+    date_utc = evu.convert_to_utc(date,time_zone)
     daily_data = historical_generator.get_historical_pandas(
-        start=date, end=date + timedelta(days=1), region=region, signal_type="co2_moer"
+        start=date_utc,
+        end=date_utc + timedelta(days=1),
+        region=region,
+        signal_type="co2_moer"
     )
 
     daily_data["region"] = region
 
     return daily_data
 
-def get_daily_forecast_data(date, region, horizon=14):
+def get_daily_forecast_data_in_utc(date, region, horizon=14):
+    time_zone = evu.get_timezone_from_dict(region)
+    date_utc = evu.convert_to_utc(date,time_zone)
     daily_data = forecast_generator.get_historical_forecast_pandas(
-        start=date,
-        end=date + timedelta(days=1),
+        start=date_utc,
+        end=date_utc + timedelta(days=1),
         region=region,
         signal_type="co2_moer",
-        horizon_hours=horizon,
+        horizon_hours=12,
     )
     daily_data["region"] = region
 
     return daily_data
 
-
-
 df_req = s3.load_csvdataframe("requery_data/20241203_1k_synth_users_96_days.csv")
-dates_2024_only = pd.to_datetime(df_req.distinct_dates.drop_duplicates()).tolist()
+dates_2024_only = pd.to_datetime(df_req.distinct_dates.drop_duplicates()).tolist() # has no timezone. local time ambiguous
 
 # gather forecasts across range of possible generated_at times
 prev_days = []
@@ -85,8 +91,7 @@ for day in dates_2024_only:
     next_days.append(next_day)
 
 dates_2024 = prev_days + dates_2024_only + next_days
-dates_2024 = pd.DatetimeIndex(data=dates_2024)
-
+dates_2024 = pd.to_datetime(dates_2024)
 
 original_regions = [
     "SPP_TX",
@@ -107,21 +112,22 @@ random_regions = [
     'PNM',
     'MISO_INDIANAPOLIS',
     'WALC',
-    'SPP_FORTPECK',
+    'ERCOT_AUSTIN',
     'SPP_KANSAS',
-    'AECI',
-    'BANC',
-    'PJM_SOUTHWEST_OH'
+    'ISONE_VT',
+    'SPP_SIOUX',
+    'SC'
 ]
 
 regions = original_regions+random_regions
 
 for region in regions:
+
     with concurrent.futures.ThreadPoolExecutor(max_workers=100) as executor:
         result = list(
             tqdm(
                 executor.map(
-                    lambda date: get_daily_historical_data(date, region), dates_2024
+                    lambda date: get_daily_historical_data_in_utc(date, region), dates_2024
                 ),
                 total=len(dates_2024),
                 desc=f"Getting 2024 actuals data for {region}",
@@ -136,7 +142,7 @@ for region in regions:
         result = list(
             tqdm(
                 executor.map(
-                    lambda date: get_daily_forecast_data(date, region), dates_2024
+                    lambda date: get_daily_forecast_data_in_utc(date, region), dates_2024
                 ),
                 total=len(dates_2024),
                 desc=f"Getting 2024 data for {region}",

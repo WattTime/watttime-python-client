@@ -1064,7 +1064,10 @@ class RecalculatingWattTimeOptimizer:
         if len(self.all_schedules) > 0:
             # Set end time of last ctx
             schedule, ctx = self.all_schedules[-1]
+            print("ctx1:",ctx)
             self.all_schedules[-1] = (schedule, (ctx[0], new_schedule_start_time))
+            print("ctx2:",ctx[0])
+            print("new_schedule_start_time:",new_schedule_start_time)
             assert ctx[0] < new_schedule_start_time
 
     def _query_api_for_fcst_data(self, new_start_time: datetime):
@@ -1096,14 +1099,15 @@ class RecalculatingWattTimeOptimizer:
         curr_fcst_data["point_time"] = pd.to_datetime(curr_fcst_data["point_time"])
         curr_fcst_data = curr_fcst_data.loc[curr_fcst_data["point_time"] >= new_start_time]
         new_schedule_start_time = curr_fcst_data["point_time"].iloc[0]
+        print("remaining_time:",self._get_remaining_time_required(new_schedule_start_time))
 
         # Generate new schedule
         new_schedule = self.wt_opt.get_optimal_usage_plan(
-            self.region,
-            new_start_time - timedelta(minutes=OPT_INTERVAL),
-            new_end_time,
-            self._get_remaining_time_required(new_schedule_start_time),
-            self.usage_power_kw,
+            region=self.region,
+            usage_window_start=new_start_time - timedelta(minutes=OPT_INTERVAL),
+            usage_window_end=new_end_time,
+            usage_time_required_minutes=self._get_remaining_time_required(new_schedule_start_time),
+            usage_power_kw=self.usage_power_kw,
             optimization_method=self.optimization_method,
             moer_data_override=curr_fcst_data,
             charge_per_interval=charge_per_interval,
@@ -1138,6 +1142,7 @@ class RecalculatingWattTimeOptimizer:
             combined_schedule = combined_schedule[
                 combined_schedule.index <= last_segment_start_time
             ]
+        
         return combined_schedule
 
 class RecalculatingWattTimeOptimizerWithContiguity(RecalculatingWattTimeOptimizer):

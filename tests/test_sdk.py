@@ -14,7 +14,7 @@ from watttime import (
 from pathlib import Path
 
 import pandas as pd
-import requests
+from shapely.geometry import shape, Polygon, MultiPolygon
 
 REGION = "CAISO_NORTH"
 
@@ -132,8 +132,8 @@ class TestWattTimeHistorical(unittest.TestCase):
         self.historical = WattTimeHistorical()
 
     def test_get_historical_jsons_3_months(self):
-        start = "2022-01-01 00:00Z"
-        end = "2022-12-31 00:00Z"
+        start = "2024-01-01 00:00Z"
+        end = "2024-03-31 00:00Z"
         jsons = self.historical.get_historical_jsons(start, end, REGION)
 
         self.assertIsInstance(jsons, list)
@@ -141,8 +141,8 @@ class TestWattTimeHistorical(unittest.TestCase):
         self.assertIsInstance(jsons[0], dict)
 
     def test_get_historical_jsons_1_week(self):
-        start = "2022-01-01 00:00Z"
-        end = "2022-01-07 00:00Z"
+        start = "2024-10-11 00:00Z"
+        end = "2024-10-19 00:00Z"
         jsons = self.historical.get_historical_jsons(start, end, REGION)
 
         self.assertIsInstance(jsons, list)
@@ -150,8 +150,8 @@ class TestWattTimeHistorical(unittest.TestCase):
         self.assertIsInstance(jsons[0], dict)
 
     def test_get_historical_jsons_signal_types(self):
-        start = "2023-01-01 00:00Z"
-        end = "2023-01-07 00:00Z"
+        start = datetime.now(tz=UTC) - timedelta(days=7)
+        end = datetime.now(tz=UTC)
         signal_types = ["co2_moer", "co2_aoer", "health_damage"]
         for signal_type in signal_types:
             if signal_type == "co2_aoer":
@@ -168,8 +168,8 @@ class TestWattTimeHistorical(unittest.TestCase):
             self.assertEqual(jsons[0]["meta"]["region"], region)
 
     def test_get_historical_pandas(self):
-        start = datetime.now() - timedelta(days=7)
-        end = datetime.now()
+        start = datetime.now(tz=UTC) - timedelta(days=7)
+        end = datetime.now(tz=UTC)
         df = self.historical.get_historical_pandas(start, end, REGION)
 
         self.assertIsInstance(df, pd.DataFrame)
@@ -178,8 +178,8 @@ class TestWattTimeHistorical(unittest.TestCase):
         self.assertIn("value", df.columns)
 
     def test_get_historical_pandas_meta(self):
-        start = datetime.now() - timedelta(days=7)
-        end = datetime.now()
+        start = datetime.now(tz=UTC) - timedelta(days=7)
+        end = datetime.now(tz=UTC)
         df = self.historical.get_historical_pandas(
             start, end, REGION, include_meta=True
         )
@@ -313,8 +313,8 @@ class TestWattTimeForecast(unittest.TestCase):
         self.assertIn("value", df.columns)
 
     def test_historical_forecast_jsons(self):
-        start = "2023-01-01 00:00Z"
-        end = "2023-01-03 00:00Z"
+        start = "2024-01-01 00:00Z"
+        end = "2024-01-03 00:00Z"
         json_list = self.forecast.get_historical_forecast_json(
             start, end, region=REGION
         )
@@ -326,8 +326,8 @@ class TestWattTimeForecast(unittest.TestCase):
         self.assertIn("generated_at", first_json["data"][0])
 
     def test_historical_forecast_pandas(self):
-        start = "2023-01-01 00:00Z"
-        end = "2023-01-03 00:00Z"
+        start = "2024-10-01 00:00Z"
+        end = "2024-10-03 00:00Z"
         df = self.forecast.get_historical_forecast_pandas(start, end, region=REGION)
 
         self.assertIsInstance(df, pd.DataFrame)
@@ -394,6 +394,23 @@ class TestWattTimeMaps(unittest.TestCase):
         self.assertEqual(region["region"], "PSCO")
         self.assertEqual(region["region_full_name"], "Public Service Co of Colorado")
         self.assertEqual(region["signal_type"], "co2_moer")
+
+    def test_ccw(self):
+        moer = self.maps.get_maps_json(signal_type="co2_moer")
+
+        def _is_ccw(geometry):
+            if isinstance(geometry, Polygon):
+                return geometry.exterior.is_ccw
+            elif isinstance(geometry, MultiPolygon):
+                return all(poly.exterior.is_ccw for poly in geometry.geoms)
+            return True
+
+        bad = [
+            f["properties"]["region_full_name"]
+            for f in moer["features"]
+            if not _is_ccw(shape(f["geometry"]))
+        ]
+        assert len(bad) == 0, f"Non-CCW geometries: {bad}"
 
 
 if __name__ == "__main__":

@@ -53,7 +53,7 @@ class TestWattTimeBase(unittest.TestCase):
     def test_login_with_real_api(self):
         self.base._login()
         assert self.base.token is not None
-        assert self.base.token_valid_until > datetime.now(tz=UTC)
+        assert self.base.token_valid_until > datetime.now()
 
     def test_parse_dates_with_string(self):
         start = "2022-01-01"
@@ -133,7 +133,7 @@ class TestWattTimeHistorical(unittest.TestCase):
 
     def test_get_historical_jsons_3_months(self):
         start = "2024-01-01 00:00Z"
-        end = "2022-12-31 00:00Z"
+        end = "2024-03-31 00:00Z"
         jsons = self.historical.get_historical_jsons(start, end, REGION)
 
         self.assertIsInstance(jsons, list)

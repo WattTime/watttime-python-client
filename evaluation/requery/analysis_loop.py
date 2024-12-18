@@ -26,7 +26,7 @@ password = os.getenv("WATTTIME_PASSWORD")
 
 s3 = s3u.s3_utils()
 
-sample_size = 96000
+sample_size = 5000
 
 df_req = s3.load_csvdataframe("requery_data/20241203_1k_synth_users_96_days.csv")
 
@@ -157,7 +157,9 @@ random_regions = [
     'SC'
 ]
 
-regions = original_regions+random_regions
+#regions = original_regions+random_regions
+
+regions = random_regions[-2:]
 
 for region in regions:
     print(region)
@@ -167,7 +169,7 @@ for region in regions:
 
     all_synth_users_list = []
     bad_dat = []
-    increments = [5,30,60,90,120,180,240]
+    increments = [5,15,30,60,90,120,180,240]
     for i in range(0,synth_data.shape[0]):
         try:
             loc_num = i
@@ -183,29 +185,28 @@ for region in regions:
             
             results_dfs = []
             for increment in increments:
-                try:
                     moer_list = prepare_set_of_forecasts(
                     forecasts=full_forecast,
                     increment=increment,
                     start_time=start_time_utc,
                     end_time=end_time_utc
                     )
-
-                    results = get_recalculating_optimizer_results(
-                    region=region,
-                    moer_list = moer_list,
-                    start_time=start_time_utc,
-                    end_time=end_time_utc,
-                    time_needed=time_needed,
-                    usage_power_kw=usage_power_kw,
-                    increment=increment
-                    )
-                    results_dfs.append(results)
-                except:
-                    no_go = synth_data.iloc[i].copy(deep=True)
-                    no_go["increment"] = increment
-                    bad_dat.append(no_go)
-                    continue
+                    try:
+                        results = get_recalculating_optimizer_results(
+                        region=region,
+                        moer_list = moer_list,
+                        start_time=start_time_utc,
+                        end_time=end_time_utc,
+                        time_needed=time_needed,
+                        usage_power_kw=usage_power_kw,
+                        increment=increment
+                        )
+                        results_dfs.append(results)
+                    except:
+                        no_go = synth_data.iloc[i].copy(deep=True)
+                        no_go["uuid"] = uuid
+                        bad_dat.append(no_go)
+                        continue
             requery_results = pd.concat(results_dfs)
             
             # baseline + ideal
@@ -254,7 +255,7 @@ for region in regions:
             print("bad data")
             continue
     region_users_df = pd.concat(all_synth_users_list)
-    s3.store_csvdataframe(region_users_df,f"results/analysis_requery_20241212_v2_{region}.csv")
+    s3.store_csvdataframe(region_users_df,f"results/analysis_requery_20241212_v3_{region}.csv")
     print(f"File stored")
 
 if len(bad_dat) > 0:

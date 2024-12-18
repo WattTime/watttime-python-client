@@ -139,7 +139,7 @@ class OptCharger:
 
         Calls __collect_results to process the results.
         """
-        print("== Baseline fit! ==")
+        #print("== Baseline fit! ==")
         schedule = [1] * min(total_charge, total_time) + [0] * max(0, total_time - total_charge)
         self.__optimal_charging_schedule = schedule
         self.__collect_results(moer)
@@ -163,7 +163,7 @@ class OptCharger:
 
         Calls __collect_results to process the results.
         """
-        print("== Simple fit! ==")
+        #print("== Simple fit! ==")
         sorted_times = np.argsort(moer.get_emission_interval(0, total_time, 1))
 
         charge_to_do = total_charge
@@ -210,7 +210,7 @@ class OptCharger:
         Exception
             If no valid solution is found.
         """
-        print("== Sophisticated fit! ==")
+        #print("== Sophisticated fit! ==")
         # This is a matrix with size = number of charge states x number of actions {not charging = 0, charging = 1}
         max_util = np.full((total_charge + 1), np.nan)
         max_util[0] = 0.0

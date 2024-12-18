@@ -1095,6 +1095,8 @@ class RecalculatingWattTimeOptimizer:
 
         curr_fcst_data["point_time"] = pd.to_datetime(curr_fcst_data["point_time"])
         curr_fcst_data = curr_fcst_data.loc[curr_fcst_data["point_time"] >= new_start_time]
+        if curr_fcst_data.shape[0] == 0:
+            print("error")
         new_schedule_start_time = curr_fcst_data["point_time"].iloc[0]
 
         # Generate new schedule

@@ -146,7 +146,7 @@ wt.get_maps_json('co2_moer')
 ```
 
 ### Calculating a Typical Carbon Year (TCY)
-The SDK provides functionality to calculate a Typical Carbon Year (TCY) profile, which represents typical MOER patterns over a year by analyzing three years of historical data. A TCY accounts for seasonal variations, daily patterns, and differences between weekdays and weekends/holidays:
+The SDK provides functionality to calculate a Typical Carbon Year (TCY) profile, which represents typical MOER patterns over a year by combining three years of historical data. A TCY accounts for seasonal variations, daily patterns, and differences between weekdays and weekends/holidays:
 
 ```python
 from watttime import TCYConfig, TCYCalculator

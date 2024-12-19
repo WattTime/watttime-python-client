@@ -719,15 +719,16 @@ class WattTimeOptimizer(WattTimeForecast):
         model = optCharger.OptCharger()
 
         total_charge_units = minutes_to_units(usage_time_required_minutes)
-        if optimization_method == "sophisticated":
+        if optimization_method in ("sophisticated", "auto"):
             # Give a buffer time equal to the uncertainty
             buffer_time = usage_time_uncertainty_minutes
             buffer_periods = minutes_to_units(buffer_time) if buffer_time else 0
-            # TODO: Check if there is any off-by-1 error here
             buffer_enforce_time = max(
                 total_charge_units, len(moer_values) - buffer_periods
             )
             constraints.update({buffer_enforce_time: (total_charge_units, None)})
+        else:
+            assert usage_time_uncertainty_minutes == 0, "usage_time_uncertainty_minutes is only supported in optimization_method='sophisticated' or 'auto'"
 
         if type(usage_power_kw) in (int, float):
             # Convert to the MWh used in an optimization interval
@@ -774,22 +775,19 @@ class WattTimeOptimizer(WattTimeForecast):
                 )
                 return value
         
-        if charge_per_interval: 
+        if charge_per_interval:
+            # Handle the charge_per_interval input by converting it from minutes to units, rounding up
             converted_charge_per_interval = []
-            minutes_to_trim_per_interval = []
             for c in charge_per_interval: 
                 if isinstance(c,int): 
                     converted_charge_per_interval.append(minutes_to_units(c))
-                    minutes_to_trim_per_interval.append(minutes_to_units(c) - c)
                 else: 
                     assert len(c) == 2, "Length of tuples in charge_per_interval is not 2"
                     interval_start_units = minutes_to_units(c[0]) if c[0] else 0
                     interval_end_units = minutes_to_units(c[1]) if c[1] else self.MAX_INT
                     converted_charge_per_interval.append((interval_start_units, interval_end_units))
-                    # TODO: Figure out how to calculate this
-                    minutes_to_trim_per_interval.append(0)                    
             # print("Charge per interval:", converted_charge_per_interval)
-        else: 
+        else:
             converted_charge_per_interval = None
         model.fit(
             total_charge=total_charge_units,

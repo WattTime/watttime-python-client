@@ -1,4 +1,3 @@
-# /bin/python3 -m watttime.api_test /home/annie.zhu/watttime-python-client-aer-algo/watttime/api_test.py 
 import os
 import time
 from datetime import datetime, timedelta

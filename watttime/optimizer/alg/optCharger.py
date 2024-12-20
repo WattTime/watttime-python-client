@@ -8,7 +8,7 @@ EMISSION_FN_TOL = 1e-9  # emissions functions tolerance in kw
 
 class OptCharger:
     """
-    Represents an Optimal Charger for managing electric vehicle charging schedules.
+    Represents an Optimal Charger for managing charging schedules.
 
     This class handles the optimization of charging schedules based on various parameters
     such as charge rates, emission overheads, and other constraints.
@@ -246,8 +246,6 @@ class OptCharger:
             max_util = new_max_util
         
         if np.isnan(max_util[total_charge]):
-            ## TODO: In this case we should still return the best possible plan
-            ## which would probably to just charge for the entire window
             raise Exception("Solution not found! Please check that constraints are satisfiable.")
         curr_state, t_curr = total_charge, total_time
         
@@ -344,9 +342,7 @@ class OptCharger:
                             path_history[t-1,k] = True
                         init_val = False
                             
-        if np.isnan(max_util[total_time,total_interval]): 
-            ## TODO: In this case we should still return the best possible plan
-            ## which would probably to just charge for the entire window
+        if np.isnan(max_util[total_time,total_interval]):
             raise Exception("Solution not found! Please check that constraints are satisfiable.")
         curr_state, t_curr = total_interval, total_time
         
@@ -460,9 +456,7 @@ class OptCharger:
             for k in range(0, total_interval):
                 if np.isnan(max_util[total_time,total_charge,optimal_interval]) or (not np.isnan(max_util[total_time,total_charge,k]) and max_util[total_time,total_charge,k] > max_util[total_time,total_charge,optimal_interval]): 
                     optimal_interval = k
-        if np.isnan(max_util[total_time,total_charge,optimal_interval]): 
-            ## TODO: In this case we should still return the best possible plan
-            ## which would probably to just charge for the entire window
+        if np.isnan(max_util[total_time,total_charge,optimal_interval]):
             raise Exception("Solution not found! Please check that constraints are satisfiable.")
         curr_state, t_curr = [total_charge,optimal_interval], total_time
         
@@ -538,18 +532,16 @@ class OptCharger:
         """
         assert len(moer) >= total_time
         assert optimization_method in ['baseline','simple','sophisticated','auto']
+
         if emission_multiplier_fn is None:
-            print(
-                "Warning: OptCharger did not get an emission_multiplier_fn. Assuming that device uses constant 1kW of power"
-            )
+            print("Warning: No emission_multiplier_fn given. Assuming that device uses constant 1kW of power")
             emission_multiplier_fn = lambda sc, ec: 1.0
             constant_emission_multiplier = True
         else:
             constant_emission_multiplier = np.std([emission_multiplier_fn(sc,sc+1) for sc in list(range(total_charge))]) < EMISSION_FN_TOL
-        # Store emission_multiplier_fn for evaluation
         self.emission_multiplier_fn = emission_multiplier_fn
+
         if total_charge > total_time:
-            # TODO: might want to just print out charging all the time instead of failing
             raise Exception(
                 f"Solution not found! Impossible to charge {total_charge} within {total_time} intervals."
             )

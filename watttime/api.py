@@ -544,9 +544,6 @@ class WattTimeForecast(WattTimeBase):
                 out = pd.concat([out, _df])
         return out
 
-OPT_INTERVAL = 5
-MAX_PREDICTION_HOURS = 72
-
 class WattTimeOptimizer(WattTimeForecast):
     """
     This class inherits from WattTimeForecast, with additional methods to generate
@@ -571,10 +568,10 @@ class WattTimeOptimizer(WattTimeForecast):
         region: str,
         usage_window_start: datetime,
         usage_window_end: datetime,
-        usage_time_required_minutes: Optional[float] = None,
+        usage_time_required_minutes: Optional[Union[int, float]] = None,
         usage_power_kw: Optional[Union[int, float, pd.DataFrame]] = None,
-        energy_required_kwh: Optional[float] = None,
-        usage_time_uncertainty_minutes: Optional[float] = 0,        
+        energy_required_kwh: Optional[Union[int, float]] = None,
+        usage_time_uncertainty_minutes: Optional[Union[int, float]] = 0,        
         charge_per_interval: Optional[list] = None,
         use_all_intervals: bool = True,
         constraints: Optional[dict] = None,
@@ -600,16 +597,17 @@ class WattTimeOptimizer(WattTimeForecast):
             Start time of the window when power consumption is allowed.
         usage_window_end : datetime
             End time of the window when power consumption is allowed.
-        usage_time_required_minutes : Optional[float]
+        usage_time_required_minutes : Optional[Union[int, float]], default=None
             Required usage time in minutes.
-        usage_power_kw : Optional[Union[int, float, pd.DataFrame]]
+        usage_power_kw : Optional[Union[int, float, pd.DataFrame]], default=None
             Power usage in kilowatts. Can be a constant value or a DataFrame for variable power.
-        energy_required_kwh : Optional[float], default=None
+        energy_required_kwh : Optional[Union[int, float]], default=None
             Energy required in kwh
-        usage_time_uncertainty_minutes : Optional[float], default=0
+        usage_time_uncertainty_minutes : Optional[Union[int, float]], default=0
             Uncertainty in usage time, in minutes.
         charge_per_interval : Optional[list], default=None
-            The minimium and maximum (inclusive) charging minutes per interval. If int instead of tuple, interpret as both min and max.
+            Either a list of length-2 tuples representing minimium and maximum (inclusive) charging minutes per interval,
+            or a list of ints representing both the min and max.
         use_all_intervals : Optional[bool], default=False
             If true, use all intervals provided by charge_per_interval; if false, can use the first few intervals and skip the rest. 
         constraints : Optional[dict], default=None
@@ -680,7 +678,7 @@ class WattTimeOptimizer(WattTimeForecast):
                 print("Implied usage time required =", usage_time_required_minutes)
             else:
                 # TODO: Implement and test
-                raise NotImplementedError
+                raise NotImplementedError("When usage_time_required_minutes is None, only float or int usage_power_kw and energy_required_kwh is supported.")
 
         # Perform these checks if we are using live data
         if moer_data_override is None:
@@ -737,9 +735,11 @@ class WattTimeOptimizer(WattTimeForecast):
                 lambda sc, ec: float(usage_power_kw) * 0.001 * self.OPT_INTERVAL / 60.0
             )
         else:
+            usage_power_kw = usage_power_kw.copy()
+            # Resample usage power dataframe to an OPT_INTERVAL frequency
             usage_power_kw["time_step"] = usage_power_kw["time"] / self.OPT_INTERVAL
             usage_power_kw_new_index = pd.DataFrame(
-                index=list([float(x) for x in range(total_charge_units + 1)])
+                index=[float(x) for x in range(total_charge_units + 1)]
             )
             usage_power_kw = pd.merge_asof(
                 usage_power_kw_new_index,
@@ -752,20 +752,11 @@ class WattTimeOptimizer(WattTimeForecast):
 
             def emission_multiplier_fn(sc: float, ec: float) -> float:
                 """
-                Calculate the energy used for a given time range in the charging schedule.
-                This gives us the MWh used per OPT_INTERVAL.
+                Calculate the approximate mean power in the given time range,
+                in units of MWh used per optimizer time unit.
 
-                Parameters:
-                -----------
-                sc : float
-                    Start of the time range (in optimizer time units).
-                ec : float
-                    End of the time range (in optimizer time units).
-
-                Returns:
-                --------
-                float
-                    Energy used for a given time range
+                sc and ec are float values representing the start and end time of
+                the time range, in optimizer time units.
                 """
                 value = (
                     usage_power_kw[sc : max(sc, ec - 1e-12)]["power_kw"].mean()
@@ -833,9 +824,6 @@ class WattTimeOptimizer(WattTimeForecast):
                     minutes_to_trim = total_usage_intervals * self.OPT_INTERVAL - usage_time_required_minutes
                     usage_list.append(to_charge_binary * float(self.OPT_INTERVAL - minutes_to_trim))
             result_df["usage"] = usage_list
-            # TODO: Recalculate these fields accurately
-            result_df["emissions_co2e_lb"] = model.get_charging_emissions_over_time() * result_df["usage"] / self.OPT_INTERVAL
-            result_df["energy_usage_mwh"] = model.get_energy_usage_over_time() * result_df["usage"] / self.OPT_INTERVAL
         else:
             # Process charge_per_interval constraints
             result_df["usage"] = [x * float(self.OPT_INTERVAL) for x in optimizer_result]
@@ -878,14 +866,15 @@ class WattTimeOptimizer(WattTimeForecast):
                             if excess_minutes <= 0:
                                 break
                     usage[start:end + 1] = section_usage
-
-            # Update result_df
             result_df["usage"] = usage
-            # TODO: Recalculate these fields accurately
-            result_df["emissions_co2e_lb"] = model.get_charging_emissions_over_time() * result_df["usage"] / self.OPT_INTERVAL
-            result_df["energy_usage_mwh"] = model.get_energy_usage_over_time() * result_df["usage"] / self.OPT_INTERVAL
+        
+        # Recalculate these values approximately, based on the new "usage" column
+        # Note: This is approximate since it assumes that 
+        # the charging emissions over time of the unrounded values are similar to the rounded values
+        result_df["emissions_co2e_lb"] = model.get_charging_emissions_over_time() * result_df["usage"] / self.OPT_INTERVAL
+        result_df["energy_usage_mwh"] = model.get_energy_usage_over_time() * result_df["usage"] / self.OPT_INTERVAL
 
-        return result_df        
+        return result_df
 
 class WattTimeMaps(WattTimeBase):
     def get_maps_json(

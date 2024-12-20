@@ -59,7 +59,6 @@ class TestWattTimeOptimizer(unittest.TestCase):
         now = datetime.now(UTC)
         cls.window_start_test = now + timedelta(minutes=10)
         cls.window_end_test = now + timedelta(minutes=720)
-        # cls.window_end_test = now + timedelta(minutes=240)
 
     def test_baseline_plan(self):
         """Test the baseline plan."""
@@ -163,9 +162,12 @@ class TestWattTimeOptimizer(unittest.TestCase):
         # Check time required
         self.assertAlmostEqual(usage_plan["usage"].sum(), 320)
         # Check power
-        ### TODO: Maybe implement way of checking power
+        usage_plan_nonzero_entries = usage_plan[usage_plan["usage"]>0]
+        power_kwh_array = usage_plan_nonzero_entries["energy_usage_mwh"].values * 1e3 * 60 / 5
+        self.assertAlmostEqual(power_kwh_array[:220//5].mean(), 12.0)
+        self.assertAlmostEqual(power_kwh_array[220//5:].mean(), 2.4)
         # Check energy required
-        ### TODO: Maybe implement way of checking energy
+        self.assertAlmostEqual(usage_plan["energy_usage_mwh"].sum() * 1000, 220 * 12 / 60 + 100 * 2.4 / 60)
 
     def test_dp_non_round_usage_time(self):
         """Test auto mode with non-round usage time minutes."""
@@ -198,7 +200,6 @@ class TestWattTimeOptimizer(unittest.TestCase):
             energy_required_kwh=17,
             optimization_method="auto",
         )
-        # TODO: Add assert on the energy_usage_mwh per interval
         print("Using auto mode, with energy required in kWh")
         print(usage_plan.sum())
 
@@ -413,7 +414,7 @@ class TestWattTimeOptimizer(unittest.TestCase):
             self.assertAlmostEqual(contiguity_info[0]["sum"], 160)
             
     def test_dp_two_intervals_exact_unround(self):
-        """Test auto mode with two intervals."""
+        """Test auto mode with two intervals, specified via list of tuple."""
         usage_plan = self.wt_opt.get_optimal_usage_plan(
             region=self.region,
             usage_window_start=self.window_start_test,
@@ -446,7 +447,7 @@ class TestWattTimeOptimizer(unittest.TestCase):
             self.assertAlmostEqual(contiguity_info[0]["sum"], 160)
 
     def test_dp_two_intervals_exact_unround_alternate_input(self):
-        """Test auto mode with two intervals."""
+        """Test auto mode with two intervals, specified via list of ints."""
         usage_plan = self.wt_opt.get_optimal_usage_plan(
             region=self.region,
             usage_window_start=self.window_start_test,

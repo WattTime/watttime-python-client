@@ -4,6 +4,7 @@ import pandas as pd
 import pytz
 from typing import Optional, List
 from .api import WattTimeHistorical
+import os
 
 @dataclass
 class TCYConfig:
@@ -15,12 +16,27 @@ class TCYConfig:
 class TCYCalculator:
     """Calculate Typical Carbon Year profiles from historical MOER data using a 3-year lookback period"""
     
-    def __init__(self, username: str, password: str, config: TCYConfig):
-        self.wt_client = WattTimeHistorical(username, password)
-        self.config = config
-        self.timezone = pytz.timezone(config.timezone)
+    def __init__(
+        self,
+        region: str,
+        timezone: str,
+        username: Optional[str] = None,
+        password: Optional[str] = None,
+        holidays: Optional[List[str]] = None
+    ):
+        # Handle credentials like other API classes
+        self.username = username or os.getenv("WATTTIME_USER")
+        self.password = password or os.getenv("WATTTIME_PASSWORD")
         
-        if not config.holidays:
+        # Initialize API client with credentials
+        self.wt_client = WattTimeHistorical(self.username, self.password)
+        
+        # Store configuration
+        self.region = region
+        self.timezone = pytz.timezone(timezone)
+        
+        # Set default holidays if none provided
+        if not holidays:
             self.holidays = [
                 "2023-01-01", "2023-05-29", "2023-07-04", "2023-09-04",
                 "2023-11-23", "2023-12-25",
@@ -28,7 +44,7 @@ class TCYCalculator:
                 "2024-11-28", "2024-12-25"
             ]
         else:
-            self.holidays = config.holidays
+            self.holidays = holidays
 
     def _get_historical_data(self) -> pd.DataFrame:
         """Fetch 3 years of historical MOER data"""
@@ -39,13 +55,13 @@ class TCYCalculator:
         df = self.wt_client.get_historical_pandas(
             start=start.strftime('%Y-%m-%d %H:%MZ'),
             end=end.strftime('%Y-%m-%d %H:%MZ'),
-            region=self.config.region,
+            region=self.region,  # Changed from self.config.region
             signal_type='co2_moer'
         )
         
         # Set point_time as index and convert timezone
         df = df.set_index('point_time')
-        df.index = df.index.tz_convert(self.timezone)
+        df.index = df.index.tz_convert(self.timezone)  # Changed from self.config.timezone
         
         return df
     
@@ -72,7 +88,7 @@ class TCYCalculator:
         # Create datetime index for entire year
         start = pd.Timestamp(year=year, month=1, day=1, tz=self.timezone)
         end = pd.Timestamp(year=year+1, month=1, day=1, tz=self.timezone)
-        dates = pd.date_range(start=start, end=end, freq='H', inclusive='left')
+        dates = pd.date_range(start=start, end=end, freq='h', inclusive='left')
         
         # Create profile DataFrame
         profile = pd.DataFrame(index=dates)
@@ -88,7 +104,7 @@ class TCYCalculator:
         )
         
         # Forward fill any missing values
-        profile['value'] = profile['value'].fillna(method='ffill')
+        profile['value'] = profile['value'].ffill()
         
         return profile.set_index(dates)['value']
 

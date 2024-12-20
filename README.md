@@ -157,8 +157,19 @@ config = TCYConfig(
     timezone="America/Los_Angeles"  # Local timezone for the region
 )
 
-# Initialize calculator
-calculator = TCYCalculator(username, password, config)
+# Initialize calculator (using env variables for credentials)
+calculator = TCYCalculator(
+    region="CAISO_NORTH",
+    timezone="America/Los_Angeles"
+)
+
+# Or with explicit credentials
+calculator = TCYCalculator(
+    region="CAISO_NORTH",
+    timezone="America/Los_Angeles",
+    username="your_username",
+    password="your_password"
+)
 
 # Calculate TCY for a specific year
 tcy_profile = calculator.calculate_tcy(2024)

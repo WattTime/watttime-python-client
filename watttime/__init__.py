@@ -1,2 +1,2 @@
 from watttime.api import *
-from .tcy import TCYConfig, TCYCalculator
+from watttime.tcy import TCYCalculator

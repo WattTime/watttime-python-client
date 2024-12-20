@@ -1,23 +1,18 @@
 import unittest
 import unittest.mock as mock
-from datetime import datetime, timedelta
+from datetime import datetime
 import pandas as pd
 import pytz
-import os
-from watttime import TCYConfig, TCYCalculator
+from pathlib import Path
+from watttime import TCYCalculator
 
 REGION = "CAISO_NORTH"
 
 class TestTCY(unittest.TestCase):
     def setUp(self):
-        self.config = TCYConfig(
+        self.calculator = TCYCalculator(
             region=REGION,
             timezone="America/Los_Angeles"
-        )
-        self.calculator = TCYCalculator(
-            username=os.getenv("WATTTIME_USER"),
-            password=os.getenv("WATTTIME_PASSWORD"),
-            config=self.config
         )
 
     def test_tcy_weekday_weekend_differentiation(self):

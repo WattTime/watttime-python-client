@@ -1,4 +1,3 @@
-# /bin/python3 -m watttime.api_test /home/annie.zhu/watttime-python-client-aer-algo/watttime/api_test.py 
 import os
 import time
 from datetime import datetime, timedelta
@@ -60,7 +59,6 @@ class TestWattTimeOptimizer(unittest.TestCase):
         now = datetime.now(UTC)
         cls.window_start_test = now + timedelta(minutes=10)
         cls.window_end_test = now + timedelta(minutes=720)
-        # cls.window_end_test = now + timedelta(minutes=240)
 
     def test_baseline_plan(self):
         """Test the baseline plan."""
@@ -83,6 +81,25 @@ class TestWattTimeOptimizer(unittest.TestCase):
         # Check number of components (1 for baseline)
         self.assertEqual(len(get_contiguity_info(usage_plan)), 1)
     
+    def test_simple_plan(self):
+        """Test the simple plan."""
+        usage_plan = self.wt_opt.get_optimal_usage_plan(
+            region=self.region,
+            usage_window_start=self.window_start_test,
+            usage_window_end=self.window_end_test,
+            usage_time_required_minutes=240,
+            usage_power_kw=self.usage_power_kw,
+            optimization_method="simple",
+        )
+        print("Using Simple Plan\n", pretty_format_usage(usage_plan))
+
+        # Check time required
+        self.assertAlmostEqual(usage_plan["usage"].sum(), 240)
+        # Check power
+        self.assertAlmostEqual(get_usage_plan_mean_power(usage_plan), self.usage_power_kw)
+        # Check energy required
+        self.assertAlmostEqual(usage_plan["energy_usage_mwh"].sum() * 1000, 240 * self.usage_power_kw / 60)
+
     def test_dp_fixed_power_rate(self):
         """Test the sophisticated plan with a fixed power rate."""
         usage_plan = self.wt_opt.get_optimal_usage_plan(
@@ -126,7 +143,7 @@ class TestWattTimeOptimizer(unittest.TestCase):
 
 
     def test_dp_variable_power_rate(self):
-        """Test the sophisticated plan with variable power rate."""
+        """Test the plan with variable power rate."""
         usage_power_kw_df = pd.DataFrame(
             [[0, 12], [20, 12], [40, 12], [100, 12], [219, 12], [220, 2.4], [320, 2.4]],
             columns=["time", "power_kw"],
@@ -145,9 +162,12 @@ class TestWattTimeOptimizer(unittest.TestCase):
         # Check time required
         self.assertAlmostEqual(usage_plan["usage"].sum(), 320)
         # Check power
-        ### TODO: Maybe implement way of checking power
+        usage_plan_nonzero_entries = usage_plan[usage_plan["usage"]>0]
+        power_kwh_array = usage_plan_nonzero_entries["energy_usage_mwh"].values * 1e3 * 60 / 5
+        self.assertAlmostEqual(power_kwh_array[:220//5].mean(), 12.0)
+        self.assertAlmostEqual(power_kwh_array[220//5:].mean(), 2.4)
         # Check energy required
-        ### TODO: Maybe implement way of checking energy
+        self.assertAlmostEqual(usage_plan["energy_usage_mwh"].sum() * 1000, 220 * 12 / 60 + 100 * 2.4 / 60)
 
     def test_dp_non_round_usage_time(self):
         """Test auto mode with non-round usage time minutes."""
@@ -180,7 +200,6 @@ class TestWattTimeOptimizer(unittest.TestCase):
             energy_required_kwh=17,
             optimization_method="auto",
         )
-        # TODO: Add assert on the energy_usage_mwh per interval
         print("Using auto mode, with energy required in kWh")
         print(usage_plan.sum())
 
@@ -395,7 +414,7 @@ class TestWattTimeOptimizer(unittest.TestCase):
             self.assertAlmostEqual(contiguity_info[0]["sum"], 160)
             
     def test_dp_two_intervals_exact_unround(self):
-        """Test auto mode with two intervals."""
+        """Test auto mode with two intervals, specified via list of tuple."""
         usage_plan = self.wt_opt.get_optimal_usage_plan(
             region=self.region,
             usage_window_start=self.window_start_test,
@@ -403,6 +422,39 @@ class TestWattTimeOptimizer(unittest.TestCase):
             usage_time_required_minutes=160,
             usage_power_kw=self.usage_power_kw,
             charge_per_interval=[(67,67), (93,93)],
+            optimization_method="auto",
+        )
+        print("Using auto mode with two exact unround intervals\n", pretty_format_usage(usage_plan))
+        print(usage_plan.sum())
+
+        # Check time required
+        self.assertAlmostEqual(usage_plan["usage"].sum(), 160)
+        # Check power
+        self.assertAlmostEqual(get_usage_plan_mean_power(usage_plan), self.usage_power_kw)
+        # Check energy required
+        self.assertAlmostEqual(usage_plan["energy_usage_mwh"].sum() * 1000, 160 * self.usage_power_kw / 60)
+
+        contiguity_info = get_contiguity_info(usage_plan)
+        # Check number of components
+        self.assertLessEqual(len(contiguity_info), 2)
+        if len(contiguity_info) == 2:
+            # Check first component length
+            self.assertAlmostEqual(contiguity_info[0]["sum"], 67)
+            # Check second component length
+            self.assertAlmostEqual(contiguity_info[1]["sum"], 93)
+        else:
+            # Check combined component length
+            self.assertAlmostEqual(contiguity_info[0]["sum"], 160)
+
+    def test_dp_two_intervals_exact_unround_alternate_input(self):
+        """Test auto mode with two intervals, specified via list of ints."""
+        usage_plan = self.wt_opt.get_optimal_usage_plan(
+            region=self.region,
+            usage_window_start=self.window_start_test,
+            usage_window_end=self.window_end_test,
+            usage_time_required_minutes=160,
+            usage_power_kw=self.usage_power_kw,
+            charge_per_interval=[67, 93],
             optimization_method="auto",
         )
         print("Using auto mode with two exact unround intervals\n", pretty_format_usage(usage_plan))

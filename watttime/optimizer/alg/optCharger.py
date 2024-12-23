@@ -8,7 +8,7 @@ EMISSION_FN_TOL = 1e-9  # emissions functions tolerance in kw
 
 class OptCharger:
     """
-    Represents an Optimal Charger for managing electric vehicle charging schedules.
+    Represents an Optimal Charger for managing charging schedules.
 
     This class handles the optimization of charging schedules based on various parameters
     such as charge rates, emission overheads, and other constraints.
@@ -215,7 +215,7 @@ class OptCharger:
         max_util = np.full((total_charge + 1), np.nan)
         max_util[0] = 0.0
         path_history = np.full((total_time, total_charge + 1), -1, dtype=int)
-        for t in range(1,total_time+1):
+        for t in range(1, total_time+1):
             if t in constraints:
                 min_charge, max_charge = constraints[t]
                 min_charge = 0 if min_charge is None else max(0, min_charge)
@@ -246,18 +246,16 @@ class OptCharger:
             max_util = new_max_util
         
         if np.isnan(max_util[total_charge]):
-            ## TODO: In this case we should still return the best possible plan
-            ## which would probably to just charge for the entire window
-            raise Exception("Solution not found!")
+            raise Exception("Solution not found! Please check that constraints are satisfiable.")
         curr_state, t_curr = total_charge, total_time
-        # This gives the schedule in reverse
-        schedule = []
-        schedule.append(curr_state)
+        
+        schedule_reversed = []
+        schedule_reversed.append(curr_state)
         while t_curr > 0:
             curr_state = path_history[t_curr-1, curr_state]
-            schedule.append(curr_state)
+            schedule_reversed.append(curr_state)
             t_curr -= 1
-        optimal_path = np.array(schedule)[::-1]
+        optimal_path = np.array(schedule_reversed)[::-1]
         self.__optimal_charging_schedule = list(np.diff(optimal_path))
         self.__collect_results(moer)
 
@@ -316,7 +314,7 @@ class OptCharger:
         for c in charge_per_interval: 
             cum_charge.append(cum_charge[-1]+c)
 
-        charge_array_cache = [emission_multiplier_fn(x,x+1) for x in range(0,total_charge+1)]
+        charge_array_cache = [emission_multiplier_fn(x,x+1) for x in range(0, total_charge+1)]
         print("Cumulative charge", cum_charge)
         for t in range(1, total_time+1):
             if t in constraints:
@@ -344,19 +342,17 @@ class OptCharger:
                             path_history[t-1,k] = True
                         init_val = False
                             
-        if np.isnan(max_util[total_time,total_interval]): 
-            ## TODO: In this case we should still return the best possible plan
-            ## which would probably to just charge for the entire window
-            raise Exception("Solution not found!")
+        if np.isnan(max_util[total_time,total_interval]):
+            raise Exception("Solution not found! Please check that constraints are satisfiable.")
         curr_state, t_curr = total_interval, total_time
-        # This gives the schedule in reverse
-        schedule = []
+        
+        schedule_reversed = []
         interval_ids_reversed = []
         while t_curr > 0: 
             delta_interval = path_history[t_curr-1, curr_state]
             if not delta_interval: 
                 ## did not charge 
-                schedule.append(0)
+                schedule_reversed.append(0)
                 interval_ids_reversed.append(-1)
                 t_curr -= 1  
             else: 
@@ -365,9 +361,9 @@ class OptCharger:
                 t_curr -= dc
                 curr_state -= 1
                 if dc>0: 
-                    schedule.extend([1]*dc)    
+                    schedule_reversed.extend([1]*dc)    
                     interval_ids_reversed.extend([curr_state]*dc)     
-        optimal_path = np.array(schedule)[::-1]
+        optimal_path = np.array(schedule_reversed)[::-1]
         self.__optimal_charging_schedule = list(optimal_path)
         self.__interval_ids = list(interval_ids_reversed[::-1])
         self.__collect_results(moer)
@@ -427,7 +423,7 @@ class OptCharger:
             (total_time, total_charge + 1, total_interval + 1, 2), 0, dtype=int
         )
 
-        charge_array_cache = [emission_multiplier_fn(x,x+1) for x in range(0,total_charge+1)]
+        charge_array_cache = [emission_multiplier_fn(x,x+1) for x in range(0, total_charge+1)]
 
         for t in range(1, total_time+1):
             if t in constraints:
@@ -457,22 +453,20 @@ class OptCharger:
                                 init_val = False
         optimal_interval, optimal_util = total_interval, max_util[total_time,total_charge,total_interval]
         if not use_all_intervals: 
-            for k in range(0,total_interval):
+            for k in range(0, total_interval):
                 if np.isnan(max_util[total_time,total_charge,optimal_interval]) or (not np.isnan(max_util[total_time,total_charge,k]) and max_util[total_time,total_charge,k] > max_util[total_time,total_charge,optimal_interval]): 
                     optimal_interval = k
-        if np.isnan(max_util[total_time,total_charge,optimal_interval]): 
-            ## TODO: In this case we should still return the best possible plan
-            ## which would probably to just charge for the entire window
-            raise Exception("Solution not found!")
+        if np.isnan(max_util[total_time,total_charge,optimal_interval]):
+            raise Exception("Solution not found! Please check that constraints are satisfiable.")
         curr_state, t_curr = [total_charge,optimal_interval], total_time
-        # This gives the schedule in reverse
-        schedule = []
+        
+        schedule_reversed = []
         interval_ids_reversed = []
         while t_curr > 0: 
             dc,delta_interval = path_history[t_curr-1, curr_state[0], curr_state[1], :]
             if delta_interval==0: 
                 ## did not charge 
-                schedule.append(0)
+                schedule_reversed.append(0)
                 interval_ids_reversed.append(-1)
                 t_curr -= 1  
             else: 
@@ -480,9 +474,9 @@ class OptCharger:
                 t_curr -= dc
                 curr_state = [curr_state[0]-dc, curr_state[1]-delta_interval]
                 if dc>0: 
-                    schedule.extend([1]*dc)
+                    schedule_reversed.extend([1]*dc)
                     interval_ids_reversed.extend([curr_state[1]]*dc)
-        optimal_path = np.array(schedule)[::-1]
+        optimal_path = np.array(schedule_reversed)[::-1]
         self.__optimal_charging_schedule = list(optimal_path)
         self.__interval_ids = list(interval_ids_reversed[::-1])
         self.__collect_results(moer)
@@ -538,20 +532,18 @@ class OptCharger:
         """
         assert len(moer) >= total_time
         assert optimization_method in ['baseline','simple','sophisticated','auto']
+
         if emission_multiplier_fn is None:
-            print(
-                "Warning: OptCharger did not get an emission_multiplier_fn. Assuming that device uses constant 1kW of power"
-            )
+            print("Warning: No emission_multiplier_fn given. Assuming that device uses constant 1kW of power")
             emission_multiplier_fn = lambda sc, ec: 1.0
             constant_emission_multiplier = True
         else:
             constant_emission_multiplier = np.std([emission_multiplier_fn(sc,sc+1) for sc in list(range(total_charge))]) < EMISSION_FN_TOL
-        # Store emission_multiplier_fn for evaluation
         self.emission_multiplier_fn = emission_multiplier_fn
+
         if total_charge > total_time:
-            # TODO: might want to just print out charging all the time instead of failing
             raise Exception(
-                f"Impossible to charge {total_charge} within {total_time} intervals."
+                f"Solution not found! Impossible to charge {total_charge} within {total_time} intervals."
             )
         if optimization_method == "baseline":
             self.__greedy_fit(total_charge, total_time, moer)
@@ -575,6 +567,7 @@ class OptCharger:
                 constraints
             )
         else:
+            # cpi stands for charge per interval
             single_cpi, tuple_cpi, use_fixed_alg = [], [], True
             def convert_input(c):
                 ## Converts the interval format

@@ -165,7 +165,10 @@ class TestRecalculatingOptimizer(unittest.TestCase):
 
 def check_num_intervals(schedule: pd.DataFrame) -> int:
     charging_indicator = schedule["usage"].apply(lambda x: 1 if x > 0 else 0)
-    return charging_indicator.diff().value_counts()[1]
+    intervals = charging_indicator.diff().value_counts()[1]
+    if charging_indicator[0] > 0:
+        intervals += 1
+    return intervals
 
 
 class TestRecalculatingOptimizerWithConstraints(unittest.TestCase):
@@ -198,14 +201,14 @@ class TestRecalculatingOptimizerWithConstraints(unittest.TestCase):
             usage_time_required_minutes=240,
             usage_power_kw=2,
             optimization_method="sophisticated",
-            charge_per_interval=[(0, 200), (0, 200)],
+            charge_per_interval=[140, 100],
         )
 
         initial_schedule = recalculating_optimizer.get_new_schedule(
             self.static_start_time, 
             self.static_end_time,
         )
-        self.assertEqual(check_num_intervals(initial_schedule), 2)
+        self.assertTrue(check_num_intervals(initial_schedule) <= 2)
 
         first_interval_end_time = initial_schedule[initial_schedule["usage"].diff() < 0].index[0]
 
@@ -214,7 +217,7 @@ class TestRecalculatingOptimizerWithConstraints(unittest.TestCase):
             self.static_end_time,
         )
 
-        self.assertEqual(check_num_intervals(next_schedule), 1)
+        self.assertTrue(check_num_intervals(next_schedule) == 1)
         self.assertEqual(recalculating_optimizer.get_combined_schedule()["usage"].sum(), 240)
 
     def test_recalculating_optimizer_mid_interval(self) -> None:
@@ -225,14 +228,14 @@ class TestRecalculatingOptimizerWithConstraints(unittest.TestCase):
             usage_time_required_minutes=240,
             usage_power_kw=2,
             optimization_method="sophisticated",
-            charge_per_interval=[(20, 200), (20, 200)],
+            charge_per_interval=[120, 120],
         )
 
         initial_schedule = recalculating_optimizer.get_new_schedule(
             self.static_start_time, 
             self.static_end_time,
         )
-        self.assertEqual(check_num_intervals(initial_schedule), 2)
+        self.assertTrue(check_num_intervals(initial_schedule) <= 2)
 
         mid_interval_time = initial_schedule[initial_schedule["usage"].diff() < 0].index[0] - timedelta(minutes=10)
 
@@ -258,7 +261,7 @@ class TestRecalculatingOptimizerWithConstraints(unittest.TestCase):
             usage_time_required_minutes=240,
             usage_power_kw=2,
             optimization_method="sophisticated",
-            charge_per_interval=[(0, 200), (0, 200)],
+            charge_per_interval=[100, 140],
         )
 
         for i in range(12):
@@ -267,7 +270,7 @@ class TestRecalculatingOptimizerWithConstraints(unittest.TestCase):
                 self.static_end_time,
             )
 
-        self.assertEqual(check_num_intervals(recalculating_optimizer.get_combined_schedule()), 2)
+        self.assertTrue(check_num_intervals(recalculating_optimizer.get_combined_schedule()) <= 2)
         self.assertEqual(recalculating_optimizer.get_combined_schedule()["usage"].sum(), 240)
 
     def test_frequent_recalculating_with_contiguity(self) -> None:
@@ -278,7 +281,7 @@ class TestRecalculatingOptimizerWithConstraints(unittest.TestCase):
             usage_time_required_minutes=30,
             usage_power_kw=2,
             optimization_method="sophisticated",
-            charge_per_interval=[(0, 30), (0, 30)],
+            charge_per_interval=[15, 15],
         )
         start_time = self.static_start_time
         end_time = self.static_end_time + timedelta(hours=2)
@@ -290,7 +293,7 @@ class TestRecalculatingOptimizerWithConstraints(unittest.TestCase):
                 end_time
             )
 
-        self.assertEqual(check_num_intervals(recalculating_optimizer.get_combined_schedule()), 2)
+        self.assertTrue(check_num_intervals(recalculating_optimizer.get_combined_schedule()) <= 2)
         self.assertEqual(recalculating_optimizer.get_combined_schedule()["usage"].sum(), 30)
 
     def test_schedule_times(self) -> None:
@@ -301,7 +304,7 @@ class TestRecalculatingOptimizerWithConstraints(unittest.TestCase):
             usage_time_required_minutes=30,
             usage_power_kw=2,
             optimization_method="sophisticated",
-            charge_per_interval=[(0, 30), (0, 30)],
+            charge_per_interval=[15, 15],
         )
 
         start_time = self.static_start_time

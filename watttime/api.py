@@ -276,7 +276,6 @@ class WattTimeHistorical(WattTimeBase):
             responses, record_path="data", meta=["meta"] if include_meta else []
         )
 
-
         df["point_time"] = pd.to_datetime(df["point_time"])
 
         return df
@@ -570,9 +569,6 @@ class WattTimeOptimizer(WattTimeForecast):
 
     OPT_INTERVAL = 5
     MAX_PREDICTION_HOURS = 72
-
-    OPT_INTERVAL = 5
-    MAX_PREDICTION_HOURS = 72
     MAX_INT = 99999999999999999
 
     def get_optimal_usage_plan(
@@ -583,7 +579,7 @@ class WattTimeOptimizer(WattTimeForecast):
         usage_time_required_minutes: Optional[Union[int, float]] = None,
         usage_power_kw: Optional[Union[int, float, pd.DataFrame]] = None,
         energy_required_kwh: Optional[Union[int, float]] = None,
-        usage_time_uncertainty_minutes: Optional[Union[int, float]] = 0,        
+        usage_time_uncertainty_minutes: Optional[Union[int, float]] = 0,
         charge_per_interval: Optional[list] = None,
         use_all_intervals: bool = True,
         constraints: Optional[dict] = None,
@@ -702,7 +698,9 @@ class WattTimeOptimizer(WattTimeForecast):
                 print("Implied usage time required =", usage_time_required_minutes)
             else:
                 # TODO: Implement and test
-                raise NotImplementedError("When usage_time_required_minutes is None, only float or int usage_power_kw and energy_required_kwh is supported.")
+                raise NotImplementedError(
+                    "When usage_time_required_minutes is None, only float or int usage_power_kw and energy_required_kwh is supported."
+                )
 
         # Perform these checks if we are using live data
         if moer_data_override is None:
@@ -752,7 +750,9 @@ class WattTimeOptimizer(WattTimeForecast):
             )
             constraints.update({buffer_enforce_time: (total_charge_units, None)})
         else:
-            assert usage_time_uncertainty_minutes == 0, "usage_time_uncertainty_minutes is only supported in optimization_method='sophisticated' or 'auto'"
+            assert (
+                usage_time_uncertainty_minutes == 0
+            ), "usage_time_uncertainty_minutes is only supported in optimization_method='sophisticated' or 'auto'"
 
         if type(usage_power_kw) in (int, float):
             # Convert to the MWh used in an optimization interval
@@ -791,15 +791,13 @@ class WattTimeOptimizer(WattTimeForecast):
                     / 60.0
                 )
                 return value
-        
+
         if charge_per_interval:
             # Handle the charge_per_interval input by converting it from minutes to units, rounding up
             converted_charge_per_interval = []
-            minutes_to_trim_per_interval = []
             for c in charge_per_interval:
-                if isinstance(c, int) or isinstance(c, float):
+                if isinstance(c, int):
                     converted_charge_per_interval.append(minutes_to_units(c))
-                    minutes_to_trim_per_interval.append(minutes_to_units(c) - c)
                 else:
                     assert (
                         len(c) == 2
@@ -811,8 +809,6 @@ class WattTimeOptimizer(WattTimeForecast):
                     converted_charge_per_interval.append(
                         (interval_start_units, interval_end_units)
                     )
-                    # TODO: Figure out how to calculate this
-                    minutes_to_trim_per_interval.append(0)
             # print("Charge per interval:", converted_charge_per_interval)
         else:
             converted_charge_per_interval = None
@@ -855,7 +851,6 @@ class WattTimeOptimizer(WattTimeForecast):
                         charge_per_interval[i],
                         charge_per_interval[i],
                     )
-
                 assert len(charge_per_interval[i]) == 2
                 processed_start = (
                     charge_per_interval[i][0]
@@ -889,17 +884,6 @@ class WattTimeOptimizer(WattTimeForecast):
                         to_charge_binary * float(self.OPT_INTERVAL - minutes_to_trim)
                     )
             result_df["usage"] = usage_list
-            # TODO: Recalculate these fields accurately
-            result_df["emissions_co2e_lb"] = (
-                model.get_charging_emissions_over_time()
-                * result_df["usage"]
-                / self.OPT_INTERVAL
-            )
-            result_df["energy_usage_mwh"] = (
-                model.get_energy_usage_over_time()
-                * result_df["usage"]
-                / self.OPT_INTERVAL
-            )
         else:
             # Process charge_per_interval constraints
             result_df["usage"] = [
@@ -952,20 +936,19 @@ class WattTimeOptimizer(WattTimeForecast):
                             if excess_minutes <= 0:
                                 break
                     usage[start : end + 1] = section_usage
-
-            # Update result_df
             result_df["usage"] = usage
-            # TODO: Recalculate these fields accurately
-            result_df["emissions_co2e_lb"] = (
-                model.get_charging_emissions_over_time()
-                * result_df["usage"]
-                / self.OPT_INTERVAL
-            )
-            result_df["energy_usage_mwh"] = (
-                model.get_energy_usage_over_time()
-                * result_df["usage"]
-                / self.OPT_INTERVAL
-            )
+
+        # Recalculate these values approximately, based on the new "usage" column
+        # Note: This is approximate since it assumes that
+        # the charging emissions over time of the unrounded values are similar to the rounded values
+        result_df["emissions_co2e_lb"] = (
+            model.get_charging_emissions_over_time()
+            * result_df["usage"]
+            / self.OPT_INTERVAL
+        )
+        result_df["energy_usage_mwh"] = (
+            model.get_energy_usage_over_time() * result_df["usage"] / self.OPT_INTERVAL
+        )
 
         return result_df
 
@@ -1094,7 +1077,9 @@ class RecalculatingWattTimeOptimizer:
             curr_fcst_data = self._query_api_for_fcst_data(new_start_time)
 
         curr_fcst_data["point_time"] = pd.to_datetime(curr_fcst_data["point_time"])
-        curr_fcst_data = curr_fcst_data.loc[curr_fcst_data["point_time"] >= new_start_time]
+        curr_fcst_data = curr_fcst_data.loc[
+            curr_fcst_data["point_time"] >= new_start_time
+        ]
         if curr_fcst_data.shape[0] == 0:
             print("error")
         new_schedule_start_time = curr_fcst_data["point_time"].iloc[0]
@@ -1104,7 +1089,9 @@ class RecalculatingWattTimeOptimizer:
             region=self.region,
             usage_window_start=new_start_time - timedelta(minutes=OPT_INTERVAL),
             usage_window_end=new_end_time,
-            usage_time_required_minutes=self._get_remaining_time_required(new_schedule_start_time),
+            usage_time_required_minutes=self._get_remaining_time_required(
+                new_schedule_start_time
+            ),
             usage_power_kw=self.usage_power_kw,
             optimization_method=self.optimization_method,
             moer_data_override=curr_fcst_data,
@@ -1140,8 +1127,9 @@ class RecalculatingWattTimeOptimizer:
             combined_schedule = combined_schedule[
                 combined_schedule.index <= last_segment_start_time
             ]
-        
+
         return combined_schedule
+
 
 class RecalculatingWattTimeOptimizerWithContiguity(RecalculatingWattTimeOptimizer):
     def __init__(

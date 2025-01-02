@@ -127,6 +127,7 @@ venv/
 ENV/
 env.bak/
 venv.bak/
+.wt_sdk/
 
 # Spyder project settings
 .spyderproject

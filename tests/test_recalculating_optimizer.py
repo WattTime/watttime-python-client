@@ -1,12 +1,12 @@
 import unittest
-from watttime import (
+from watttime.api import (
     RecalculatingWattTimeOptimizer,
     WattTimeOptimizer,
     WattTimeForecast,
     RecalculatingWattTimeOptimizerWithContiguity,
 )
-from evaluation import eval_framework as efu
 from datetime import datetime, timedelta
+from pytz import UTC
 import pandas as pd
 import os
 
@@ -14,16 +14,11 @@ import os
 class TestRecalculatingOptimizer(unittest.TestCase):
     def setUp(self):
         self.region = "PJM_NJ"
-        os.getenv("WATTTIME_USER")
-        os.getenv("WATTTIME_PASSWORD")
-
-        # Seems that the watttime API considers both start and end to be inclusive
-        self.static_start_time = efu.convert_to_utc(
-            datetime(2024, 1, 1, hour=20, second=1), local_tz_str="America/New_York"
-        )
-        self.static_end_time = efu.convert_to_utc(
-            datetime(2024, 1, 2, hour=8, second=1), local_tz_str="America/New_York"
-        )
+        self.username = os.getenv("WATTTIME_USER")
+        self.password = os.getenv("WATTTIME_PASSWORD")
+        now = datetime.now(UTC)
+        self.static_start_time = now - timedelta(minutes=720)
+        self.static_end_time = now - timedelta(minutes=10)
 
         self.wth = WattTimeForecast(self.username, self.password)
         self.curr_fcst_data = self.wth.get_historical_forecast_pandas(
@@ -204,18 +199,11 @@ def check_num_intervals(schedule: pd.DataFrame) -> int:
 class TestRecalculatingOptimizerWithConstraints(unittest.TestCase):
     def setUp(self):
         self.region = "PJM_NJ"
-        self.username = ""
-        self.password = ""
-        self.username = "annie"
-        self.password = "dcxwt2024!"
-
-        # Seems that the watttime API considers both start and end to be inclusive
-        self.static_start_time = efu.convert_to_utc(
-            datetime(2024, 1, 1, hour=20, second=1), local_tz_str="America/New_York"
-        )
-        self.static_end_time = efu.convert_to_utc(
-            datetime(2024, 1, 2, hour=8, second=1), local_tz_str="America/New_York"
-        )
+        self.username = os.getenv("WATTTIME_USER")
+        self.password = os.getenv("WATTTIME_PASSWORD")
+        now = datetime.now(UTC)
+        self.static_start_time = now - timedelta(minutes=720)
+        self.static_end_time = now - timedelta(minutes=10)
 
         self.wth = WattTimeForecast(self.username, self.password)
         self.curr_fcst_data = self.wth.get_historical_forecast_pandas(

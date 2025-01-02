@@ -3,7 +3,7 @@ from datetime import datetime, timedelta
 import unittest
 import pandas as pd
 from pytz import UTC
-from watttime import WattTimeOptimizer
+from watttime.api import WattTimeOptimizer
 
 
 def get_usage_plan_mean_power(usage_plan):

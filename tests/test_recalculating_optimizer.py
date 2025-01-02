@@ -3,14 +3,13 @@ from watttime import RecalculatingWattTimeOptimizer, WattTimeOptimizer, WattTime
 from evaluation import eval_framework as efu
 from datetime import datetime, timedelta
 import pandas as pd
+import os
 
 class TestRecalculatingOptimizer(unittest.TestCase):
     def setUp(self):
         self.region = "PJM_NJ"
-        self.username = ""
-        self.password = ""
-        self.username = "annie"
-        self.password = "dcxwt2024!"
+        username = os.getenv("WATTTIME_USER")
+        password = os.getenv("WATTTIME_PASSWORD")
 
         # Seems that the watttime API considers both start and end to be inclusive 
         self.static_start_time = efu.convert_to_utc(datetime(2024, 1, 1, hour=20, second=1), local_tz_str="America/New_York")
@@ -320,3 +319,8 @@ class TestRecalculatingOptimizerWithConstraints(unittest.TestCase):
             self.assertEquals(schedule.index[0].to_pydatetime(), start_time + timedelta(minutes=4, seconds=59))
         
         self.assertTrue(recalculating_optimizer.get_combined_schedule().index.is_unique)
+
+if __name__ == "__main__":
+    unittest.main()
+    # TestWattTimeOptimizer.setUpClass()
+    # TestWattTimeOptimizer().test_dp_non_round_usage_time()

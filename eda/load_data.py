@@ -1,7 +1,7 @@
 import requests
 from requests.auth import HTTPBasicAuth
 import pandas as pd
-from watttime import WattTimeForecast, WattTimeHistorical
+from watttime import WattTimeHistorical
 from tqdm import tqdm
 import os
 

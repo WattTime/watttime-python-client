@@ -2,31 +2,29 @@
 # coding: utf-8
 
 import os
-from typing import List, Any, Optional
+from typing import List, Any
 import numpy as np
 import pandas as pd
 import random
 import pytz
 from tqdm import tqdm
 from datetime import datetime, timedelta, date
-from watttime import WattTimeHistorical, WattTimeForecast, WattTimeOptimizer, RecalculatingWattTimeOptimizer, RecalculatingWattTimeOptimizer
+from watttime import (
+    WattTimeHistorical,
+    WattTimeForecast,
+    WattTimeOptimizer,
+)
 import math
 from typing import Union
 
 from evaluation.config import TZ_DICTIONARY
 
-import watttime.optimizer.alg.optCharger as optC
-import watttime.optimizer_v0.alg.optCharger as optC_v0
-import watttime.optimizer.alg.moer as Moer
+import data.s3 as s3u
+
+s3 = s3u.s3_utils()
 
 username = os.getenv("WATTTIME_USER")
 password = os.getenv("WATTTIME_PASSWORD")
-
-start = "2024-02-15 00:00Z"
-end = "2024-02-16 00:00Z"
-distinct_date_list = [
-    pd.Timestamp(date) for date in pd.date_range(start, end, freq="d").values
-]
 
 
 def intervalize_power_rate(kW_value: float, convert_to_MWh=True) -> float:
@@ -105,18 +103,31 @@ def generate_random_session_start_time(
     return random_datetime
 
 
-def generate_random_session_end_time(random_start_time, mean, stddev):
+def generate_random_session_end_time(
+    random_start_time,
+    method: str = "normal",
+    mean=None,
+    stddev=None,
+    elements: List[Any] = None,
+):
     """
-    Adds a number of seconds drawn from a normal distribution to the given datetime.
+    Adds a number of seconds drawn from either a normal or uniform distribution to the given datetime.
 
     Parameters:
     -----------
     random_start_time : datetime
         The initial plug-in time.
-    mean : float
+    distribution : str
+        Type of distribution to use ('normal' or 'random choice'). Default is 'normal'.
+    mean : float, optional
         The mean of the normal distribution for generating random seconds.
-    stddev : float
+        Required if method='normal'.
+    stddev : float, optional
         The standard deviation of the normal distribution for generating random seconds.
+        Required if method='normal'.
+    elements : List[Any], optional
+        Options for uniform distribution in seconds.
+        Required if method='random_choice'.
 
     Returns:
     --------
@@ -126,14 +137,32 @@ def generate_random_session_end_time(random_start_time, mean, stddev):
     Example:
     --------
     >>> plug_time = datetime(2023, 8, 29, 19, 0, 0)
-    >>> generate_random_session_end_time(random_start_time, 3600, 900)
-    Timestamp('2023-08-29 20:01:23.456789')  # Example output
+    >>> # Using normal distribution
+    >>> generate_random_session_end_time(plug_time, 'normal', mean=3600, stddev=900)
+    Timestamp('2023-08-29 20:01:23.456789')
+    >>> # Using random_choice distribution
+    >>> generate_random_session_end_time(plug_time, 'random_choice', elements=[10800, 21600,43200])
+    Timestamp('2023-08-29 19:45:30.123456')
     """
-    random_seconds = abs(np.random.normal(loc=mean, scale=stddev))
+    if method == "normal":
+        if mean is None or stddev is None:
+            raise ValueError(
+                "Mean and standard deviation must be provided for normal distribution"
+            )
+        random_seconds = abs(np.random.normal(loc=mean, scale=stddev))
+    elif method == "random_choice":
+        if elements is None:
+            raise ValueError("List of elements must be provided for random choice")
+        random_seconds = random.choice(elements)
+    else:
+        raise ValueError("Distribution must be either 'normal' or 'random choice'")
+
     random_timedelta = timedelta(seconds=random_seconds)
     new_datetime = random_start_time + random_timedelta
+
     if not isinstance(new_datetime, pd.Timestamp):
         new_datetime = pd.Timestamp(new_datetime)
+
     return new_datetime
 
 
@@ -145,7 +174,9 @@ def generate_synthetic_user_data(
     average_battery_starting_capacity: float = 0.2,
     start_hour="17:00:00",
     end_hour="21:00:00",
-    power_output_max_rates = [11, 7.4, 22]
+    power_output_max_rates=[11, 7.4, 22],
+    proportion_contiguous=0,
+    session_lengths: List[Any] = None,
 ) -> pd.DataFrame:
     """
     Generate synthetic user data for electric vehicle charging sessions.
@@ -169,6 +200,10 @@ def generate_synthetic_user_data(
         The earliest possible random start time generated. Formatted as HH:MM:SS.
     end_hour:
         The latest possible random start time generated. Formatted as HH:MM:SS.
+    session_lengths : List[Any], optional
+        Selection of session lengths.
+        Required for generate_random_session_end_time() method='random_choice'.
+
 
     Returns:
     --------
@@ -177,11 +212,14 @@ def generate_synthetic_user_data(
     """
 
     power_output_efficiency = round(random.uniform(0.5, 0.9), 3)
-    power_output_max_rate = random.choice(power_output_max_rates) * power_output_efficiency
+    power_output_max_rate = (
+        random.choice(power_output_max_rates) * power_output_efficiency
+    )
     rate_per_second = np.divide(power_output_max_rate, 3600)
     total_capacity = round(random.uniform(21, 123))
     mean_length_charge = round(random.uniform(20000, 30000))
     std_length_charge = round(random.uniform(6800, 8000))
+    contiguous = random.uniform(0, 1) < proportion_contiguous
 
     # print(
     #   f"working on user with {total_capacity} total_capacity, {power_output_max_rate} rate of charge, and ({mean_length_charge/3600},{std_length_charge/3600}) charging behavior."
@@ -204,18 +242,28 @@ def generate_synthetic_user_data(
         + str(mean_length_charge)
         + "_sdlc"
         + str(std_length_charge)
+        + "_cont"
+        + str(contiguous)
     )
 
     user_df["session_start_time"] = user_df["distinct_dates"].apply(
         generate_random_session_start_time, args=(start_hour, end_hour)
     )
-    user_df["session_end_time"] = user_df["session_start_time"].apply(
-        lambda x: generate_random_session_end_time(
-            x, mean_length_charge, std_length_charge
-        )
-    )
 
-    # Another random parameter, this time at the session level, 
+    if session_lengths is None:
+        user_df["session_end_time"] = user_df["session_start_time"].apply(
+            lambda x: generate_random_session_end_time(
+                x, mean_length_charge, std_length_charge
+            )
+        )
+    else:
+        user_df["session_end_time"] = user_df["session_start_time"].apply(
+            lambda x: generate_random_session_end_time(
+                x, method="random_choice", elements=session_lengths
+            )
+        )
+
+    # Another random parameter, this time at the session level,
     # it's the initial charge of the battery as a percentage.
     user_df["initial_charge"] = user_df.apply(
         lambda _: random.uniform(average_battery_starting_capacity, 0.6), axis=1
@@ -258,6 +306,21 @@ def generate_synthetic_user_data(
     )
     user_df["charged_MWh_actual"] = user_df["charged_kWh_actual"] / 1000
     user_df["MWh_fraction"] = user_df["power_output_rate"].apply(intervalize_power_rate)
+
+    user_df["usage_time_required_minutes"] = np.ceil(
+        np.minimum(
+            user_df["total_seconds_to_95"], user_df["length_of_session_in_seconds"]
+        )
+        / 60
+    )
+    user_df["contiguous_block"] = contiguous
+
+    user_df["charge_per_interval"] = user_df.apply(
+        lambda row: (
+            [row["usage_time_required_minutes"]] if row["contiguous_block"] else None
+        ),
+        axis=1,
+    )
 
     return user_df
 
@@ -488,44 +551,6 @@ def get_historical_actual_data(session_start_time, horizon, region):
     )
 
 
-# Set up OptCharger based on moer fcsts and get info on projected schedule
-def get_schedule_and_cost(
-    charge_rate_per_window, charge_needed, total_time_horizon, moer_data, asap=False
-):
-    """
-    Generate an optimal charging schedule and associated cost based on MOER forecasts.
-
-    Parameters:
-    -----------
-    charge_rate_per_window : int
-        The charge rate per time window.
-    charge_needed : int
-        The total charge needed.
-    total_time_horizon : int
-        The total time horizon for scheduling.
-    moer_data : pd.DataFrame
-        MOER (Marginal Operating Emissions Rate) forecast data.
-    asap : bool, optional
-        Whether to charge as soon as possible (default is False).
-
-    Returns:
-    --------
-    OptCharger
-        An OptCharger object containing the optimal charging schedule and cost.
-    """
-    charger = optC_v0.OptCharger(
-        charge_rate_per_window
-    )  # charge rate needs to be an int
-    moer = Moer.Moer(moer_data["value"])
-
-    charger.fit(
-        totalCharge=charge_needed,  # also currently an int value
-        totalTime=total_time_horizon,
-        moer=moer,
-        asap=asap,
-    )
-    return charger
-
 def get_time_needed(
     total_capacity_kWh: float,
     usage_power_kW: Union[float, pd.DataFrame],
@@ -541,43 +566,50 @@ def get_time_needed(
         The total capcity of the battery in kilowatts hours
     usage_power_kW : float or pd.DataFrame
         the charging rate in kW, either constant (float)
-        or variable charging curve (DataFrame) 
+        or variable charging curve (DataFrame)
     initial_capacity_fraction : float
         The battery capacity when it is plugged in,
         as a fraction of total capacity
     max_capacity_fraction : float
         The percentage of capacity at which we stop charging.
-        Defaults to 95% 
+        Defaults to 95%
 
     Returns:
     --------
     int
-        The number of minutes that the battery needs to charge for 
+        The number of minutes that the battery needs to charge for
 
     Notes:
     ------
     This is then able to be fed into get_schedule_and_cost_api
     as the time_needed parameter
     """
-    needed_kWh = (max_capacity_fraction - initial_capacity_fraction) * total_capacity_kWh
+    needed_kWh = (
+        max_capacity_fraction - initial_capacity_fraction
+    ) * total_capacity_kWh
 
     if isinstance(usage_power_kW, float):
         needed_minutes = math.ceil(needed_kWh / usage_power_kW * 60)
-    
+
     elif isinstance(usage_power_kW, pd.DataFrame):
-        OPT_INTERVAL = 5 # units: minutes
+        OPT_INTERVAL = 5  # units: minutes
         df = usage_power_kW.copy()
         df["kWh_per_interval"] = df["power_kw"] / 60 * OPT_INTERVAL
         df["kWh_cumsum"] = df["kWh_per_interval"].cumsum()
         if df["kWh_cumsum"].max() < needed_kWh:
             needed_minutes = df["time"].max() + OPT_INTERVAL
         else:
-            needed_minutes = df[df["kWh_cumsum"] > needed_kWh]["time"].values[0] + OPT_INTERVAL
+            needed_minutes = (
+                df[df["kWh_cumsum"] > needed_kWh]["time"].values[0] + OPT_INTERVAL
+            )
 
     else:
-        raise ValueError(f"usage_power_kW should be type float or DataFrame but got {type(usage_power_kW)}")
+        raise ValueError(
+            f"usage_power_kW should be type float or DataFrame but got {type(usage_power_kW)}"
+        )
 
     return needed_minutes
+
 
 # Set up OptCharger based on moer fcsts and get info on projected schedule
 def get_schedule_and_cost_api(
@@ -585,8 +617,8 @@ def get_schedule_and_cost_api(
     time_needed,
     total_time_horizon,
     moer_data,
-    optimization_method="sophisticated",
-    charge_per_interval: list = []
+    optimization_method="auto",
+    charge_per_interval: list = [],
 ):
     """
     Generate an optimal charging schedule and associated cost using WattTimeOptimizer.
@@ -621,7 +653,7 @@ def get_schedule_and_cost_api(
     )
 
     # if we need to charge for more minutes than given in between
-    # plugin time and plugout then we charge for the entire period 
+    # plugin time and plugout then we charge for the entire period
     time_needed = min(time_needed, total_time_horizon * wt_opt.OPT_INTERVAL)
 
     dp_usage_plan = wt_opt.get_optimal_usage_plan(
@@ -632,10 +664,8 @@ def get_schedule_and_cost_api(
         usage_power_kw=usage_power_kw,
         optimization_method=optimization_method,
         moer_data_override=moer_data,
-        charge_per_interval= charge_per_interval
+        charge_per_interval=charge_per_interval,
     )
-
-
 
     if dp_usage_plan["emissions_co2e_lb"].sum() == 0.0:
         print(
@@ -647,90 +677,3 @@ def get_schedule_and_cost_api(
         )
 
     return dp_usage_plan
-
-
-def get_schedule_and_cost_api_requerying(
-    region,
-    usage_power_kw,
-    time_needed,
-    start_time,
-    end_time,
-    optimization_method="sophisticated",
-    moer_list = None,
-    requery_interval_minutes = 60
-):
-    """
-    Generate an optimal charging schedule and associated cost using RecalculatingWattTimeOptimizer.
-
-    Parameters:
-    -----------
-    usage_power_kw : float or pd.Series
-        The power usage in kilowatts.
-    time_needed : float
-        The time needed for charging in minutes.
-    total_time_horizon : int
-        The total time horizon for scheduling.
-    moer_data : pd.DataFrame
-        MOER (Marginal Operating Emissions Rate) forecast data.
-    optimization_method : str, optional
-        The optimization method to use (default is "sophisticated").
-
-    Returns:
-    --------
-    pd.DataFrame
-        A DataFrame containing the optimal usage plan.
-
-    Notes:
-    ------
-    This function uses the WattTimeOptimizer to generate an optimal charging schedule.
-    It prints a warning if the resulting emissions are 0.0 lb of CO2e.
-    """
-    wt_opt_rc = RecalculatingWattTimeOptimizer(
-        region=region, 
-        watttime_username=username, 
-        watttime_password=password, 
-        usage_time_required_minutes=time_needed,
-        usage_power_kw=usage_power_kw,
-        optimization_method=optimization_method
-    )
-    
-    new_start_time = start_time
-
-    if moer_list is None:
-        assert requery_interval_minutes is not None
-        while new_start_time < end_time:
-            new_start_time = new_start_time 
-
-            wt_opt_rc.get_new_schedule(
-            new_start_time, 
-            end_time
-            )
-            
-            new_start_time = new_start_time + timedelta(minutes = requery_interval_minutes)
-    
-    else:
-        for curr_fcst_data in moer_list:
-            new_start_time = curr_fcst_data["point_time"].min()
-            assert new_start_time < end_time
-            wt_opt_rc.get_new_schedule(new_start_time=new_start_time, new_end_time=end_time, curr_fcst_data=curr_fcst_data)
-
-    
-    dp_usage_plan = wt_opt_rc.get_combined_schedule()
-
-
-    if dp_usage_plan["emissions_co2e_lb"].sum() == 0.0:
-        print(
-            "Warning using 0.0 lb of CO2e:",
-            usage_power_kw,
-            usage_power_kw,
-            time_needed,
-            dp_usage_plan["usage"].sum(),
-        )
-
-    return dp_usage_plan
-
-
-
-def get_total_emission(moer, schedule):
-    x = np.array(schedule).flatten()
-    return np.dot(moer[: x.shape[0]], x)

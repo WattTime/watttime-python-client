@@ -1,7 +1,6 @@
 from battery import Battery
 from config import CARS
 import pandas as pd
-import timeit
 
 tesla_charging_curve = pd.DataFrame(
         columns=["SoC", "kW"],

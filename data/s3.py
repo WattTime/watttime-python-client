@@ -154,7 +154,7 @@ class s3_utils:
         """
         data = self.load_file(file=file)
         return pd.read_parquet(io.BytesIO(data))
-    
+
     def list_objects(self, bucket=AWS_S3_BUCKET, prefix=""):
         """
         List all objects in a given S3 bucket (optionally within a specific prefix).
@@ -168,19 +168,17 @@ class s3_utils:
         """
         objects = []
         response = self.S3.list_objects_v2(Bucket=bucket, Prefix=prefix)
-        
+
         while True:
-            if 'Contents' in response:
-                for obj in response['Contents']:
-                    objects.append(obj['Key'])
-            
+            if "Contents" in response:
+                for obj in response["Contents"]:
+                    objects.append(obj["Key"])
+
             # Check if there are more objects to be fetched (pagination)
-            if response.get('IsTruncated'):
-                continuation_token = response.get('NextContinuationToken')
+            if response.get("IsTruncated"):
+                continuation_token = response.get("NextContinuationToken")
                 response = self.S3.list_objects_v2(
-                    Bucket=bucket, 
-                    Prefix=prefix, 
-                    ContinuationToken=continuation_token
+                    Bucket=bucket, Prefix=prefix, ContinuationToken=continuation_token
                 )
             else:
                 break

@@ -3,19 +3,15 @@ import os
 os.chdir(f"/home/{os.getlogin()}/watttime-python-client-aer-algo")
 
 import argparse
-import math
-import numpy as np
 import pandas as pd
 import datetime
-import pytz
-from datetime import datetime, timedelta
+from datetime import datetime
 import concurrent.futures
 import pickle
 
 from watttime import WattTimeForecast, WattTimeHistorical
 
 import data.s3 as s3u
-import evaluation.eval_framework as efu
 
 
 def main():

@@ -2,7 +2,6 @@ import os
 import time
 import math
 import math
-import logging
 from datetime import date, datetime, timedelta
 from functools import cache
 from pathlib import Path
@@ -230,7 +229,7 @@ class WattTimeHistorical(WattTimeBase):
                 rsp.raise_for_status()
                 j = rsp.json()
                 responses.append(j)
-            except Exception as e:
+            except Exception:
                 raise Exception(
                     f"\nAPI Response Error: {rsp.status_code}, {rsp.text} [{rsp.headers.get('x-request-id')}]"
                 )
@@ -499,7 +498,7 @@ class WattTimeForecast(WattTimeBase):
                 rsp.raise_for_status()
                 j = rsp.json()
                 responses.append(j)
-            except Exception as e:
+            except Exception:
                 raise Exception(
                     f"\nAPI Response Error: {rsp.status_code}, {rsp.text} [{rsp.headers.get('x-request-id')}]"
                 )

@@ -8,8 +8,8 @@ import os
 class TestRecalculatingOptimizer(unittest.TestCase):
     def setUp(self):
         self.region = "PJM_NJ"
-        username = os.getenv("WATTTIME_USER")
-        password = os.getenv("WATTTIME_PASSWORD")
+        os.getenv("WATTTIME_USER")
+        os.getenv("WATTTIME_PASSWORD")
 
         # Seems that the watttime API considers both start and end to be inclusive 
         self.static_start_time = efu.convert_to_utc(datetime(2024, 1, 1, hour=20, second=1), local_tz_str="America/New_York")

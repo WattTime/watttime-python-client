@@ -7,15 +7,10 @@ import pandas as pd
 import evaluation.eval_framework as evu
 from datetime import datetime
 
-import seaborn as sns
-import evaluation.metrics as m
 from datetime import timedelta
 
-import random
 import math
-from watttime import WattTimeForecast, WattTimeHistorical
 import data.s3 as s3u
-import importlib
 import watttime.api as wt
 
 import warnings

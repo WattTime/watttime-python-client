@@ -7,7 +7,6 @@ import boto3
 import pandas as pd
 import os
 import io
-import json
 
 AWS_S3_BUCKET = os.getenv("AWS_S3_BUCKET")
 AWS_ACCESS_KEY = os.getenv("AWS_ACCESS_KEY")

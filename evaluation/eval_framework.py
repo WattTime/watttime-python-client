@@ -13,15 +13,9 @@ from watttime import (
     WattTimeHistorical,
     WattTimeForecast,
     WattTimeOptimizer,
-    RecalculatingWattTimeOptimizer,
-    RecalculatingWattTimeOptimizer,
-    RecalculatingWattTimeOptimizerWithContiguity,
 )
 import math
 from typing import Union
-import contextlib
-import io
-from concurrent.futures import ProcessPoolExecutor, as_completed
 
 from evaluation.config import TZ_DICTIONARY
 

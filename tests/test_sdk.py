@@ -14,6 +14,7 @@ from watttime import (
 from pathlib import Path
 
 import pandas as pd
+import requests
 
 REGION = "CAISO_NORTH"
 

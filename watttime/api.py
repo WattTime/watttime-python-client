@@ -1,7 +1,6 @@
 import os
 import time
 import math
-import math
 from datetime import date, datetime, timedelta
 from functools import cache
 from pathlib import Path
@@ -10,7 +9,7 @@ from typing import Any, Dict, List, Literal, Optional, Tuple, Union
 import pandas as pd
 import requests
 from dateutil.parser import parse
-from pytz import UTC
+from pytz import UTC, timezone
 from watttime.optimizer.alg import optCharger, moer
 from itertools import accumulate
 import bisect
@@ -192,7 +191,7 @@ class WattTimeHistorical(WattTimeBase):
         model: Optional[Union[str, date]] = None,
     ) -> List[dict]:
         """
-        OP        Base function to scrape historical data, returning a list of .json responses.
+        Base function to scrape historical data, returning a list of .json responses.
 
                 Args:
                     start (datetime): inclusive start, with a UTC timezone.

@@ -7,8 +7,19 @@ from watttime.api import (
 )
 from datetime import datetime, timedelta
 from pytz import UTC
+import pytz
 import pandas as pd
 import os
+import bisect
+from itertools import accumulate
+
+def convert_to_utc(local_time_str, local_tz_str):
+    local_time = datetime.strptime(
+        local_time_str.strftime("%Y-%m-%d %H:%M:%S"), "%Y-%m-%d %H:%M:%S"
+    )
+    local_tz = pytz.timezone(local_tz_str)
+    local_time = local_tz.localize(local_time)
+    return local_time.astimezone(pytz.utc)
 
 
 class TestRecalculatingOptimizer(unittest.TestCase):
@@ -16,9 +27,12 @@ class TestRecalculatingOptimizer(unittest.TestCase):
         self.region = "PJM_NJ"
         self.username = os.getenv("WATTTIME_USER")
         self.password = os.getenv("WATTTIME_PASSWORD")
-        now = datetime.now(UTC)
-        self.static_start_time = now - timedelta(minutes=720)
-        self.static_end_time = now - timedelta(minutes=10)
+        self.static_start_time = convert_to_utc(
+            datetime(2024, 1, 1, hour=20, second=1), local_tz_str="America/New_York"
+        )
+        self.static_end_time = convert_to_utc(
+            datetime(2024, 1, 2, hour=8, second=1), local_tz_str="America/New_York"
+        )
 
         self.wth = WattTimeForecast(self.username, self.password)
         self.curr_fcst_data = self.wth.get_historical_forecast_pandas(
@@ -190,7 +204,7 @@ class TestRecalculatingOptimizer(unittest.TestCase):
 
 def check_num_intervals(schedule: pd.DataFrame) -> int:
     charging_indicator = schedule["usage"].apply(lambda x: 1 if x > 0 else 0)
-    intervals = charging_indicator.diff().value_counts()[1]
+    intervals = charging_indicator.diff().value_counts().get(1, 0)
     if charging_indicator[0] > 0:
         intervals += 1
     return intervals
@@ -201,9 +215,12 @@ class TestRecalculatingOptimizerWithConstraints(unittest.TestCase):
         self.region = "PJM_NJ"
         self.username = os.getenv("WATTTIME_USER")
         self.password = os.getenv("WATTTIME_PASSWORD")
-        now = datetime.now(UTC)
-        self.static_start_time = now - timedelta(minutes=720)
-        self.static_end_time = now - timedelta(minutes=10)
+        self.static_start_time = convert_to_utc(
+            datetime(2024, 1, 1, hour=20, second=1), local_tz_str="America/New_York"
+        )
+        self.static_end_time = convert_to_utc(
+            datetime(2024, 1, 2, hour=8, second=1), local_tz_str="America/New_York"
+        )
 
         self.wth = WattTimeForecast(self.username, self.password)
         self.curr_fcst_data = self.wth.get_historical_forecast_pandas(
@@ -351,7 +368,7 @@ class TestRecalculatingOptimizerWithConstraints(unittest.TestCase):
             start_time = start_time + timedelta(minutes=30)
             schedule = recalculating_optimizer.get_new_schedule(start_time, end_time)
             self.assertTrue(schedule.index.is_unique)
-            self.assertEquals(
+            self.assertEqual(
                 schedule.index[0].to_pydatetime(),
                 start_time + timedelta(minutes=4, seconds=59),
             )

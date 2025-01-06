@@ -151,12 +151,6 @@ The SDK provides functionality to calculate a Typical Carbon Year (TCY) profile,
 ```python
 from watttime import TCYConfig, TCYCalculator
 
-# Configure TCY calculation
-config = TCYConfig(
-    region="CAISO_NORTH",
-    timezone="America/Los_Angeles"  # Local timezone for the region
-)
-
 # Initialize calculator (using env variables for credentials)
 calculator = TCYCalculator(
     region="CAISO_NORTH",
@@ -171,9 +165,10 @@ calculator = TCYCalculator(
     password="your_password"
 )
 
-# Calculate TCY for a specific year
+# Calculate TCY for any year (uses recent MOER patterns with target year's calendar)
 tcy_profile = calculator.calculate_tcy(2024)
 ```
+
 The returned tcy_profile is a pandas series with hourly timestamps in the specified timezone and corresponding MOER values (in lbs CO2/MWh). The profile provides hourly values that represent typical grid emissions patterns for the region. This can be useful for:
 * Building energy modeling and optimization
 * Understanding typical emissions patterns in a region

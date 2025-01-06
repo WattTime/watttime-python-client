@@ -29,7 +29,7 @@ class Moer:
         Calculates emissions per interval for a given schedule.
     get_total_emission(x)
         Calculates total emission for a given schedule.
-    
+
     """
 
     def __init__(self, mu):
@@ -108,7 +108,7 @@ class Moer:
             An array of calculated emission values.
         """
         usage = np.array(usage).flatten()
-        return self.__mu[:usage.shape[0]] * usage
+        return self.__mu[: usage.shape[0]] * usage
 
     def get_total_emission(self, usage):
         """

@@ -52,8 +52,8 @@ jobs:
     needs: [build]
     runs-on: ubuntu-latest
     environment:
-      name: ${{ github.event.release.prerelease == true ? 'testpypi' : 'pypi' }}
-      url: ${{ github.event.release.prerelease == true ? 'https://test.pypi.org/p/${{ github.event.repository.name }}' : 'https://pypi.org/p/${{ github.event.repository.name }}' }}
+      name: ${{ (github.event.release && github.event.release.prerelease) && 'testpypi' || 'pypi' }}
+      url: ${{ (github.event.release && github.event.release.prerelease) && 'https://test.pypi.org/p/${{ github.event.repository.name }}' || 'https://pypi.org/p/${{ github.event.repository.name }}' }}
     permissions:
       contents: write
       id-token: write
@@ -75,4 +75,4 @@ jobs:
       - name: Publish to PyPI
         uses: pypa/gh-action-pypi-publish@v1.8.11
         with:
-          repository-url: ${{ github.event.release.prerelease == true ? 'https://test.pypi.org/legacy/' : '' }}
+          repository-url: ${{ (github.event.release && github.event.release.prerelease) && 'https://test.pypi.org/legacy/' || '' }}

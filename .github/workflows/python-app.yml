@@ -70,7 +70,12 @@ jobs:
           inputs: |
             ./dist/*.tar.gz
             ./dist/*.whl
-            
+          upload-signing-artifacts: true
+          
+      - name: Clean up signature files
+        run: |
+          rm -f dist/*.sigstore.json
+          
       - name: Publish to PyPI
         uses: pypa/gh-action-pypi-publish@v1.8.11
         with:

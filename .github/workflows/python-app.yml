@@ -17,7 +17,7 @@ jobs:
       with:
         python-version: "3.x"
     - name: Install pypa/build
-      run: >-
+      run: >
         python3 -m
         pip install
         build
@@ -30,38 +30,43 @@ jobs:
         name: python-package-distributions
         path: dist/
 
-  publish-to-pypi:
-    name: >-
-      Publish Python 🐍 distribution 📦 to PyPI
+  prepare-release:
+    name: Prepare GitHub Release
     needs:
     - build
     runs-on: ubuntu-latest
-    environment:
-      name: pypi
-      url: https://pypi.org/p/watttime/
+
     permissions:
-      id-token: write  # IMPORTANT: mandatory for trusted publishing
+      contents: write  # Mandatory for making GitHub Releases
 
     steps:
-    - name: Download all the dists
-      uses: actions/download-artifact@v3
-      with:
-        name: python-package-distributions
-        path: dist/
-    - name: Publish distribution 📦 to PyPI
-      uses: pypa/gh-action-pypi-publish@release/v1
+    - name: Check if GitHub Release exists
+      id: release-check
+      run: |
+        if gh release view '${{ github.ref_name }}' --repo '${{ github.repository }}'; then
+          echo "exists=true" >> $GITHUB_ENV
+        else
+          echo "exists=false" >> $GITHUB_ENV
+        fi
+    - name: Create GitHub Release if not exists
+      if: ${{ env.exists == 'false' }}
+      env:
+        GITHUB_TOKEN: ${{ github.token }}
+      run: |
+        gh release create \
+          '${{ github.ref_name }}' \
+          --repo '${{ github.repository }}' \
+          --notes "Release for tag ${{ github.ref_name }}"
 
-  github-release:
-    name: >-
-      Sign the Python 🐍 distribution 📦 with Sigstore
-      and upload them to GitHub Release
+  sign-distribution:
+    name: Sign Python 🐍 distribution 📦 and upload to GitHub Release
     needs:
-    - publish-to-pypi
+    - prepare-release
     runs-on: ubuntu-latest
 
     permissions:
-      contents: write  # IMPORTANT: mandatory for making GitHub Releases
-      id-token: write  # IMPORTANT: mandatory for sigstore
+      contents: write  # Mandatory for making GitHub Releases
+      id-token: write  # Mandatory for sigstore
 
     steps:
     - name: Download all the dists
@@ -75,21 +80,10 @@ jobs:
         inputs: >-
           ./dist/*.tar.gz
           ./dist/*.whl
-    - name: Create GitHub Release
-      env:
-        GITHUB_TOKEN: ${{ github.token }}
-      run: >-
-        gh release create
-        '${{ github.ref_name }}'
-        --repo '${{ github.repository }}'
-        --notes ""
     - name: Upload artifact signatures to GitHub Release
       env:
         GITHUB_TOKEN: ${{ github.token }}
-      # Upload to GitHub Release using the `gh` CLI.
-      # `dist/` contains the built packages, and the
-      # sigstore-produced signatures and certificates.
-      run: >-
+      run: >
         gh release upload
         '${{ github.ref_name }}' dist/**
         --repo '${{ github.repository }}'

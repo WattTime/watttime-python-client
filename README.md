@@ -144,3 +144,34 @@ wt.region_from_loc(
 # get shape files for all regions of a signal type
 wt.get_maps_json('co2_moer')
 ```
+
+### Calculating a Typical Carbon Year (TCY)
+The SDK provides functionality to calculate a Typical Carbon Year (TCY) profile, which represents typical MOER patterns over a year by combining three years of historical data. A TCY accounts for seasonal variations, daily patterns, and differences between weekdays and weekends/holidays:
+
+```python
+from watttime import TCYCalculator
+
+# Initialize calculator (using env variables for credentials)
+calculator = TCYCalculator(
+    region="CAISO_NORTH",
+    timezone="America/Los_Angeles"
+)
+
+# Or with explicit credentials
+calculator = TCYCalculator(
+    region="CAISO_NORTH",
+    timezone="America/Los_Angeles",
+    username="your_username",
+    password="your_password"
+)
+
+# Calculate TCY for any year (uses recent MOER patterns with target year's calendar)
+tcy_profile = calculator.calculate_tcy(2024)
+```
+
+The returned tcy_profile is a pandas series with hourly timestamps in the specified timezone and corresponding MOER values (in lbs CO2/MWh). The profile provides hourly values that represent typical grid emissions patterns for the region. Note that this data has a lower variance than real-time MOER data, so it should not be used to estimate the carbon reduction opportunity from load-shifting/AER.
+
+This can be useful for:
+
+* Estimating the relative carbon impact of building design choices
+* Understanding typical emissions patterns in a region

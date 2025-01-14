@@ -9,7 +9,7 @@ from watttime import (
     WattTimeHistorical,
     WattTimeMyAccess,
     WattTimeForecast,
-    WattTimeMaps,
+    WattTimeMaps
 )
 from pathlib import Path
 

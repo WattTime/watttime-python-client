@@ -514,6 +514,7 @@ class WattTimeForecast(WattTimeBase):
         ] = "co2_moer",
         model: Optional[Union[str, date]] = None,
         horizon_hours: int = 24,
+        include_meta: bool = False,
     ) -> pd.DataFrame:
         """
         Retrieves the historical forecast data as a pandas DataFrame.
@@ -526,6 +527,7 @@ class WattTimeForecast(WattTimeBase):
                 The type of signal for the historical forecast data. Defaults to "co2_moer".
             model (Optional[Union[str, date]], optional): The model date for the historical forecast data. Defaults to None.
             horizon_hours (int, optional): The number of hours to forecast. Defaults to 24. Minimum of 0 provides a "nowcast" created with the forecast, maximum of 72.
+            include_meta (bool, optional): Whether to include the meta data in the DataFrame. Defaults to False.
 
         Returns:
             pd.DataFrame: A pandas DataFrame containing the historical forecast data.
@@ -539,6 +541,11 @@ class WattTimeForecast(WattTimeBase):
                 _df = pd.json_normalize(entry, record_path=["forecast"])
                 _df = _df.assign(generated_at=pd.to_datetime(entry["generated_at"]))
                 out = pd.concat([out, _df])
+                
+        if include_meta:
+            meta = pd.json_normalize(json["meta"]).to_dict('records')[0]
+            meta = {k:v for k,v in meta.items() if isinstance(v, str)}
+            out = out.assign(**meta)
         return out
 
 

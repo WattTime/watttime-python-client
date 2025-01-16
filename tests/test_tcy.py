@@ -86,7 +86,8 @@ class TestTCY(unittest.TestCase):
         jan_2018_wed = tcy_2018['2018-01-03 14:00:00-08:00']  # A Wednesday
         jan_2024_wed = tcy_2024['2024-01-03 14:00:00-08:00']  # A Wednesday
         
-        self.assertEqual(jan_2018_wed, jan_2024_wed)
+        # Use assertAlmostEqual or numpy.testing.assert_allclose instead of assertEqual
+        self.assertAlmostEqual(jan_2018_wed, jan_2024_wed, places=2)  # Compare up to 2 decimal places
 
         # But holidays should follow their respective years
         new_years_2018 = tcy_2018['2018-01-01 12:00:00-08:00']

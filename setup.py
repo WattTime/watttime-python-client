@@ -10,4 +10,5 @@ setup(
     python_requires=">=3.8",
     install_requires=["requests", "pandas>1.0.0", "holidays", "python-dateutil"],
     extras_require={"report": ["papermill", "nbconvert", "plotly", "scipy"]},
+    scripts=["watttime/report.py"],
 )

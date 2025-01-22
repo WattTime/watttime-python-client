@@ -595,14 +595,6 @@ class TestWattTimeOptimizer(unittest.TestCase):
         # Check number of components
         self.assertEqual(len(contiguity_info), 1)
 
-def convert_to_utc(local_time_str, local_tz_str):
-    local_time = datetime.strptime(
-        local_time_str.strftime("%Y-%m-%d %H:%M:%S"), "%Y-%m-%d %H:%M:%S"
-    )
-    local_tz = pytz.timezone(local_tz_str)
-    local_time = local_tz.localize(local_time)
-    return local_time.astimezone(pytz.utc)
-
 
 class TestRecalculatingOptimizer(unittest.TestCase):
     def setUp(self):
@@ -618,7 +610,7 @@ class TestRecalculatingOptimizer(unittest.TestCase):
             end=self.static_end_time,
             region=self.region,
             signal_type="co2_moer",
-            horizon_hours=72,
+            horizon_hours=12,
         )
         self.data_times = self.curr_fcst_data["generated_at"]
 
@@ -689,12 +681,12 @@ class TestRecalculatingOptimizer(unittest.TestCase):
             usage_power_kw=2,
             optimization_method="auto",
         )
-        first_schedule = recalculating_optimizer.get_new_schedule(
+        _ = recalculating_optimizer.get_new_schedule(
             self.static_start_time,
             self.static_end_time,
         )
         first_combined_schedule = recalculating_optimizer.get_combined_schedule()
-        second_schedule = recalculating_optimizer.get_new_schedule(
+        _ = recalculating_optimizer.get_new_schedule(
             self.static_start_time + timedelta(hours=7),
             self.static_end_time,
         )
@@ -712,6 +704,7 @@ class TestRecalculatingOptimizer(unittest.TestCase):
         self.assertEqual(second_combined_schedule["usage"].sum(), 240)
 
     def test_schedule_times(self) -> None:
+        """Test same start time across schedules"""
         recalculating_optimizer = RecalculatingWattTimeOptimizer(
             region=self.region,
             watttime_username=self.username,
@@ -783,10 +776,9 @@ class TestRecalculatingOptimizer(unittest.TestCase):
 def check_num_intervals(schedule: pd.DataFrame) -> int:
     charging_indicator = schedule["usage"].apply(lambda x: 1 if x > 0 else 0)
     intervals = charging_indicator.diff().value_counts().get(1, 0)
-    if charging_indicator[0] > 0:
+    if charging_indicator.iloc[0] > 0:
         intervals += 1
     return intervals
-
 
 class TestRecalculatingOptimizerWithConstraints(unittest.TestCase):
     def setUp(self):
@@ -803,7 +795,7 @@ class TestRecalculatingOptimizerWithConstraints(unittest.TestCase):
             end=self.static_end_time,
             region=self.region,
             signal_type="co2_moer",
-            horizon_hours=72,
+            horizon_hours=12,
         )
         self.data_times = self.curr_fcst_data["generated_at"]
 

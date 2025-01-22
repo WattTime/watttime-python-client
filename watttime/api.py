@@ -547,7 +547,7 @@ class WattTimeForecast(WattTimeBase):
 
 
 OPT_INTERVAL = 5
-MAX_PREDICTION_HOURS = 72
+MAX_PREDICTION_HOURS = 12
 
 
 class WattTimeOptimizer(WattTimeForecast):
@@ -566,7 +566,7 @@ class WattTimeOptimizer(WattTimeForecast):
     """
 
     OPT_INTERVAL = 5
-    MAX_PREDICTION_HOURS = 72
+    MAX_PREDICTION_HOURS = 12
     MAX_INT = 99999999999999999
 
     def get_optimal_usage_plan(
@@ -1074,7 +1074,7 @@ class RecalculatingWattTimeOptimizer:
         if curr_fcst_data is None:
             curr_fcst_data = self._query_api_for_fcst_data(new_start_time)
 
-        curr_fcst_data["point_time"] = pd.to_datetime(curr_fcst_data["point_time"])
+        curr_fcst_data.loc[:, "point_time"] = pd.to_datetime(curr_fcst_data["point_time"])
         curr_fcst_data = curr_fcst_data.loc[
             curr_fcst_data["point_time"] >= new_start_time
         ]

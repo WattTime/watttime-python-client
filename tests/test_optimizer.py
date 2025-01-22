@@ -6,6 +6,7 @@ from pytz import UTC
 import pytz
 from watttime.api import RecalculatingWattTimeOptimizer, WattTimeOptimizer, WattTimeForecast, RecalculatingWattTimeOptimizerWithContiguity
 
+REGION = "CAISO_NORTH"
 
 def get_usage_plan_mean_power(usage_plan):
     usage_plan_when_active = usage_plan[usage_plan["usage"] != 0].copy()
@@ -62,7 +63,7 @@ class TestWattTimeOptimizer(unittest.TestCase):
         username = os.getenv("WATTTIME_USER")
         password = os.getenv("WATTTIME_PASSWORD")
         cls.wt_opt = WattTimeOptimizer(username, password)
-        cls.region = "PJM_NJ"
+        cls.region = REGION
         cls.usage_power_kw = 12
         now = datetime.now(UTC)
         cls.window_start_test = now + timedelta(minutes=10)
@@ -605,15 +606,11 @@ def convert_to_utc(local_time_str, local_tz_str):
 
 class TestRecalculatingOptimizer(unittest.TestCase):
     def setUp(self):
-        self.region = "PJM_NJ"
+        self.region = REGION
         self.username = os.getenv("WATTTIME_USER")
         self.password = os.getenv("WATTTIME_PASSWORD")
-        self.static_start_time = convert_to_utc(
-            datetime(2024, 1, 1, hour=20, second=1), local_tz_str="America/New_York"
-        )
-        self.static_end_time = convert_to_utc(
-            datetime(2024, 1, 2, hour=8, second=1), local_tz_str="America/New_York"
-        )
+        self.static_start_time = datetime(2024, 1, 1, hour=20, second=1, tzinfo=UTC)
+        self.static_end_time = datetime(2024, 1, 2, hour=8, second=1, tzinfo=UTC)
 
         self.wth = WattTimeForecast(self.username, self.password)
         self.curr_fcst_data = self.wth.get_historical_forecast_pandas(
@@ -731,7 +728,7 @@ class TestRecalculatingOptimizer(unittest.TestCase):
             start_time = start_time + timedelta(minutes=30)
             schedule = recalculating_optimizer.get_new_schedule(start_time, end_time)
             self.assertTrue(schedule.index.is_unique)
-            self.assertEquals(
+            self.assertEqual(
                 schedule.index[0].to_pydatetime(),
                 start_time + timedelta(minutes=4, seconds=59),
             )
@@ -793,16 +790,12 @@ def check_num_intervals(schedule: pd.DataFrame) -> int:
 
 class TestRecalculatingOptimizerWithConstraints(unittest.TestCase):
     def setUp(self):
-        self.region = "PJM_NJ"
+        self.region = REGION
         self.username = os.getenv("WATTTIME_USER")
         self.password = os.getenv("WATTTIME_PASSWORD")
 
-        self.static_start_time = convert_to_utc(
-            datetime(2024, 1, 1, hour=20, second=1), local_tz_str="America/New_York"
-        )
-        self.static_end_time = convert_to_utc(
-            datetime(2024, 1, 2, hour=8, second=1), local_tz_str="America/New_York"
-        )
+        self.static_start_time = datetime(2024, 1, 1, hour=20, second=1, tzinfo=UTC)
+        self.static_end_time = datetime(2024, 1, 2, hour=8, second=1, tzinfo=UTC)
 
         self.wth = WattTimeForecast(self.username, self.password)
         self.curr_fcst_data = self.wth.get_historical_forecast_pandas(

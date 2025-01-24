@@ -15,7 +15,7 @@ This code is built to implement and evaluate an algorithm to produce a charging 
 from datetime import datetime, timedelta
 import pandas as pd
 from pytz import UTC
-from watttime import WattTimeOptimizer
+from watttime.api import WattTimeOptimizer
 import os
 
 username = os.getenv("WATTTIME_USER")
@@ -39,6 +39,7 @@ usage_plan = wt_opt.get_optimal_usage_plan(
     usage_power_kw=usage_power_kw,
     charge_per_interval=[usage_time_required_minutes],
     optimization_method="auto",
+    verbose = False
 )
 
 print(usage_plan.head())

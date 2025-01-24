@@ -547,7 +547,7 @@ class WattTimeForecast(WattTimeBase):
 
 
 OPT_INTERVAL = 5
-MAX_PREDICTION_HOURS = 12
+MAX_PREDICTION_HOURS = 72
 
 
 class WattTimeOptimizer(WattTimeForecast):
@@ -566,7 +566,7 @@ class WattTimeOptimizer(WattTimeForecast):
     """
 
     OPT_INTERVAL = 5
-    MAX_PREDICTION_HOURS = 12
+    MAX_PREDICTION_HOURS = 72
     MAX_INT = 99999999999999999
 
     def get_optimal_usage_plan(
@@ -585,6 +585,7 @@ class WattTimeOptimizer(WattTimeForecast):
             Literal["baseline", "simple", "sophisticated", "auto"]
         ] = "baseline",
         moer_data_override: Optional[pd.DataFrame] = None,
+        verbose = True
     ) -> pd.DataFrame:
         """
         Generates an optimal usage plan for energy consumption based on given parameters.
@@ -622,6 +623,8 @@ class WattTimeOptimizer(WattTimeForecast):
             The method used for optimization.
         moer_data_override : Optional[pd.DataFrame], default=None
             Pre-generated MOER (Marginal Operating Emissions Rate) DataFrame, if available.
+        verbose : default = True
+            If false, suppresses print statements in the opt charger class.
 
         Returns:
         --------
@@ -736,7 +739,7 @@ class WattTimeOptimizer(WattTimeForecast):
 
         m = moer.Moer(mu=moer_values)
 
-        model = optCharger.OptCharger()
+        model = optCharger.OptCharger(verbose=verbose)
 
         total_charge_units = minutes_to_units(usage_time_required_minutes)
         if optimization_method in ("sophisticated", "auto"):
@@ -810,6 +813,7 @@ class WattTimeOptimizer(WattTimeForecast):
             # print("Charge per interval:", converted_charge_per_interval)
         else:
             converted_charge_per_interval = None
+        print(converted_charge_per_interval)
         model.fit(
             total_charge=total_charge_units,
             total_time=len(moer_values),
@@ -1079,7 +1083,7 @@ class RecalculatingWattTimeOptimizer:
             curr_fcst_data["point_time"] >= new_start_time
         ]
         if curr_fcst_data.shape[0] == 0:
-            print("error")
+            raise ValueError('Forecast dataframe contains zero values')
         new_schedule_start_time = curr_fcst_data["point_time"].iloc[0]
 
         # Generate new schedule

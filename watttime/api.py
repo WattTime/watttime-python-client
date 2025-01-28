@@ -983,6 +983,111 @@ class WattTimeMaps(WattTimeBase):
         return rsp.json()
 
 
+class Recalculator:
+    """A class to manage and update charging schedules over time.
+
+    This class maintains a list of charging schedules and their associated time contexts,
+    allowing for updates and recalculations of remaining charging time required.
+
+    Attributes:
+        all_schedules (list): List of tuples containing (schedule, time_context) pairs
+        total_time_required (int): Total charging time needed in minutes
+        end_time (datetime): Final deadline for the charging schedule
+    """
+
+    def __init__(
+        self,
+        initial_schedule: pd.DataFrame,
+        start_time: datetime,
+        end_time: datetime,
+        total_time_required: int
+    ) -> None:
+        """Initialize the Recalculator with an initial schedule.
+
+        Args:
+            initial_schedule (pd.DataFrame): Starting charging schedule
+            start_time (datetime): Start time for the schedule
+            end_time (datetime): End time for the schedule
+            total_time_required (int): Total charging time needed in minutes
+        """
+        self.all_schedules = [(initial_schedule, (start_time, end_time))]  # (schedule, ctx)
+        self.total_time_required = total_time_required
+        self.end_time = end_time
+
+    def get_remaining_time_required(self, next_query_time: datetime):
+        """Calculate remaining charging time needed at a given query time.
+
+        Args:
+            next_query_time (datetime): Time at which to calculate remaining time
+
+        Returns:
+            int: Remaining charging time required in minutes
+        """
+        if len(self.all_schedules) == 0:
+            return self.total_time_required
+
+        # If there are previously produced schedules, assume we followed each schedule until getting a new one
+        combined_schedule = self.get_combined_schedule()
+
+        # Calculate remaining time required
+        usage_in_minutes = int(
+            combined_schedule[combined_schedule.index < next_query_time]["usage"].sum()
+        )
+        return self.total_time_required - usage_in_minutes
+    
+    def set_last_schedule_end_time(self, new_schedule_start_time: datetime):
+        """Update the end time of the most recent schedule.
+
+        Args:
+            new_schedule_start_time (datetime): New end time for the last schedule
+        """
+        # If there a previously produced schedule, assume we followed that schedule until getting the new one
+        if len(self.all_schedules) > 0:
+            # Set end time of last ctx
+            schedule, ctx = self.all_schedules[-1]
+            print(ctx[0])
+            print(new_schedule_start_time)
+            self.all_schedules[-1] = (schedule, (ctx[0], new_schedule_start_time))
+            assert ctx[0] < new_schedule_start_time
+
+    def update_charging_schedule(
+            self,
+            new_schedule: pd.DataFrame,
+            new_schedule_start_time: datetime
+        ):
+        """Add a new charging schedule to the list of schedules.
+
+        Args:
+            new_schedule (pd.DataFrame): New charging schedule to add
+            new_schedule_start_time (datetime): Start time for the new schedule
+        """
+        self.set_last_schedule_end_time(new_schedule_start_time)
+        self.all_schedules.append((new_schedule, (new_schedule_start_time, self.end_time)))
+                                               
+    def get_combined_schedule(self, end_time: datetime = None) -> pd.DataFrame:
+        """Combine all schedules into a single DataFrame.
+
+        Args:
+            end_time (datetime, optional): Optional cutoff time for the combined schedule
+
+        Returns:
+            pd.DataFrame: Combined schedule of all charging segments
+        """
+        schedule_segments = []
+        for s, ctx in self.all_schedules:
+            schedule_segments.append(s[s.index < ctx[1]])
+        combined_schedule = pd.concat(schedule_segments)
+
+        if end_time:
+            # Only keep segments that complete before end_time
+            last_segment_start_time = end_time + timedelta(minutes=OPT_INTERVAL)
+            combined_schedule = combined_schedule[
+                combined_schedule.index <= last_segment_start_time
+            ]
+
+        return combined_schedule
+
+
 class RecalculatingWattTimeOptimizer:
     def __init__(
         self,
@@ -1251,3 +1356,65 @@ class RecalculatingWattTimeOptimizerWithContiguity(RecalculatingWattTimeOptimize
         self._set_last_schedule_end_time(new_start_time)
         self.all_schedules.append((new_schedule, ctx))
         return new_schedule
+    
+class RequerySimulator:
+    def __init__(self, 
+                 moers_list,
+                 requery_dates,
+                 region="CAISO_NORTH",
+                 window_start=datetime(2025, 1, 1, hour=20, second=1, tzinfo=UTC),
+                 window_end=datetime(2025, 1, 2, hour=8, second=1, tzinfo=UTC),
+                 usage_time_required_minutes=240,
+                 usage_power_kw=2):
+        self.moers_list = moers_list
+        self.requery_dates = requery_dates
+        self.region = region
+        self.window_start = window_start
+        self.window_end = window_end
+        self.usage_time_required_minutes = usage_time_required_minutes
+        self.usage_power_kw = usage_power_kw
+        
+        self.username = os.getenv("WATTTIME_USER")
+        self.password = os.getenv("WATTTIME_PASSWORD")
+        self.wt_opt = WattTimeOptimizer(self.username, self.password)
+        
+    def _get_initial_plan(self):
+        return self.wt_opt.get_optimal_usage_plan(
+            region=self.region,
+            usage_window_start=self.window_start,
+            usage_window_end=self.window_end,
+            usage_time_required_minutes=self.usage_time_required_minutes,
+            usage_power_kw=self.usage_power_kw,
+            charge_per_interval=None,
+            optimization_method="simple",
+            moer_data_override=self.moers_list[0][["point_time","value"]]
+        )
+    
+    def simulate(self):
+        initial_plan = self._get_initial_plan()
+        recalculator = Recalculator(
+            initial_schedule=initial_plan,
+            start_time=self.window_start,
+            end_time=self.window_end,
+            total_time_required=self.usage_time_required_minutes
+        )
+        
+        for i, new_window_start in enumerate(self.requery_dates[1:], 1):
+            print(i)
+            new_time_required = recalculator.get_remaining_time_required(new_window_start)
+            next_plan = self.wt_opt.get_optimal_usage_plan(
+                region=self.region,
+                usage_window_start=new_window_start,
+                usage_window_end=self.window_end,
+                usage_time_required_minutes=new_time_required,
+                usage_power_kw=self.usage_power_kw,
+                charge_per_interval=None,
+                optimization_method="simple",
+                moer_data_override=self.moers_list[i][["point_time","value"]]
+            )
+            recalculator.update_charging_schedule(
+                new_schedule=next_plan,
+                new_schedule_start_time=new_window_start
+            )
+            
+        return recalculator

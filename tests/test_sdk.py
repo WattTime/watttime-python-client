@@ -313,8 +313,8 @@ class TestWattTimeForecast(unittest.TestCase):
         self.assertIn("value", df.columns)
 
     def test_historical_forecast_jsons(self):
-        start = "2023-01-01 00:00Z"
-        end = "2023-01-03 00:00Z"
+        start = "2024-01-01 00:00Z"
+        end = "2024-12-30 00:00Z"
         json_list = self.forecast.get_historical_forecast_json(
             start, end, region=REGION
         )

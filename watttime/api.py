@@ -1,9 +1,11 @@
 import os
 import time
+import threading
 from datetime import date, datetime, timedelta
 from functools import cache
 from pathlib import Path
 from typing import Any, Dict, List, Literal, Optional, Tuple, Union
+from concurrent.futures import ThreadPoolExecutor, as_completed
 
 import pandas as pd
 import requests
@@ -453,7 +455,8 @@ class WattTimeForecast(WattTimeBase):
     ) -> List[Dict[str, Any]]:
         """
         Retrieves the historical forecast data from the API as a list of dictionaries.
-
+        Rate limited to 10 requests per second.
+        
         Args:
             start (Union[str, datetime]): The start date of the historical forecast. Can be a string or a datetime object.
             end (Union[str, datetime]): The end date of the historical forecast. Can be a string or a datetime object.
@@ -461,15 +464,16 @@ class WattTimeForecast(WattTimeBase):
             signal_type (Optional[Literal["co2_moer", "co2_aoer", "health_damage"]]): The type of signal to retrieve. Defaults to "co2_moer".
             model (Optional[Union[str, date]]): The date of the model version to use. Defaults to None.
             horizon_hours (int, optional): The number of hours to forecast. Defaults to 24. Minimum of 0 provides a "nowcast" created with the forecast, maximum of 72.
-
+        
         Returns:
             List[Dict[str, Any]]: A list of dictionaries representing the forecast data.
-
+        
         Raises:
             Exception: If there is an API response error.
         """
         if not self._is_token_valid():
             self._login()
+
         url = "{}/v3/forecast/historical".format(self.url_base)
         headers = {"Authorization": "Bearer " + self.token}
         responses = []
@@ -486,22 +490,70 @@ class WattTimeForecast(WattTimeBase):
         if model is not None:
             params["model"] = model
 
-        for c in chunks:
-            params["start"], params["end"] = c
+        start_ts = time.time()
+        responses = []
+        
+        # Create a class-level lock for thread safety
+        if not hasattr(self, '_rate_limit_lock'):
+            self._rate_limit_lock = threading.Lock()
+        
+        # Create class-level tracking for rate limiting
+        if not hasattr(self, '_last_request_times'):
+            self._last_request_times = []
+        
+        def make_rate_limited_request(url, headers, params):
+            while True:
+                with self._rate_limit_lock:
+                    current_time = time.time()
+                    # Remove requests older than 1 second
+                    self._last_request_times = [t for t in self._last_request_times 
+                                            if current_time - t < 1.0]
+                    
+                    # If we haven't hit the rate limit, make the request
+                    if len(self._last_request_times) < 10:
+                        self._last_request_times.append(current_time)
+                        break
+                    
+                # If we hit the rate limit, wait a bit before trying again
+                time.sleep(0.1)
+            
             rsp = requests.get(url, headers=headers, params=params)
-            try:
-                rsp.raise_for_status()
-                j = rsp.json()
-                responses.append(j)
-            except Exception as e:
-                raise Exception(
-                    f"\nAPI Response Error: {rsp.status_code}, {rsp.text} [{rsp.headers.get('x-request-id')}]"
-                )
-
+            print(f"Processing {rsp.url}")
+            rsp.raise_for_status()
+            j = rsp.json()
+            
             if len(j["meta"]["warnings"]):
-                print("\n", "Warnings Returned:", params, j["meta"])
-            time.sleep(1)  # avoid rate limit
+                print("\n", "API Warnings Returned:", params, j["meta"])
+                
+            return j
 
+        with ThreadPoolExecutor(max_workers=os.cpu_count()) as executor:
+            futures = []
+            for c in chunks:
+                _params = params.copy()
+                _params["start"], _params["end"] = c
+                future = executor.submit(
+                    make_rate_limited_request, url, headers, _params
+                )
+                futures.append(future)
+
+            for future in as_completed(futures):
+                try:
+                    responses.append(future.result())
+                except Exception as e:
+                    if hasattr(e, 'response'):
+                        raise Exception(
+                            f"\nAPI Response Error: {e.response.status_code}, {e.response.text} "
+                            f"[{e.response.headers.get('x-request-id')}]"
+                        )
+                    raise
+
+        end_ts = time.time()
+        print(
+            f"API Response Time: {round(end_ts - start_ts, 2)}, "
+            f"{round((end_ts - start_ts) / len(responses), 2)} per response"
+        )
+        
         return responses
 
     def get_historical_forecast_pandas(

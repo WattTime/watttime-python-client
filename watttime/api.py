@@ -1087,155 +1087,67 @@ class Recalculator:
 
         return combined_schedule
 
-
-class RecalculatingWattTimeOptimizer:
-    def __init__(
-        self,
-        watttime_username: str,
-        watttime_password: str,
-        region: str,
-        usage_time_required_minutes: float,
-        usage_power_kw: Union[int, float, pd.DataFrame],
-        optimization_method: Optional[
-            Literal["baseline", "simple", "sophisticated", "auto"]
-        ],
-    ) -> None:
-        # Settings that stay consistent across calls to get_optimal_usage_plan
+class RequerySimulator:
+    def __init__(self, 
+                 moers_list,
+                 requery_dates,
+                 region="CAISO_NORTH",
+                 window_start=datetime(2025, 1, 1, hour=20, second=1, tzinfo=UTC),
+                 window_end=datetime(2025, 1, 2, hour=8, second=1, tzinfo=UTC),
+                 usage_time_required_minutes=240,
+                 usage_power_kw=2):
+        self.moers_list = moers_list
+        self.requery_dates = requery_dates
         self.region = region
-        self.total_time_required = usage_time_required_minutes
+        self.window_start = window_start
+        self.window_end = window_end
+        self.usage_time_required_minutes = usage_time_required_minutes
         self.usage_power_kw = usage_power_kw
-        self.optimization_method = optimization_method
-
-        # Setup for us to track schedule/usage
-        self.all_schedules = []  # (schedule, ctx)
-
-        # Set up to query for fcsts
-        self.forecast_generator = WattTimeForecast(watttime_username, watttime_password)
-        self.wt_opt = WattTimeOptimizer(watttime_username, watttime_password)
-
-        # Set up to query for actual data
-        self.wt_hist = WattTimeHistorical(watttime_username, watttime_password)
-
-    def _get_curr_fcst_data(self, new_start_time: datetime):
-        curr_fcst_data = self.forecast_generator.get_historical_forecast_pandas(
-            start=new_start_time - timedelta(minutes=OPT_INTERVAL),
-            end=new_start_time,
+        
+        self.username = os.getenv("WATTTIME_USER")
+        self.password = os.getenv("WATTTIME_PASSWORD")
+        self.wt_opt = WattTimeOptimizer(self.username, self.password)
+        
+    def _get_initial_plan(self):
+        return self.wt_opt.get_optimal_usage_plan(
             region=self.region,
-            signal_type="co2_moer",
-            horizon_hours=MAX_PREDICTION_HOURS,
-        )
-        most_recent_data_time = curr_fcst_data["generated_at"].iloc[-1]
-        curr_fcst_data = curr_fcst_data[
-            curr_fcst_data["generated_at"] == most_recent_data_time
-        ]
-        # Get most recent forecast time using iloc with bounds checking
-        if len(curr_fcst_data["generated_at"]) > 0:
-            most_recent_data_time = curr_fcst_data["generated_at"].iloc[-1]
-            curr_fcst_data = curr_fcst_data[
-                curr_fcst_data["generated_at"] == most_recent_data_time
-            ].copy()
-        return curr_fcst_data
-
-    def _get_remaining_time_required(self, query_time: datetime):
-        if len(self.all_schedules) == 0:
-            return self.total_time_required
-
-        # If there are previously produced schedules, assume we followed each schedule until getting a new one
-        combined_schedule = self.get_combined_schedule()
-
-        # Calculate remaining time required
-        usage = int(
-            combined_schedule[combined_schedule.index < query_time]["usage"].sum()
-        )
-        return self.total_time_required - usage
-
-    def _set_last_schedule_end_time(self, new_schedule_start_time: datetime):
-        # If there a previously produced schedule, assume we followed that schedule until getting the new one
-        if len(self.all_schedules) > 0:
-            # Set end time of last ctx
-            schedule, ctx = self.all_schedules[-1]
-            self.all_schedules[-1] = (schedule, (ctx[0], new_schedule_start_time))
-            assert ctx[0] < new_schedule_start_time
-
-    def _query_api_for_fcst_data(self, new_start_time: datetime):
-        # Get new data
-        curr_fcst_data = self.forecast_generator.get_historical_forecast_pandas(
-            start=new_start_time - timedelta(minutes=OPT_INTERVAL),
-            end=new_start_time,
-            region=self.region,
-            signal_type="co2_moer",
-            horizon_hours=MAX_PREDICTION_HOURS,
-        )
-        most_recent_data_time = curr_fcst_data["generated_at"].iloc[-1]
-        curr_fcst_data = curr_fcst_data[
-            curr_fcst_data["generated_at"] == most_recent_data_time
-        ]
-        return curr_fcst_data
-
-    def _get_new_schedule(
-        self,
-        new_start_time: datetime,
-        new_end_time: datetime,
-        curr_fcst_data: pd.DataFrame = None,
-        charge_per_interval: Optional[list] = None,
-    ) -> tuple[pd.DataFrame, tuple[str, str]]:
-
-        if curr_fcst_data is None:
-            curr_fcst_data = self._query_api_for_fcst_data(new_start_time)
-
-        curr_fcst_data.loc[:, "point_time"] = pd.to_datetime(curr_fcst_data["point_time"])
-        curr_fcst_data = curr_fcst_data.loc[
-            curr_fcst_data["point_time"] >= new_start_time
-        ]
-        if curr_fcst_data.shape[0] == 0:
-            raise ValueError('Forecast dataframe contains zero values')
-        new_schedule_start_time = curr_fcst_data["point_time"].iloc[0]
-
-        # Generate new schedule
-        new_schedule = self.wt_opt.get_optimal_usage_plan(
-            region=self.region,
-            usage_window_start=new_start_time - timedelta(minutes=OPT_INTERVAL),
-            usage_window_end=new_end_time,
-            usage_time_required_minutes=self._get_remaining_time_required(
-                new_schedule_start_time
-            ),
+            usage_window_start=self.window_start,
+            usage_window_end=self.window_end,
+            usage_time_required_minutes=self.usage_time_required_minutes,
             usage_power_kw=self.usage_power_kw,
-            optimization_method=self.optimization_method,
-            moer_data_override=curr_fcst_data,
-            charge_per_interval=charge_per_interval,
+            charge_per_interval=None,
+            optimization_method="simple",
+            moer_data_override=self.moers_list[0][["point_time","value"]]
         )
-        new_schedule_ctx = (new_schedule_start_time, new_end_time)
-
-        return new_schedule, new_schedule_ctx
-
-    def get_new_schedule(
-        self,
-        new_start_time: datetime,
-        new_end_time: datetime,
-        curr_fcst_data: pd.DataFrame = None,
-    ) -> pd.DataFrame:
-        schedule, ctx = self._get_new_schedule(
-            new_start_time, new_end_time, curr_fcst_data
+    
+    def simulate(self):
+        initial_plan = self._get_initial_plan()
+        recalculator = Recalculator(
+            initial_schedule=initial_plan,
+            start_time=self.window_start,
+            end_time=self.window_end,
+            total_time_required=self.usage_time_required_minutes
         )
-
-        self._set_last_schedule_end_time(ctx[0])
-        self.all_schedules.append((schedule, ctx))
-        return schedule
-
-    def get_combined_schedule(self, end_time: datetime = None) -> pd.DataFrame:
-        schedule_segments = []
-        for s, ctx in self.all_schedules:
-            schedule_segments.append(s[s.index < ctx[1]])
-        combined_schedule = pd.concat(schedule_segments)
-
-        if end_time:
-            # Only keep segments that complete before end_time
-            last_segment_start_time = end_time + timedelta(minutes=OPT_INTERVAL)
-            combined_schedule = combined_schedule[
-                combined_schedule.index <= last_segment_start_time
-            ]
-
-        return combined_schedule
+        
+        for i, new_window_start in enumerate(self.requery_dates[1:], 1):
+            print(i)
+            new_time_required = recalculator.get_remaining_time_required(new_window_start)
+            next_plan = self.wt_opt.get_optimal_usage_plan(
+                region=self.region,
+                usage_window_start=new_window_start,
+                usage_window_end=self.window_end,
+                usage_time_required_minutes=new_time_required,
+                usage_power_kw=self.usage_power_kw,
+                charge_per_interval=None,
+                optimization_method="simple",
+                moer_data_override=self.moers_list[i][["point_time","value"]]
+            )
+            recalculator.update_charging_schedule(
+                new_schedule=next_plan,
+                new_schedule_start_time=new_window_start
+            )
+            
+        return recalculator
 
 
 class RecalculatingWattTimeOptimizerWithContiguity(RecalculatingWattTimeOptimizer):
@@ -1356,65 +1268,3 @@ class RecalculatingWattTimeOptimizerWithContiguity(RecalculatingWattTimeOptimize
         self._set_last_schedule_end_time(new_start_time)
         self.all_schedules.append((new_schedule, ctx))
         return new_schedule
-    
-class RequerySimulator:
-    def __init__(self, 
-                 moers_list,
-                 requery_dates,
-                 region="CAISO_NORTH",
-                 window_start=datetime(2025, 1, 1, hour=20, second=1, tzinfo=UTC),
-                 window_end=datetime(2025, 1, 2, hour=8, second=1, tzinfo=UTC),
-                 usage_time_required_minutes=240,
-                 usage_power_kw=2):
-        self.moers_list = moers_list
-        self.requery_dates = requery_dates
-        self.region = region
-        self.window_start = window_start
-        self.window_end = window_end
-        self.usage_time_required_minutes = usage_time_required_minutes
-        self.usage_power_kw = usage_power_kw
-        
-        self.username = os.getenv("WATTTIME_USER")
-        self.password = os.getenv("WATTTIME_PASSWORD")
-        self.wt_opt = WattTimeOptimizer(self.username, self.password)
-        
-    def _get_initial_plan(self):
-        return self.wt_opt.get_optimal_usage_plan(
-            region=self.region,
-            usage_window_start=self.window_start,
-            usage_window_end=self.window_end,
-            usage_time_required_minutes=self.usage_time_required_minutes,
-            usage_power_kw=self.usage_power_kw,
-            charge_per_interval=None,
-            optimization_method="simple",
-            moer_data_override=self.moers_list[0][["point_time","value"]]
-        )
-    
-    def simulate(self):
-        initial_plan = self._get_initial_plan()
-        recalculator = Recalculator(
-            initial_schedule=initial_plan,
-            start_time=self.window_start,
-            end_time=self.window_end,
-            total_time_required=self.usage_time_required_minutes
-        )
-        
-        for i, new_window_start in enumerate(self.requery_dates[1:], 1):
-            print(i)
-            new_time_required = recalculator.get_remaining_time_required(new_window_start)
-            next_plan = self.wt_opt.get_optimal_usage_plan(
-                region=self.region,
-                usage_window_start=new_window_start,
-                usage_window_end=self.window_end,
-                usage_time_required_minutes=new_time_required,
-                usage_power_kw=self.usage_power_kw,
-                charge_per_interval=None,
-                optimization_method="simple",
-                moer_data_override=self.moers_list[i][["point_time","value"]]
-            )
-            recalculator.update_charging_schedule(
-                new_schedule=next_plan,
-                new_schedule_start_time=new_window_start
-            )
-            
-        return recalculator

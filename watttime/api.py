@@ -519,7 +519,6 @@ class WattTimeForecast(WattTimeBase):
                 time.sleep(0.1)
 
             rsp = requests.get(url, headers=headers, params=params)
-            print(f"Processing {rsp.url}")
             rsp.raise_for_status()
             j = rsp.json()
 

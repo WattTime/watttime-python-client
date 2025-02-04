@@ -9,7 +9,7 @@ from watttime import (
     WattTimeHistorical,
     WattTimeMyAccess,
     WattTimeForecast,
-    WattTimeMaps
+    WattTimeMaps,
 )
 from pathlib import Path
 
@@ -314,9 +314,22 @@ class TestWattTimeForecast(unittest.TestCase):
 
     def test_historical_forecast_jsons(self):
         start = "2024-01-01 00:00Z"
-        end = "2024-12-30 00:00Z"
+        end = "2024-01-07 00:00Z"
         json_list = self.forecast.get_historical_forecast_json(
             start, end, region=REGION
+        )
+        first_json = json_list[0]
+
+        self.assertIsInstance(json_list, list)
+        self.assertIn("meta", first_json)
+        self.assertEqual(len(first_json["data"]), 288)
+        self.assertIn("generated_at", first_json["data"][0])
+
+    def test_historical_forecast_jsons_multithreaded(self):
+        start = "2024-01-01 00:00Z"
+        end = "2024-01-30 00:00Z"
+        json_list = self.forecast.get_historical_forecast_json(
+            start, end, region=REGION, multi_threaded=True
         )
         first_json = json_list[0]
 

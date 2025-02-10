@@ -1,128 +1,113 @@
-# moer.py
-
+from typing import List
 import numpy as np
+from numpy.typing import ArrayLike, NDArray
 
 
 class Moer:
-    """
-    Represents Marginal Operating Emissions Rate (MOER) for electricity grid emissions modeling.
+    """Handles Marginal Operating Emissions Rate (MOER) calculations for electricity grid emissions.
 
-    This class handles calculations related to emissions and utilities based on
-    MOER data, supporting both diagonal and non-diagonal penalty matrices.
+    A class for processing and analyzing emissions data based on MOER measurements,
+    supporting various calculations including time-specific emissions and interval summations.
 
-    Attributes:
-    -----------
-    __mu : numpy.ndarray
+    Parameters
+    ----------
+    mu : ArrayLike
+        Emissions rate data for each time step.
+
+    Attributes
+    ----------
+    __mu : NDArray[np.float64]
         Mean emissions rate for each time step.
     __T : int
         Total number of time steps.
 
-    Methods:
+    Examples
     --------
-    __len__()
-        Returns the number of time steps.
-    get_emission_at(i, usage)
-        Calculates emission at a specific time step.
-    get_emission_interval(start, end, usage)
-        Calculates sum of emissions for a time interval.
-    get_emissions(x)
-        Calculates emissions per interval for a given schedule.
-    get_total_emission(x)
-        Calculates total emission for a given schedule.
-
+    >>> moer = Moer([0.5, 0.6, 0.7])
+    >>> moer.get_emission_at(0, 2.0)
+    1.0
+    >>> moer.get_total_emission([1.0, 2.0, 1.5])
+    2.75
     """
 
-    def __init__(self, mu):
-        """
-        Initializes the Moer object.
+    def __init__(self, mu: ArrayLike) -> None:
+        self.__mu: NDArray[np.float64] = np.array(mu).flatten()
+        self.__T: int = self.__mu.shape[0]
 
-        Parameters:
-        -----------
-        mu : array-like
-            Emissions rate for each time step.
-        """
-        self.__mu = np.array(mu).flatten()
-        self.__T = self.__mu.shape[0]
+    def __len__(self) -> int:
+        """Return the number of time steps in the series.
 
-    def __len__(self):
-        """
-        Returns the length of the time series.
-
-        Returns:
-        --------
+        Returns
+        -------
         int
-            The number of time steps in the series.
+            Length of the time series.
         """
         return self.__T
 
-    def get_emission_at(self, i, usage):
-        """
-        Calculates the emission at a specific time step.
+    def get_emission_at(self, i: int, usage: float) -> float:
+        """Calculate emission at a specific time step.
 
-        Parameters:
-        -----------
+        Parameters
+        ----------
         i : int
-            The time step index.
-        usage : float, optional
-            The power usage.
+            Time step index.
+        usage : float
+            Power usage multiplier.
 
-        Returns:
-        --------
+        Returns
+        -------
         float
-            The calculated emission value.
+            Calculated emission value.
         """
         return self.__mu[i] * usage
 
-    def get_emission_interval(self, start, end, usage):
-        """
-        Calculates emissions for a given time interval.
+    def get_emission_interval(self, start: int, end: int, usage: float) -> float:
+        """Calculate total emissions for a time interval.
 
-        Parameters:
-        -----------
+        Parameters
+        ----------
         start : int
-            The start index of the interval.
+            Start index of interval.
         end : int
-            The end index of the interval.
-        usage : float, optional
-            The emission multiplier. Default is 1.
+            End index of interval.
+        usage : float
+            Emission multiplier.
 
-        Returns:
-        --------
-        numpy.ndarray
-            An array of emission values for the specified interval.
+        Returns
+        -------
+        float
+            Sum of emissions for the interval.
         """
         return np.dot(self.__mu[start:end], usage)
 
-    def get_emissions(self, usage):
+    def get_emissions(self, usage: ArrayLike) -> NDArray[np.float64]:
+        """Calculate emissions for each time step given usage values.
+
+        Parameters
+        ----------
+        usage : ArrayLike
+            Array of emission multipliers.
+
+        Returns
+        -------
+        NDArray[np.float64]
+            Array of calculated emissions.
         """
-        Calculates emissions for a given set of emission multipliers.
+        usage_array: NDArray[np.float64] = np.array(usage).flatten()
+        return self.__mu[: usage_array.shape[0]] * usage_array
 
-        Parameters:
-        -----------
-        usage : array-like
-            The emission multipliers.
+    def get_total_emission(self, usage: ArrayLike) -> float:
+        """Calculate total emissions across all time steps.
 
-        Returns:
-        --------
-        numpy.ndarray
-            An array of calculated emission values.
-        """
-        usage = np.array(usage).flatten()
-        return self.__mu[: usage.shape[0]] * usage
+        Parameters
+        ----------
+        usage : ArrayLike
+            Array of emission multipliers.
 
-    def get_total_emission(self, usage):
-        """
-        Calculates the total emission for a given set of emission multipliers.
-
-        Parameters:
-        -----------
-        usage : array-like
-            The emission multipliers.
-
-        Returns:
-        --------
+        Returns
+        -------
         float
-            The total calculated emission.
+            Total emission value.
         """
-        usage = np.array(usage).flatten()
-        return np.dot(self.__mu[: usage.shape[0]], usage)
+        usage_array: NDArray[np.float64] = np.array(usage).flatten()
+        return np.dot(self.__mu[: usage_array.shape[0]], usage_array)

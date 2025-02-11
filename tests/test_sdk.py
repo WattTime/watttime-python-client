@@ -1,6 +1,6 @@
 import unittest
 import unittest.mock as mock
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, date
 from dateutil.parser import parse
 from pytz import timezone, UTC
 import os
@@ -14,7 +14,6 @@ from watttime import (
 from pathlib import Path
 
 import pandas as pd
-import requests
 
 REGION = "CAISO_NORTH"
 
@@ -295,6 +294,7 @@ class TestWattTimeMyAccess(unittest.TestCase):
 class TestWattTimeForecast(unittest.TestCase):
     def setUp(self):
         self.forecast = WattTimeForecast()
+        self.forecast_mt = WattTimeForecast(multithreaded=True)
 
     def test_get_current_json(self):
         json = self.forecast.get_forecast_json(region=REGION)
@@ -319,7 +319,6 @@ class TestWattTimeForecast(unittest.TestCase):
             start, end, region=REGION
         )
         first_json = json_list[0]
-
         self.assertIsInstance(json_list, list)
         self.assertIn("meta", first_json)
         self.assertEqual(len(first_json["data"]), 288)
@@ -328,21 +327,55 @@ class TestWattTimeForecast(unittest.TestCase):
     def test_historical_forecast_jsons_multithreaded(self):
         start = "2024-01-01 00:00Z"
         end = "2024-01-30 00:00Z"
-        json_list = self.forecast.get_historical_forecast_json(
-            start, end, region=REGION, multi_threaded=True
+        json_list = self.forecast_mt.get_historical_forecast_json(
+            start, end, region=REGION
         )
         first_json = json_list[0]
-
         self.assertIsInstance(json_list, list)
         self.assertIn("meta", first_json)
         self.assertEqual(len(first_json["data"]), 288)
         self.assertIn("generated_at", first_json["data"][0])
 
+    def test_historical_forecast_json_list(self):
+        list_of_dates = [date(2024, 1, 1), date(2024, 2, 1), date(2024, 3, 1)]
+        json_list = self.forecast.get_historical_forecast_json_list(
+            list_of_dates, region=REGION
+        )
+
+        # Expect one JSON response per date provided.
+        self.assertIsInstance(json_list, list)
+        self.assertEqual(len(json_list), len(list_of_dates))
+
+        # Verify the structure of each JSON response.
+        for j in json_list:
+            self.assertIsInstance(j, dict)
+            self.assertIn("meta", j)
+            self.assertIn("data", j)
+            # If data is returned, check for the expected fields.
+            if j["data"]:
+                self.assertIn("generated_at", j["data"][0])
+
+        gen_ats = set([parse(j["data"][0]["generated_at"]).date() for j in json_list])
+        assert gen_ats == set(list_of_dates)
+
     def test_historical_forecast_pandas(self):
         start = "2023-01-01 00:00Z"
         end = "2023-01-03 00:00Z"
         df = self.forecast.get_historical_forecast_pandas(start, end, region=REGION)
+        self.assertIsInstance(df, pd.DataFrame)
+        self.assertGreaterEqual(len(df), 1)
+        self.assertIn("point_time", df.columns)
+        self.assertIn("value", df.columns)
+        self.assertIn("generated_at", df.columns)
 
+    def test_historical_forecast_pandas_list(self):
+        """
+        Test the new method get_historical_forecast_pandas_list which accepts a list of dates.
+        """
+        list_of_dates = [date(2024, 1, 1), date(2024, 2, 1)]
+        df = self.forecast.get_historical_forecast_pandas_list(
+            list_of_dates, region=REGION
+        )
         self.assertIsInstance(df, pd.DataFrame)
         self.assertGreaterEqual(len(df), 1)
         self.assertIn("point_time", df.columns)

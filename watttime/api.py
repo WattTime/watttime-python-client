@@ -1,8 +1,7 @@
 import os
 import time
 import threading
-import time
-from datetime import date, datetime, timedelta, time as dt_time
+from datetime import date, time, datetime, timedelta
 from functools import cache
 from pathlib import Path
 from typing import Any, Dict, List, Literal, Optional, Tuple, Union
@@ -13,17 +12,13 @@ import requests
 from dateutil.parser import parse
 from pytz import UTC
 
+from watttime.util import RateLimitedRequesterMixin
+
 
 class WattTimeBase:
     url_base = "https://api.watttime.org"
 
-    def __init__(
-        self,
-        username: Optional[str] = None,
-        password: Optional[str] = None,
-        multithreaded: bool = False,
-        rate_limit: int = 10,
-    ):
+    def __init__(self, username: Optional[str] = None, password: Optional[str] = None):
         """
         Initializes a new instance of the class.
 
@@ -34,20 +29,7 @@ class WattTimeBase:
         self.username = username or os.getenv("WATTTIME_USER")
         self.password = password or os.getenv("WATTTIME_PASSWORD")
         self.token = None
-        self.headers = None
         self.token_valid_until = None
-
-        self.multithreaded = multithreaded
-        self.rate_limit = rate_limit
-        self._last_request_times = []
-
-        if self.multithreaded:
-            self._rate_limit_lock = (
-                threading.Lock()
-            )  # prevent multiple threads from modifying _last_request_times simultaneously
-            self._rate_limit_condition = threading.Condition(self._rate_limit_lock)
-
-        self.session = requests.Session()
 
     def _login(self):
         """
@@ -58,7 +40,7 @@ class WattTimeBase:
         """
 
         url = f"{self.url_base}/login"
-        rsp = self.session.get(
+        rsp = requests.get(
             url,
             auth=requests.auth.HTTPBasicAuth(self.username, self.password),
             timeout=20,
@@ -68,7 +50,6 @@ class WattTimeBase:
         self.token_valid_until = datetime.now() + timedelta(minutes=30)
         if not self.token:
             raise Exception("failed to log in, double check your credentials")
-        self.headers = {"Authorization": "Bearer " + self.token}
 
     def _is_token_valid(self) -> bool:
         if not self.token_valid_until:
@@ -149,7 +130,7 @@ class WattTimeBase:
             "org": organization,
         }
 
-        rsp = self.session.post(url, json=params, timeout=20)
+        rsp = requests.post(url, json=params, timeout=20)
         rsp.raise_for_status()
         print(
             f"Successfully registered {self.username}, please check {email} for a verification email"
@@ -177,118 +158,25 @@ class WattTimeBase:
         Returns:
             Dict[str, str]: A dictionary containing the region information with keys "region" and "region_full_name".
         """
+        if not self._is_token_valid():
+            self._login()
         url = f"{self.url_base}/v3/region-from-loc"
+        headers = {"Authorization": "Bearer " + self.token}
         params = {
             "latitude": str(latitude),
             "longitude": str(longitude),
             "signal_type": signal_type,
         }
-        j = self._make_rate_limited_request(url, params=params)
-        return j
-
-    def _make_rate_limited_request(self, url: str, params: Dict[str, Any]) -> Dict:
-        """
-        Makes a single API request while respecting the rate limit.
-        """
-        if not self._is_token_valid() or not self.headers:
-            self._login()
-
-        ts = time.time()
-
-        # apply rate limiting by either sleeping (single thread) or
-        # waiting on a condition ()
-        if self.multithreaded:
-            with self._rate_limit_condition:
-                self._apply_rate_limit(ts)
-        else:
-            self._apply_rate_limit(ts)
-
-        try:
-            rsp = self.session.get(url, headers=self.headers, params=params)
-            rsp.raise_for_status()
-            j = rsp.json()
-        except requests.exceptions.RequestException as e:
-            raise RuntimeError(
-                f"API Request Failed: {e}\nURL: {url}\nParams: {params}"
-            ) from e
-
-        if j.get("meta", {}).get("warnings"):
-            print("Warnings Returned: %s | Response: %s", params, j["meta"])
-
-        return j
-
-    def _apply_rate_limit(self, ts: float):
-        """
-        Rate limiting not allowing more than self.rate_limit requests per second.
-
-        This is applied by checking is `self._last_request_times` has more than self.rate_limit entries.
-        If so, it will wait until the oldest entry is older than 1 second.
-
-        If multithreading, waiting is achieved by setting a "condition" on the thread.
-        If single threading, we sleep for the remaining time.
-        """
-        self._last_request_times = [t for t in self._last_request_times if ts - t < 1.0]
-
-        if len(self._last_request_times) >= self.rate_limit:
-            earliest_request_age = ts - self._last_request_times[0]
-            wait_time = 1.0 - earliest_request_age
-            if wait_time > 0:
-                if self.multithreaded:
-                    self._rate_limit_condition.wait(timeout=wait_time)
-                else:
-                    time.sleep(wait_time)
-
-        self._last_request_times.append(time.time())
-
-        if self.multithreaded:
-            self._rate_limit_condition.notify_all()
-
-    def _fetch_data(
-        self,
-        url: str,
-        param_chunks: Union[Dict[str, Any], List[Dict[str, Any]]],
-    ) -> List[Dict]:
-        """
-        Base method for fetching data without multithreading.
-        If you are making a single request, you can call _make_rate_limited_request directly.
-        This class is suited for making a series of requests in a for loop, with
-        varying `param_chunks`.
-        """
-
-        if isinstance(param_chunks, dict):
-            param_chunks = [param_chunks]
-
-        responses = []
-        for params in param_chunks:
-            rsp = self._make_rate_limited_request(url, params)
-            responses.append(rsp)
-
-        return responses
-
-    def _fetch_data_multithreaded(
-        self, url: str, param_chunks: List[Dict[str, Any]]
-    ) -> List[Dict]:
-        """
-        Fetch data using multithreading with rate limiting.
-
-        Args:
-            url (str): API endpoint URL.
-            param_chunks (List[Dict[str, Any]]): List of parameter sets.
-
-        Returns:
-            List[Dict]: A list of JSON responses.
-        """
-        responses = []
-        with ThreadPoolExecutor(max_workers=os.cpu_count() * 5) as executor:
-            futures = {
-                executor.submit(self._make_rate_limited_request, url, params): params
-                for params in param_chunks
-            }
-
-            for future in as_completed(futures):
-                responses.append(future.result())
-
-        return responses
+        rsp = requests.get(url, headers=headers, params=params)
+        if not rsp.ok:
+            if rsp.status_code == 404:
+                # here we specifically cannot find a location that was provided
+                raise Exception(
+                    f"\nAPI Response Error: {rsp.status_code}, {rsp.text} [{rsp.headers.get('x-request-id')}]"
+                )
+            else:
+                rsp.raise_for_status()
+        return rsp.json()
 
 
 class WattTimeHistorical(WattTimeBase):
@@ -319,7 +207,11 @@ class WattTimeHistorical(WattTimeBase):
         Returns:
             List[dict]: A list of dictionary representations of the .json response object
         """
+        if not self._is_token_valid():
+            self._login()
         url = "{}/v3/historical".format(self.url_base)
+        headers = {"Authorization": "Bearer " + self.token}
+        responses = []
         params = {"region": region, "signal_type": signal_type}
 
         start, end = self._parse_dates(start, end)
@@ -329,11 +221,20 @@ class WattTimeHistorical(WattTimeBase):
         if model is not None:
             params["model"] = model
 
-        param_chunks = [{**params, "start": c[0], "end": c[1]} for c in chunks]
-        if self.multithreaded:
-            responses = self._fetch_data_multithreaded(url, param_chunks)
-        else:
-            responses = self._fetch_data(url, param_chunks)
+        for c in chunks:
+            params["start"], params["end"] = c
+            rsp = requests.get(url, headers=headers, params=params)
+            try:
+                rsp.raise_for_status()
+                j = rsp.json()
+                responses.append(j)
+            except Exception as e:
+                raise Exception(
+                    f"\nAPI Response Error: {rsp.status_code}, {rsp.text} [{rsp.headers.get('x-request-id')}]"
+                )
+
+            if len(j["meta"]["warnings"]):
+                print("\n", "Warnings Returned:", params, j["meta"])
 
         # the API should not let this happen, but ensure for sanity
         unique_models = set([r["meta"]["model"]["date"] for r in responses])
@@ -424,8 +325,13 @@ class WattTimeMyAccess(WattTimeBase):
         Raises:
             Exception: If the token is not valid.
         """
+        if not self._is_token_valid():
+            self._login()
         url = "{}/v3/my-access".format(self.url_base)
-        return self._make_rate_limited_request(url, params={})
+        headers = {"Authorization": "Bearer " + self.token}
+        rsp = requests.get(url, headers=headers)
+        rsp.raise_for_status()
+        return rsp.json()
 
     def get_access_pandas(self) -> pd.DataFrame:
         """
@@ -466,7 +372,17 @@ class WattTimeMyAccess(WattTimeBase):
         return out
 
 
-class WattTimeForecast(WattTimeBase):
+class WattTimeForecast(WattTimeBase, RateLimitedRequesterMixin):
+    def __init__(
+        self,
+        username: Optional[str] = None,
+        password: Optional[str] = None,
+        multithreaded: bool = False,
+    ):
+        super().__init__(username=username, password=password)
+        RateLimitedRequesterMixin.__init__(self)
+        self.multithreaded = multithreaded
+
     def _parse_historical_forecast_json(
         self, json_list: List[Dict[str, Any]]
     ) -> pd.DataFrame:
@@ -513,6 +429,8 @@ class WattTimeForecast(WattTimeBase):
         Returns:
             List[dict]: A list of dictionaries representing the forecast data in JSON format.
         """
+        if not self._is_token_valid():
+            self._login()
         params = {
             "region": region,
             "signal_type": signal_type,
@@ -524,7 +442,10 @@ class WattTimeForecast(WattTimeBase):
             params["model"] = model
 
         url = "{}/v3/forecast".format(self.url_base)
-        return self._make_rate_limited_request(url, params)
+        headers = {"Authorization": "Bearer " + self.token}
+        rsp = requests.get(url, headers=headers, params=params)
+        rsp.raise_for_status()
+        return rsp.json()
 
     def get_forecast_pandas(
         self,
@@ -564,7 +485,11 @@ class WattTimeForecast(WattTimeBase):
         model: Optional[Union[str, date]] = None,
         horizon_hours: int = 24,
     ) -> List[Dict[str, Any]]:
+        if not self._is_token_valid():
+            self._login()
+
         url = f"{self.url_base}/v3/forecast/historical"
+        headers = {"Authorization": f"Bearer {self.token}"}
         params = {
             "region": region,
             "signal_type": signal_type,
@@ -580,9 +505,11 @@ class WattTimeForecast(WattTimeBase):
         param_chunks = [{**params, "start": c[0], "end": c[1]} for c in chunks]
 
         if self.multithreaded:
-            return self._fetch_data_multithreaded(url, param_chunks)
+            return self._fetch_data_multithreaded(url, headers, param_chunks)
         else:
-            return self._fetch_data(url, param_chunks)
+            return [
+                self._make_rate_limited_request(url, headers, p) for p in param_chunks
+            ]
 
     def get_historical_forecast_json_list(
         self,
@@ -607,8 +534,11 @@ class WattTimeForecast(WattTimeBase):
         Returns:
             List[Dict[str, Any]]: A list of JSON responses for each requested date.
         """
+        if not self._is_token_valid():
+            self._login()
 
         url = f"{self.url_base}/v3/forecast/historical"
+        headers = {"Authorization": f"Bearer {self.token}"}
         params = {
             "region": region,
             "signal_type": signal_type,
@@ -622,16 +552,18 @@ class WattTimeForecast(WattTimeBase):
             # add timezone to dates
             {
                 **params,
-                "start": datetime.combine(d, dt_time(0, 0)).isoformat() + "Z",
-                "end": datetime.combine(d, dt_time(23, 59)).isoformat() + "Z",
+                "start": datetime.combine(d, time(0, 0)).isoformat() + "Z",
+                "end": datetime.combine(d, time(23, 59)).isoformat() + "Z",
             }
             for d in list_of_dates
         ]
 
         if self.multithreaded:
-            return self._fetch_data_multithreaded(url, param_chunks)
+            return self._fetch_data_multithreaded(url, headers, param_chunks)
         else:
-            return self._fetch_data(url, param_chunks)
+            return [
+                self._make_rate_limited_request(url, headers, p) for p in param_chunks
+            ]
 
     def get_historical_forecast_pandas(
         self,
@@ -710,7 +642,11 @@ class WattTimeMaps(WattTimeBase):
         Returns:
             dict: The JSON response from the API.
         """
-
+        if not self._is_token_valid():
+            self._login()
         url = "{}/v3/maps".format(self.url_base)
+        headers = {"Authorization": "Bearer " + self.token}
         params = {"signal_type": signal_type}
-        return self._make_rate_limited_request(url, params)
+        rsp = requests.get(url, headers=headers, params=params)
+        rsp.raise_for_status()
+        return rsp.json()

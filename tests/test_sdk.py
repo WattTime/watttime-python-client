@@ -1,6 +1,5 @@
 import unittest
 import unittest.mock as mock
-from unittest.mock import patch
 from datetime import datetime, timedelta, date
 from dateutil.parser import parse
 from pytz import timezone, UTC
@@ -48,51 +47,12 @@ def mocked_register(*args, **kwargs):
 
 class TestWattTimeBase(unittest.TestCase):
     def setUp(self):
-        """Create both single-threaded and multi-threaded instances."""
-        self.base = WattTimeBase(multithreaded=False, rate_limit=2)
-        self.base_mt = WattTimeBase(multithreaded=True, rate_limit=2)
+        self.base = WattTimeBase()
 
     def test_login_with_real_api(self):
         self.base._login()
         assert self.base.token is not None
         assert self.base.token_valid_until > datetime.now()
-
-    @patch("time.sleep", return_value=None)
-    def test_apply_rate_limit(self, mock_sleep):
-        """Test _apply_rate_limit (single-threaded) triggers sleep when rate limit is exceeded."""
-        # Set up a scenario with more requests than allowed:
-        # Our rate_limit is 2, so with 3 prior requests all within the past second, we expect a wait.
-        self.base._last_request_times = [0, 0.2, 0.3]
-        # Use a current timestamp such that all three are within the last 1 second.
-        ts = 0.5
-        self.base._apply_rate_limit(ts)
-        # Expect sleep to be called with: wait_time = 1.0 - (ts - earliest_timestamp) = 1.0 - (0.5 - 0) = 0.5 seconds.
-        mock_sleep.assert_called_with(0.5)
-
-    @patch.object(WattTimeBase, "_make_rate_limited_request")
-    def test_fetch_data_multithreaded(self, mock_make_rate_limited_request):
-        """Test _fetch_data_multithreaded calls _make_rate_limited_request for each request."""
-        # For multi-threaded instance, simulate _make_rate_limited_request to return the passed parameters.
-        mock_make_rate_limited_request.side_effect = lambda url, params: {
-            "data": params
-        }
-
-        url = f"{self.base_mt.url_base}/test_endpoint"
-        param_chunks = [{"param1": i} for i in range(5)]  # Simulate 5 requests
-
-        responses = self.base_mt._fetch_data_multithreaded(url, param_chunks)
-
-        self.assertEqual(len(responses), 5)  # Ensure all requests are handled
-        mock_make_rate_limited_request.assert_called()  # Ensure it's called at least once
-
-        expected_calls = [({"param1": i}) for i in range(5)]
-        actual_calls = [
-            call.args[1] for call in mock_make_rate_limited_request.call_args_list
-        ]
-
-        self.assertListEqual(
-            expected_calls, actual_calls
-        )  # Ensure correct params are passed
 
     def test_parse_dates_with_string(self):
         start = "2022-01-01"
@@ -160,7 +120,7 @@ class TestWattTimeBase(unittest.TestCase):
         self.assertIsInstance(parsed_end, datetime)
         self.assertEqual(parsed_end.tzinfo, UTC)
 
-    @mock.patch("watttime.requests.Session.post", side_effect=mocked_register)
+    @mock.patch("requests.post", side_effect=mocked_register)
     def test_mock_register(self, mock_post):
         resp = self.base.register(email=os.getenv("WATTTIME_EMAIL"))
         self.assertEqual(len(mock_post.call_args_list), 1)
@@ -169,21 +129,11 @@ class TestWattTimeBase(unittest.TestCase):
 class TestWattTimeHistorical(unittest.TestCase):
     def setUp(self):
         self.historical = WattTimeHistorical()
-        self.historical_mt = WattTimeHistorical(multithreaded=True)
 
     def test_get_historical_jsons_3_months(self):
         start = "2022-01-01 00:00Z"
         end = "2022-12-31 00:00Z"
         jsons = self.historical.get_historical_jsons(start, end, REGION)
-
-        self.assertIsInstance(jsons, list)
-        self.assertGreaterEqual(len(jsons), 1)
-        self.assertIsInstance(jsons[0], dict)
-
-    def test_get_historical_jsons_3_months_multithreaded(self):
-        start = "2022-01-01 00:00Z"
-        end = "2022-12-31 00:00Z"
-        jsons = self.historical_mt.get_historical_jsons(start, end, REGION)
 
         self.assertIsInstance(jsons, list)
         self.assertGreaterEqual(len(jsons), 1)

@@ -259,34 +259,19 @@ class WattTimeBase:
             param_chunks = [param_chunks]
 
         responses = []
-        for params in param_chunks:
-            rsp = self._make_rate_limited_request(url, params)
-            responses.append(rsp)
+        if self.multithreaded:
+            with ThreadPoolExecutor(max_workers=os.cpu_count() * 5) as executor:
+                futures = {
+                    executor.submit(self._make_rate_limited_request, url, params): params
+                    for params in param_chunks
+                }
 
-        return responses
-
-    def _fetch_data_multithreaded(
-        self, url: str, param_chunks: List[Dict[str, Any]]
-    ) -> List[Dict]:
-        """
-        Fetch data using multithreading with rate limiting.
-
-        Args:
-            url (str): API endpoint URL.
-            param_chunks (List[Dict[str, Any]]): List of parameter sets.
-
-        Returns:
-            List[Dict]: A list of JSON responses.
-        """
-        responses = []
-        with ThreadPoolExecutor(max_workers=os.cpu_count() * 5) as executor:
-            futures = {
-                executor.submit(self._make_rate_limited_request, url, params): params
-                for params in param_chunks
-            }
-
-            for future in as_completed(futures):
-                responses.append(future.result())
+                for future in as_completed(futures):
+                    responses.append(future.result())
+        else:
+            for params in param_chunks:
+                rsp = self._make_rate_limited_request(url, params)
+                responses.append(rsp)
 
         return responses
 
@@ -330,10 +315,7 @@ class WattTimeHistorical(WattTimeBase):
             params["model"] = model
 
         param_chunks = [{**params, "start": c[0], "end": c[1]} for c in chunks]
-        if self.multithreaded:
-            responses = self._fetch_data_multithreaded(url, param_chunks)
-        else:
-            responses = self._fetch_data(url, param_chunks)
+        responses = self._fetch_data(url, param_chunks)
 
         # the API should not let this happen, but ensure for sanity
         unique_models = set([r["meta"]["model"]["date"] for r in responses])
@@ -578,11 +560,7 @@ class WattTimeForecast(WattTimeBase):
             params["model"] = model
 
         param_chunks = [{**params, "start": c[0], "end": c[1]} for c in chunks]
-
-        if self.multithreaded:
-            return self._fetch_data_multithreaded(url, param_chunks)
-        else:
-            return self._fetch_data(url, param_chunks)
+        return self._fetch_data(url, param_chunks)
 
     def get_historical_forecast_json_list(
         self,
@@ -627,11 +605,7 @@ class WattTimeForecast(WattTimeBase):
             }
             for d in list_of_dates
         ]
-
-        if self.multithreaded:
-            return self._fetch_data_multithreaded(url, param_chunks)
-        else:
-            return self._fetch_data(url, param_chunks)
+        return self._fetch_data(url, param_chunks)
 
     def get_historical_forecast_pandas(
         self,

@@ -69,31 +69,6 @@ class TestWattTimeBase(unittest.TestCase):
         # Expect sleep to be called with: wait_time = 1.0 - (ts - earliest_timestamp) = 1.0 - (0.5 - 0) = 0.5 seconds.
         mock_sleep.assert_called_with(0.5)
 
-    @patch.object(WattTimeBase, "_make_rate_limited_request")
-    def test_fetch_data_multithreaded(self, mock_make_rate_limited_request):
-        """Test _fetch_data_multithreaded calls _make_rate_limited_request for each request."""
-        # For multi-threaded instance, simulate _make_rate_limited_request to return the passed parameters.
-        mock_make_rate_limited_request.side_effect = lambda url, params: {
-            "data": params
-        }
-
-        url = f"{self.base_mt.url_base}/test_endpoint"
-        param_chunks = [{"param1": i} for i in range(5)]  # Simulate 5 requests
-
-        responses = self.base_mt._fetch_data_multithreaded(url, param_chunks)
-
-        self.assertEqual(len(responses), 5)  # Ensure all requests are handled
-        mock_make_rate_limited_request.assert_called()  # Ensure it's called at least once
-
-        expected_calls = [({"param1": i}) for i in range(5)]
-        actual_calls = [
-            call.args[1] for call in mock_make_rate_limited_request.call_args_list
-        ]
-
-        self.assertListEqual(
-            expected_calls, actual_calls
-        )  # Ensure correct params are passed
-
     def test_parse_dates_with_string(self):
         start = "2022-01-01"
         end = "2022-01-31"

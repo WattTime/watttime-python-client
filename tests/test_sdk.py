@@ -125,6 +125,18 @@ class TestWattTimeBase(unittest.TestCase):
         resp = self.base.register(email=os.getenv("WATTTIME_EMAIL"))
         self.assertEqual(len(mock_post.call_args_list), 1)
 
+    def test_get_password(self):
+
+        with mock.patch.dict(os.environ, {}, clear=True), self.assertRaises(ValueError):
+            wt_base = WattTimeBase()
+
+        with mock.patch.dict(os.environ, {}, clear=True):
+            wt_base = WattTimeBase(
+                username="WATTTIME_USERNAME", password="WATTTIME_PASSWORD"
+            )
+            self.assertEqual(wt_base.username, "WATTTIME_USERNAME")
+            self.assertEqual(wt_base.password, "WATTTIME_PASSWORD")
+
 
 class TestWattTimeHistorical(unittest.TestCase):
     def setUp(self):

@@ -26,10 +26,41 @@ class WattTimeBase:
             username (Optional[str]): The username to use for authentication. If not provided, the value will be retrieved from the environment variable "WATTTIME_USER".
             password (Optional[str]): The password to use for authentication. If not provided, the value will be retrieved from the environment variable "WATTTIME_PASSWORD".
         """
-        self.username = username or os.getenv("WATTTIME_USER")
-        self.password = password or os.getenv("WATTTIME_PASSWORD")
+
+        # This only applies to the current session, is not stored persistently
+        if username and not os.getenv("WATTTIME_USER"):
+            os.environ["WATTTIME_USER"] = username
+        if password and not os.getenv("WATTTIME_PASSWORD"):
+            os.environ["WATTTIME_PASSWORD"] = password
+
+        # Accessing attributes will raise exception if variables are not set
+        _ = self.password
+        _ = self.username
+
         self.token = None
         self.token_valid_until = None
+
+    @property
+    def password(self):
+        password = os.getenv("WATTTIME_PASSWORD")
+        if not password:
+            raise ValueError(
+                "WATTTIME_PASSWORD env variable is not set."
+                + "Please set this variable, or pass in a password upon initialization,"
+                + "which will store it as a variable only for the current session"
+            )
+        return password
+
+    @property
+    def username(self):
+        username = os.getenv("WATTTIME_USER")
+        if not username:
+            raise ValueError(
+                "WATTTIME_USER env variable is not set."
+                + "Please set this variable, or pass in a username upon initialization,"
+                + "which will store it as a variable only for the current session"
+            )
+        return username
 
     def _login(self):
         """

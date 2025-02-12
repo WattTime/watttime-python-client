@@ -98,8 +98,6 @@ class WattTimeBase:
             )  # prevent multiple threads from modifying _last_request_times simultaneously
             self._rate_limit_condition = threading.Condition(self._rate_limit_lock)
 
-        self.session = requests.Session()
-
     def _login(self):
         """
         Login to the WattTime API, which provides a JWT valid for 30 minutes
@@ -109,7 +107,7 @@ class WattTimeBase:
         """
 
         url = f"{self.url_base}/login"
-        rsp = self.session.get(
+        rsp = requests.get(
             url,
             auth=requests.auth.HTTPBasicAuth(os.getenv("WATTTIME_USER"), os.getenv("WATTTIME_PASSWORD")),
             timeout=(10, 60),
@@ -200,7 +198,7 @@ class WattTimeBase:
             "org": organization,
         }
 
-        rsp = self.session.post(url, json=params, timeout=20)
+        rsp = requests.post(url, json=params, timeout=20)
         rsp.raise_for_status()
         LOG.info(
             f"Successfully registered {os.getenv('WATTTIME_USER')}, please check {email} for a verification email"
@@ -255,7 +253,7 @@ class WattTimeBase:
             self._apply_rate_limit(ts)
 
         try:
-            rsp = self.session.get(url, headers=self.headers, params=params)
+            rsp = requests.get(url, headers=self.headers, params=params)
             rsp.raise_for_status()
             j = rsp.json()
         except requests.exceptions.RequestException as e:
@@ -324,7 +322,9 @@ class WattTimeBase:
         if self.multithreaded:
             with ThreadPoolExecutor(max_workers=os.cpu_count() * 5) as executor:
                 futures = {
-                    executor.submit(self._make_rate_limited_request, url, params): params
+                    executor.submit(
+                        self._make_rate_limited_request, url, params
+                    ): params
                     for params in param_chunks
                 }
 

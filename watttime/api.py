@@ -275,6 +275,8 @@ class WattTimeBase:
 
         self._last_request_meta = meta
 
+        self._last_request_meta = j.get("meta", {})
+
         return j
 
     def _apply_rate_limit(self, ts: float):

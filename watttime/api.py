@@ -260,7 +260,7 @@ class WattTimeBase:
 
         responses = []
         if self.multithreaded:
-            with ThreadPoolExecutor(max_workers=os.cpu_count() * 5) as executor:
+            with ThreadPoolExecutor(max_workers=10) as executor:
                 futures = {
                     executor.submit(
                         self._make_rate_limited_request, url, params

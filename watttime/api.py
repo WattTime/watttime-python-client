@@ -982,7 +982,7 @@ class WattTimeMaps(WattTimeBase):
         rsp.raise_for_status()
         return rsp.json()
 
-class Recalculator:
+class WattTimeRecalculator:
     """A class to manage and update charging schedules over time.
 
     This class maintains a list of charging schedules and their associated time contexts,

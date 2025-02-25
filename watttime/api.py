@@ -1004,7 +1004,7 @@ class WattTimeRecalculator:
         start_time: datetime,
         end_time: datetime,
         total_time_required: int,
-        charge_per_interval: None
+        charge_per_interval: Optional[list] = None
     ) -> None:
         """Initialize the Recalculator with an initial schedule.
 
@@ -1189,7 +1189,7 @@ class RequerySimulator:
     
     def simulate(self):
         initial_plan = self._get_initial_plan()
-        recalculator = Recalculator(
+        recalculator = WattTimeRecalculator(
             initial_schedule=initial_plan,
             start_time=self.window_start,
             end_time=self.window_end,

@@ -1044,7 +1044,7 @@ class WattTimeRecalculator:
         combined_schedule = self.get_combined_schedule()
 
         usage_in_minutes = int(
-            combined_schedule.loc[:next_query_time]["usage"].sum()
+            combined_schedule.loc[:(next_query_time - timedelta(minutes=5))]["usage"].sum()
         )
         return self.total_time_required - usage_in_minutes
     

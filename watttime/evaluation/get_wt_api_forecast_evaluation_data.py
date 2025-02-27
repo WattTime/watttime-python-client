@@ -149,10 +149,10 @@ class AnalysisDataHandler:
 class DataHandlerFactory:
     """
     Create a list of AnalysisDataHandler objects for the permutations
-    of bas, model_dates, and signal_types.
+    of regions, model_dates, and signal_types.
 
     Args:
-        bas (List[str]): List of bas to analyze
+        regions (List[str]): List of regions to analyze
         signal_types (List[str]): List of signal types to analyze
         model_dates (List[str]): List of model dates to analyze
     """
@@ -161,7 +161,7 @@ class DataHandlerFactory:
         self,
         eval_start: Union[str, datetime],
         eval_end: Union[str, datetime],
-        bas: Union[str, List[str]],
+        regions: Union[str, List[str]],
         signal_types: Union[str, List[str]] = "co2_moer",
         model_dates: List[str] = None,
         **kwargs,
@@ -172,8 +172,8 @@ class DataHandlerFactory:
         if isinstance(eval_end, str):
             eval_end = parse(eval_end)
 
-        if not isinstance(bas, list):
-            bas = [bas]
+        if not isinstance(regions, list):
+            regions = [regions]
 
         if not isinstance(signal_types, list):
             signal_types = [signal_types]
@@ -181,7 +181,7 @@ class DataHandlerFactory:
         if not isinstance(model_dates, list):
             model_dates = [model_dates]
 
-        permutations = list(product(bas, signal_types, model_dates))
+        permutations = list(product(regions, signal_types, model_dates))
 
         # only pass through relevant kwargs
         _args = inspect.signature(AnalysisDataHandler.__init__).parameters

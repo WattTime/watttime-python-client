@@ -215,6 +215,8 @@ class WattTimeBase:
         if j.get("meta", {}).get("warnings"):
             print("Warnings Returned: %s | Response: %s", params, j["meta"])
 
+        self._last_request_meta = j.get("meta", {})
+
         return j
 
     def _apply_rate_limit(self, ts: float):

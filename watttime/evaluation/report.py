@@ -1,19 +1,12 @@
-#!/usr/bin/env python
-
 import argparse
 import calendar
-import os
 import sys
-from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime, timedelta, timezone
 from dateutil.parser import parse
-from functools import cached_property
 from operator import attrgetter
 from pathlib import Path
 from typing import List, Optional, Union
 from zoneinfo import ZoneInfo
-from dataclasses import dataclass
-import random
 
 import numpy as np
 import pandas as pd
@@ -23,7 +16,7 @@ import scipy.stats as stats
 from nbconvert.exporters import HTMLExporter
 
 import papermill as pm
-from watttime import api
+from watttime.evaluation.get_wt_api_forecast_evaluation_data import AnalysisDataHandler
 
 # hacky way to allow running this script locally
 sys.path.append(str(Path(__file__).parents[1].resolve()))
@@ -51,135 +44,6 @@ def round_time(dt: datetime, minutes: int = 5) -> datetime:
     Uses integer division which is more efficient than timedelta operations.
     """
     return dt.replace(minute=(dt.minute // minutes) * minutes, second=0, microsecond=0)
-
-
-def parse_eval_days(eval_start, eval_end):
-    if isinstance(eval_start, str):
-        eval_start = parse(eval_start)
-    if isinstance(eval_end, str):
-        eval_end = parse(eval_end)
-
-    return [
-        i.strftime("%Y-%m-%d")
-        for i in pd.date_range(start=eval_start, end=eval_end, freq="1D")
-    ]
-
-
-def parse_forecast_sample_days(eval_days, forecast_sample_days):
-    try:
-        return random.sample(eval_days, forecast_sample_days)
-    except ValueError as e:
-        return eval_days
-
-
-def _fetch_forecast(
-    day, ba, new_model_date_str, wt_forecast: Optional[api.WattTimeForecast] = None
-):
-    """
-    Fetch the historical forecast for a specific day and balancing authority (ba).
-    """
-
-    if not wt_forecast:
-        wt_forecast = api.WattTimeForecast()
-
-    return wt_forecast.get_historical_forecast_pandas(
-        start=parse(day),
-        end=parse(day) + pd.Timedelta(hours=23, minutes=55),
-        region=ba,
-        signal_type="co2_moer",
-        model=new_model_date_str,
-        horizon_hours=72,
-    )
-
-
-def _fetch_forecasts(
-    sample_days: List[str],
-    ba: str,
-    model: str,
-    signal_type: str,
-    wt_forecast: Optional[api.WattTimeForecast] = None,
-):
-
-    _forecasts = []
-    out = pd.DataFrame()
-
-    # Use ThreadPoolExecutor for concurrent calls which are I/O bound
-    with ThreadPoolExecutor(max_workers=os.cpu_count() * 5) as executor:
-        future_to_day = {
-            executor.submit(_fetch_forecast, day, ba, model, wt_forecast): day
-            for day in sample_days
-        }
-        for future in as_completed(future_to_day):
-            try:
-                forecast = future.result()
-                _forecasts.append(forecast)
-            except Exception as e:
-                print(
-                    f"Error fetching forecast for {future_to_day[future]} in {ba}: {e}"
-                )
-
-    # Combine and process the results
-    if _forecasts:  # Ensure there's data before concatenation
-        out = pd.concat(_forecasts, ignore_index=True)
-        out["point_time"] = pd.to_datetime(out["point_time"])
-        out["horizon_mins"] = (
-            out["point_time"] - out["generated_at"]
-        ).dt.total_seconds() / 60
-        out.rename({"value": "predicted_value"}, axis="columns", inplace=True)
-
-    if out.empty:
-        raise ValueError(
-            f"Empty dataframe returned for {ba} - {model} - {signal_type} forecast API request"
-        )
-    return out
-
-
-@dataclass
-class ModelAnalysis:
-    ba: str
-    model_date: str
-    signal_type: str
-    eval_start: str
-    eval_end: str
-    eval_days: List[str]
-    sample_days: List[str]
-    wt_forecast: Optional[api.WattTimeForecast] = api.WattTimeForecast()
-    wt_hist: Optional[api.WattTimeHistorical] = api.WattTimeHistorical()
-
-    def __post_init__(self):
-        self.ba = self.ba.upper()
-
-    @cached_property
-    def moers(self):
-        return (
-            self.wt_hist.get_historical_pandas(
-                start=self.eval_start,
-                end=self.eval_end,
-                region=self.ba,
-                signal_type=self.signal_type,
-                model=self.model_date,
-            )
-            .rename(columns={"value": "signal_value"})
-            .set_index("point_time", drop=True)
-        )
-
-    @cached_property
-    def forecasts(self):
-        return _fetch_forecasts(
-            sample_days=self.sample_days,
-            ba=self.ba,
-            model=self.model_date,
-            signal_type=self.signal_type,
-            wt_forecast=self.wt_forecast,
-        )
-
-    def compile_forecast_v_moer(self):
-        self.forecasts_v_moers = self.forecasts.merge(
-            self.moers,
-            how="left",
-            left_on="point_time",
-            right_on="point_time",
-        )
 
 
 def get_random_overlapping_period(dfs, max_period="7D"):
@@ -232,36 +96,36 @@ def get_random_overlapping_period(dfs, max_period="7D"):
             start=random_start_time, end=random_end_time, freq="5T"
         )
         # Check if all indices exist in both DataFrames
-        if all(df.index.isin(overlap_range).all() for df in dfs):
+        if all(overlap_range.isin(df.index).all() for df in dfs):
             return overlap_range
         attempts += 1
     raise ValueError(f"No common overlap found after {max_attempts} attempts.")
 
 
-def plot_sample_moers(jobs: List[ModelAnalysis], max_sample_period="7D"):
+def plot_sample_moers(jobs: List[AnalysisDataHandler], max_sample_period="7D"):
     """
-    Plot a sample of old and new MOER values over time, creating a subplot for each unique BA.
+    Plot a sample of old and new MOER values over time, creating a subplot for each unique region.
 
     Args:
-        jobs (list): List of ModelAnalysis objects with a .moers atribute.
+        jobs (list): List of AnalysisDataHandler objects with a .moers atribute.
 
     Returns:
         plotly.graph_objects.Figure: A Plotly figure with timeseries of values.
     """
 
-    # Create a figure with a subplot for each BA, stacked vertically
-    unique_bas = set([j.ba for j in jobs])
+    # Create a figure with a subplot for each region, stacked vertically
+    unique_regions = set([j.region for j in jobs])
     fig = sp.make_subplots(
-        rows=len(unique_bas),
+        rows=len(unique_regions),
         cols=1,
         shared_xaxes=True,
         vertical_spacing=0.1,
-        subplot_titles=[f"{ba.upper()}" for ba in unique_bas],
+        subplot_titles=[f"{region.upper()}" for region in unique_regions],
     )
 
-    for i, ba_abbrev in enumerate(unique_bas, start=1):
-        ba_abbrev = ba_abbrev.upper()
-        _jobs = [j for j in jobs if j.ba == ba_abbrev]
+    for i, region_abbrev in enumerate(unique_regions, start=1):
+        region_abbrev = region_abbrev.upper()
+        _jobs = [j for j in jobs if j.region == region_abbrev]
 
         times = get_random_overlapping_period(
             [j.moers for j in _jobs], max_sample_period
@@ -284,7 +148,7 @@ def plot_sample_moers(jobs: List[ModelAnalysis], max_sample_period="7D"):
     # Update layout for the figure
     fig.update_layout(
         height=300
-        * len(unique_bas),  # Adjust height dynamically based on the number of BAs
+        * len(unique_regions),  # Adjust height dynamically regionsed on the number of regions
         title="Data Sample Comparisons by Region",
         yaxis_title=f"{jobs[0].signal_type}",
         showlegend=True,
@@ -300,29 +164,29 @@ def plot_sample_moers(jobs: List[ModelAnalysis], max_sample_period="7D"):
     return fig
 
 
-def plot_distribution_moers(jobs: List[ModelAnalysis]):
+def plot_distribution_moers(jobs: List[AnalysisDataHandler]):
     """
-    Plot the distribution of old and new MOER values for each BA, creating a stacked subplot.
+    Plot the distribution of old and new MOER values for each region, creating a stacked subplot.
 
     Args:
-        jobs (list): List of ModelAnalysis objects with a .moers atribute.
+        jobs (list): List of AnalysisDataHandler objects with a .moers atribute.
 
     Returns:
         plotly.graph_objects.Figure: A Plotly figure with stacked subplots of distributions.
     """
-    # Create a figure with a subplot for each BA, stacked vertically
-    unique_bas = set([j.ba for j in jobs])
+    # Create a figure with a subplot for each region, stacked vertically
+    unique_regions = set([j.region for j in jobs])
     fig = sp.make_subplots(
-        rows=len(unique_bas),
+        rows=len(unique_regions),
         cols=1,
         shared_xaxes=True,
         vertical_spacing=0.2,
-        subplot_titles=[f"{ba.upper()}" for ba in unique_bas],
+        subplot_titles=[f"{region.upper()}" for region in unique_regions],
     )
 
-    for i, ba_abbrev in enumerate(unique_bas, start=1):
-        ba_abbrev = ba_abbrev.upper()
-        _jobs = [j for j in jobs if j.ba == ba_abbrev]
+    for i, region_abbrev in enumerate(unique_regions, start=1):
+        region_abbrev = region_abbrev.upper()
+        _jobs = [j for j in jobs if j.region == region_abbrev]
         for _job in _jobs:
 
             # Add a histogram trace for the new MOER distribution
@@ -339,7 +203,7 @@ def plot_distribution_moers(jobs: List[ModelAnalysis]):
     # Update layout for the figure
     fig.update_layout(
         height=300
-        * len(unique_bas),  # Adjust height dynamically based on the number of BAs
+        * len(unique_regions),  # Adjust height dynamically regionsed on the number of regions
         title=f"{jobs[0].signal_type} Distribution Comparisons by Region",
         xaxis_title=f"{jobs[0].signal_type} Values",
         showlegend=True,
@@ -356,25 +220,25 @@ def plot_distribution_moers(jobs: List[ModelAnalysis]):
     return fig
 
 
-def plot_ba_heatmaps(jobs: List[ModelAnalysis], colorscale="Cividis"):
+def plot_region_heatmaps(jobs: List[AnalysisDataHandler], colorscale="Cividis"):
     """
-    Generate vertically stacked heatmaps for each BA in the ba_list.
+    Generate vertically stacked heatmaps for each region in the region_list.
 
     Args:
-        jobs (list): List of ModelAnalysis objects with a .moers atribute.
+        jobs (list): List of AnalysisDataHandler objects with a .moers atribute.
 
     Returns:
         plotly.graph_objects.Figure: Figure containing stacked heatmaps.
     """
 
-    jobs = sorted(jobs, key=attrgetter("ba", "model_date"))
+    jobs = sorted(jobs, key=attrgetter("region", "model_date"))
 
-    # Initialize a subplot with one row per BA
+    # Initialize a subplot with one row per region
     fig = sp.make_subplots(
         rows=len(jobs),
         cols=1,
         shared_xaxes=True,
-        subplot_titles=[f"{j.ba} - {j.model_date}" for j in jobs],
+        subplot_titles=[f"{j.region} - {j.model_date}" for j in jobs],
         vertical_spacing=0.2,
     )
 
@@ -421,7 +285,7 @@ def plot_ba_heatmaps(jobs: List[ModelAnalysis], colorscale="Cividis"):
 
     # Update layout
     fig.update_layout(
-        height=500 * len(jobs),  # Adjust the height based on the number of BAs
+        height=500 * len(jobs),  # Adjust the height regionsed on the number of regions
         title=f"Average {jobs[0].signal_type} by Month & Hour",
         xaxis_title="Hour of Day",
         yaxis_title="Month",
@@ -484,13 +348,12 @@ def calc_rank_compare_metrics(
     """
 
     df = in_df.copy()
-    df.set_index("generated_at", inplace=True)
     df.dropna(inplace=True)
 
     # Rank of truth and predicted columns within each window
     if window_starts:
         # Generate window ranges based on start times and duration
-        unique_dates = df.index.normalize().unique()  # Extract unique dates
+        unique_dates = df.index.get_level_values("generated_at").unique()  # Extract unique dates
         window_ranges = []
         for date in unique_dates:
             for start_time in window_starts:
@@ -500,8 +363,7 @@ def calc_rank_compare_metrics(
 
         # Assign each row to a window
         def assign_window(row):
-            generated_at = row.name
-            point_time = row["point_time"]  # point_time column
+            point_time, generated_at = row.name
             for start, end in window_ranges:
                 if start <= generated_at < end and point_time < end:
                     return start  # Label window by its start time
@@ -511,9 +373,8 @@ def calc_rank_compare_metrics(
     else:
         # Default behavior: use rolling windows
         def assign_rolling_window(row):
-            ts = row.name  # Index (e.g., generated_at)
-            point_time = row["point_time"]  # point_time column
-            window_start = ts.floor(f"{window_mins}T")
+            generated_at, point_time = row.name
+            window_start = generated_at.floor(f"{window_mins}T")
             window_end = window_start + pd.Timedelta(minutes=window_mins)
 
             # Only assign window if point_time is within the window range
@@ -568,27 +429,27 @@ def calc_rank_compare_metrics(
     }
 
 
-def plot_norm_mae(jobs: List[ModelAnalysis], horizons_hr=[1, 12, 24, 48, 72]):
+def plot_norm_mae(jobs: List[AnalysisDataHandler], horizons_hr=[1, 12, 24, 48, 72]):
     """
-    Create a Plotly bar chart for rank correlation by horizon with one subplot per BA (abbrev).
+    Create a Plotly bar chart for rank correlation by horizon with one subplot per region (abbrev).
     """
 
     # Create subplots
-    unique_bas = set([j.ba for j in jobs])
+    unique_regions = set([j.region for j in jobs])
     fig = sp.make_subplots(
-        rows=len(unique_bas),
+        rows=len(unique_regions),
         cols=1,
         shared_xaxes=True,
         vertical_spacing=0.2,
-        subplot_titles=list(unique_bas),
+        subplot_titles=list(unique_regions),
     )
 
     y_min = y_max = 0
 
-    # Iterate through each BA and create a bar plot
-    for i, ba_abbrev in enumerate(unique_bas, start=1):
-        ba_abbrev = ba_abbrev.upper()
-        _jobs = [j for j in jobs if j.ba == ba_abbrev]
+    # Iterate through each region and create a bar plot
+    for i, region_abbrev in enumerate(unique_regions, start=1):
+        region_abbrev = region_abbrev.upper()
+        _jobs = [j for j in jobs if j.region == region_abbrev]
 
         x_values = [f"{h}hr" for h in horizons_hr]  # Add horizon labels
 
@@ -615,22 +476,22 @@ def plot_norm_mae(jobs: List[ModelAnalysis], horizons_hr=[1, 12, 24, 48, 72]):
 
     fig.update_layout(
         height=300
-        * len(unique_bas),  # Adjust figure height based on the number of subplots
+        * len(unique_regions),  # Adjust figure height regionsed on the number of subplots
         title_text="Normalized MAE by Horizon",
         xaxis_title="Horizon",
         yaxis_title="Normalized MAE (%)",
         showlegend=True,  # Legends appear in individual subplot titles
         margin=dict(l=50, r=50, t=50, b=50),
-        barmode="group",  # Ensure bars for each BA are grouped
+        barmode="group",  # Ensure bars for each region are grouped
     )
-    fig.update_xaxes(title_text="Horizon (Hours)", row=len(unique_bas), col=1)
+    fig.update_xaxes(title_text="Horizon (Hours)", row=len(unique_regions), col=1)
 
     return fig
 
 
-def plot_rank_corr(jobs: List[ModelAnalysis], horizons_hr=[12, 24, 48, 72]):
+def plot_rank_corr(jobs: List[AnalysisDataHandler], horizons_hr=[12, 24, 48, 72]):
     """
-    Create a Plotly line plot for rank correlation by horizon with one subplot per BA (abbrev).
+    Create a Plotly line plot for rank correlation by horizon with one subplot per region (abbrev).
 
     Parameters:
         df (pd.DataFrame): DataFrame containing the rank correlation data.
@@ -643,22 +504,22 @@ def plot_rank_corr(jobs: List[ModelAnalysis], horizons_hr=[12, 24, 48, 72]):
     """
 
     # Create subplots
-    unique_bas = set([j.ba for j in jobs])
+    unique_regions = set([j.region for j in jobs])
     fig = sp.make_subplots(
-        rows=len(unique_bas),
+        rows=len(unique_regions),
         cols=1,
         shared_xaxes=True,
         vertical_spacing=0.2,
-        subplot_titles=list(unique_bas),
+        subplot_titles=list(unique_regions),
     )
 
     y_min = y_max = 0
 
-    # Iterate through each BA and create a line plot
-    for i, ba_abbrev in enumerate(unique_bas, start=1):
+    # Iterate through each region and create a line plot
+    for i, region_abbrev in enumerate(unique_regions, start=1):
 
-        ba_abbrev = ba_abbrev.upper()
-        _jobs = [j for j in jobs if j.ba == ba_abbrev]
+        region_abbrev = region_abbrev.upper()
+        _jobs = [j for j in jobs if j.region == region_abbrev]
 
         # Extract data for the line plot
         x_values = [f"{h}hr" for h in horizons_hr]  # Add horizon labels
@@ -675,7 +536,7 @@ def plot_rank_corr(jobs: List[ModelAnalysis], horizons_hr=[12, 24, 48, 72]):
                 go.Bar(
                     x=x_values,
                     y=y_values,
-                    name=f"{_job.ba} - {_job.model_date}",
+                    name=f"{_job.region} - {_job.model_date}",
                     text=[f"{y:.3f}" for y in y_values],  # Add text labels on bars
                     textposition="outside",
                 ),
@@ -689,7 +550,7 @@ def plot_rank_corr(jobs: List[ModelAnalysis], horizons_hr=[12, 24, 48, 72]):
     # Update layout
     fig.update_layout(
         height=300
-        * len(unique_bas),  # Adjust figure height based on the number of subplots
+        * len(unique_regions),  # Adjust figure height based on the number of subplots
         title_text=f"Rank Correlation by Horizon",
         xaxis_title="Horizon",
         yaxis_title="Rank Correlation",
@@ -698,7 +559,7 @@ def plot_rank_corr(jobs: List[ModelAnalysis], horizons_hr=[12, 24, 48, 72]):
     )
 
     # Update x-axis for all subplots
-    fig.update_xaxes(title_text="Horizon (Hours)", row=len(unique_bas), col=1)
+    fig.update_xaxes(title_text="Horizon (Hours)", row=len(unique_regions), col=1)
 
     return fig
 
@@ -724,7 +585,7 @@ AER_SCENARIOS = {
 
 
 def plot_impact_forecast_metrics(
-    jobs: List[ModelAnalysis], scenarios=["EV-night", "EV-day", "Thermostat"]
+    jobs: List[AnalysisDataHandler], scenarios=["EV-night", "EV-day", "Thermostat"]
 ):
 
     # Create subplots
@@ -733,10 +594,10 @@ def plot_impact_forecast_metrics(
         cols=1,
         shared_xaxes=True,
         vertical_spacing=0.2,
-        subplot_titles=[f"{j.ba} - {j.model_date}" for j in jobs],
+        subplot_titles=[f"{j.region} - {j.model_date}" for j in jobs],
     )
 
-    # Iterate through each BA and create bar plots
+    # Iterate through each region and create bar plots
     for i, _job in enumerate(jobs, start=1):
 
         _metrics = [
@@ -808,7 +669,7 @@ def parse_report_command_line_args(sys_args):
         description="Parse command line arguments to report_moers script"
     )
 
-    parser.add_argument("-ba", "--ba_list", nargs="+", help="List of ba abbrevs.")
+    parser.add_argument("-region", "--region_list", nargs="+", help="List of region abbrevs.")
 
     parser.add_argument(
         "-d",
@@ -884,7 +745,7 @@ def parse_report_command_line_args(sys_args):
 
 
 def run_report_notebook(
-    ba_list: List[str],
+    region_list: List[str],
     model_date_list: List[str],
     signal_type: str,
     eval_start: datetime,
@@ -903,7 +764,7 @@ def run_report_notebook(
         Path(__file__).parents[0] / "new_moer_model_report.ipynb",
         str(output_notebook),
         parameters=dict(
-            ba_list=ba_list,
+            region_list=region_list,
             model_date_list=model_date_list,
             signal_type=signal_type,
             eval_start=eval_start.isoformat(),
@@ -929,7 +790,7 @@ if __name__ == "__main__":
     cli_args = parse_report_command_line_args(sys.argv[1:])
 
     run_report_notebook(
-        ba_list=cli_args.ba_list,
+        region_list=cli_args.region_list,
         model_date_list=cli_args.model_date_list,
         signal_type=cli_args.signal_type,
         eval_start=cli_args.start,

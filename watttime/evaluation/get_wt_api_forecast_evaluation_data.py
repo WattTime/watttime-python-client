@@ -127,7 +127,7 @@ class AnalysisDataHandler:
         return forecasts
 
     @cached_property
-    def forecast_v_moer(self) -> pd.DataFrame:
+    def forecasts_v_moers(self) -> pd.DataFrame:
         return self.forecasts.merge(
             self.moers,
             how="inner",

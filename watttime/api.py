@@ -2,6 +2,7 @@ import os
 import time
 import threading
 import time
+import logging
 from datetime import date, datetime, timedelta, time as dt_time
 from functools import cache
 from pathlib import Path
@@ -14,8 +15,20 @@ from dateutil.parser import parse
 from pytz import UTC
 
 
+def get_log():
+    logging.basicConfig(
+        format="%(asctime)s [%(levelname)-1s]  " "%(message)s",
+        level=logging.INFO,
+        handlers=[logging.StreamHandler()],
+    )
+    return logging.getLogger()
+
+
+LOG = get_log()
+
+
 class WattTimeBase:
-    url_base = "https://api.watttime.org"
+    url_base = "https://api.staging-primary.watttime.org"
 
     def __init__(
         self,
@@ -151,7 +164,7 @@ class WattTimeBase:
 
         rsp = self.session.post(url, json=params, timeout=20)
         rsp.raise_for_status()
-        print(
+        LOG.info(
             f"Successfully registered {self.username}, please check {email} for a verification email"
         )
 
@@ -213,7 +226,7 @@ class WattTimeBase:
             ) from e
 
         if j.get("meta", {}).get("warnings"):
-            print("Warnings Returned: %s | Response: %s", params, j["meta"])
+            LOG.warning("Warnings Returned: %s | Response: %s", params, j["meta"])
 
         self._last_request_meta = j.get("meta", {})
 
@@ -395,7 +408,7 @@ class WattTimeHistorical(WattTimeBase):
         start, end = self._parse_dates(start, end)
         fp = out_dir / f"{region}_{signal_type}_{start.date()}_{end.date()}.csv"
         df.to_csv(fp, index=False)
-        print(f"file written to {fp}")
+        LOG.info(f"file written to {fp}")
 
 
 class WattTimeMyAccess(WattTimeBase):

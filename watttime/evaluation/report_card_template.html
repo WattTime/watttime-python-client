@@ -1,0 +1,88 @@
+<!DOCTYPE html>
+
+<html>
+
+<head>
+
+<meta charset="utf-8" />   
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+
+<!-- Plotly CDN -->
+<script src="https://cdn.plot.ly/plotly-latest.min.js"></script>
+
+<style>
+    body {
+        font-family: Arial, sans-serif;
+        margin: 0;
+        padding: 0;
+    }
+    .header {
+        display: flex;
+        align-items: center;
+        padding: 10px 20px;
+        background-color: white;
+        border-bottom: 2px solid #f4c400; /* Adds a yellow underline */
+    }
+    .logo img {
+        height: 50px; /* Adjust size as needed */
+    }
+</style>
+
+</head>
+
+<body>
+
+<h1>Here's a Plotly graph!</h1>
+
+{{ fig }}
+
+{% if show_moers %}
+<h2>Data Distribution Changes</h2>
+<p>We assess the distribution of signal values using three metrics, described below.</p>
+
+<ul>
+    <li><strong>Diurnal MOER Values During a Random Week:</strong> This plot shows a sample of the signal values over a one-week period. These may not be representative of the signal across all times of the year, but it is helpful to understand diurnal cycles and relative signal periods during a randomly selected period.</li>
+    
+    <li><strong>Box and Whiskers of Signal Distribution:</strong> This plot shows a "box and whiskers" representation of the distribution of signal values. Outliers are shown beyond the distribution when present.</li>
+    
+    <li><strong>Heatmap of Mean Value by Month and Hour:</strong> This plot shows the average signal value by month and hour in a heatmap. Darker values represent lower average values during that month and hour, while lighter values represent higher average values.</li>
+</ul>
+
+{{ plot_sample_moers }}
+{{ plot_distribution_moers }}
+{{ plot_region_heatmaps }}
+{% endif %}
+
+{% if show_fuel_mix %}
+<h2>Marginal Fuel Mix Comparisons</h2>
+<p>Comparing the marginal fuel mix produced by different models before a carbon intensity or damages rate has been applied allows for us to see why signal values have changed. For instance, differences in training data may lead to different margianl fuel mixes being identified (e.g. coal retirements between model training periods).</p>
+
+{{ plot_fuel_mix }}
+{% endif %}
+
+{% if show_forecasts %}
+<h2>Forecast Performance</h2>
+<p>We assess the overall performance of our forecasts using a few main metrics, described below.</p>
+
+<ul>
+    <li><strong>Normalized Mean Absolute Error (Norm MAE):</strong> Mean Absolute Error (MAE) is the average of absolute forecast errors. This represents the magnitude of error to expect from the forecast on average. A model with an MAE closest to 0 is ideal. Norm MAE is MAE divided by the average of the true values. Normalizing MAE allows us to compare models across different datasets. It is expressed as a percentage (%) of the average true value over the validation time period.</li>
+    
+    <li><strong>Rank Correlation:</strong> A number between -1 and 1 that quantifies the degree to which the rank ordering of two datasets are related. A rank correlation of 1 means the forecast predictions are rank ordered perfectly compared to the true values, making the forecast perfectly effective for time optimization use cases. For many use cases of our forecast models (such as AER), it is more important that predictions are correctly rank ordered within a forecast window, rather than each forecast being accurate in terms of absolute values.</li>
+    
+    <li><strong>AER CO2 Savings:</strong> This metric represents the impact in lbs CO2/MWh of using the forecast model for energy usage optimization. We compare these CO2 savings against the "Max Potential" case (i.e., the case of using perfect forecasts). In this notebook, we model three different popular AER scenarios:
+        <ul>
+            <li>EV-night: Charging an electric vehicle for 3 hours out of a 12-hour overnight window starting at 19:00 local time.</li>
+            <li>EV-day: Charging an electric vehicle for 2 hours out of an 8-hour daytime window starting at 09:00 local time.</li>
+            <li>Thermostat: Optimizing thermostat usage in continual 1-hour windows throughout a 24-hour period, only actively using energy for half of the time.</li>
+        </ul>
+    </li>
+</ul>
+
+{{ plot_norm_mae }}
+{{ plot_rank_corr }}
+{{ plot_impact_forecast_metrics }}
+{% endif %}
+
+</body>
+
+</html>

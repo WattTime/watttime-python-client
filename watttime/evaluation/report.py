@@ -5,7 +5,7 @@ from datetime import datetime, timedelta, timezone
 from dateutil.parser import parse
 from operator import attrgetter
 from pathlib import Path
-from typing import List, Optional, Union
+from typing import List, Optional, Union, Literal
 from zoneinfo import ZoneInfo
 
 import numpy as np
@@ -13,10 +13,9 @@ import pandas as pd
 import plotly.graph_objects as go
 import plotly.subplots as sp
 import scipy.stats as stats
-from nbconvert.exporters import HTMLExporter
 
-import papermill as pm
-from watttime.evaluation.get_wt_api_forecast_evaluation_data import AnalysisDataHandler
+from jinja2 import Template
+from watttime.evaluation.get_wt_api_forecast_evaluation_data import AnalysisDataHandler, DataHandlerFactory
 
 # hacky way to allow running this script locally
 sys.path.append(str(Path(__file__).parents[1].resolve()))
@@ -58,9 +57,6 @@ def get_random_overlapping_period(dfs, max_period="7D"):
     Returns:
         pd.DatetimeIndex: List of overlapping datetimes within the defined time period.
     """
-    if not dfs or len(dfs) < 2:
-        raise ValueError("You must provide at least two DataFrames.")
-
     # Find the overlapping range across all DataFrames
     start_overlap = max(df.index.min() for df in dfs)
     end_overlap = min(df.index.max() for df in dfs)
@@ -148,7 +144,9 @@ def plot_sample_moers(jobs: List[AnalysisDataHandler], max_sample_period="7D"):
     # Update layout for the figure
     fig.update_layout(
         height=300
-        * len(unique_regions),  # Adjust height dynamically regionsed on the number of regions
+        * len(
+            unique_regions
+        ),  # Adjust height dynamically regionsed on the number of regions
         title="Data Sample Comparisons by Region",
         yaxis_title=f"{jobs[0].signal_type}",
         showlegend=True,
@@ -203,7 +201,9 @@ def plot_distribution_moers(jobs: List[AnalysisDataHandler]):
     # Update layout for the figure
     fig.update_layout(
         height=300
-        * len(unique_regions),  # Adjust height dynamically regionsed on the number of regions
+        * len(
+            unique_regions
+        ),  # Adjust height dynamically regionsed on the number of regions
         title=f"{jobs[0].signal_type} Distribution Comparisons by Region",
         xaxis_title=f"{jobs[0].signal_type} Values",
         showlegend=True,
@@ -353,7 +353,9 @@ def calc_rank_compare_metrics(
     # Rank of truth and predicted columns within each window
     if window_starts:
         # Generate window ranges based on start times and duration
-        unique_dates = df.index.get_level_values("generated_at").unique()  # Extract unique dates
+        unique_dates = df.index.get_level_values(
+            "generated_at"
+        ).unique()  # Extract unique dates
         window_ranges = []
         for date in unique_dates:
             for start_time in window_starts:
@@ -476,7 +478,9 @@ def plot_norm_mae(jobs: List[AnalysisDataHandler], horizons_hr=[1, 12, 24, 48, 7
 
     fig.update_layout(
         height=300
-        * len(unique_regions),  # Adjust figure height regionsed on the number of subplots
+        * len(
+            unique_regions
+        ),  # Adjust figure height regionsed on the number of subplots
         title_text="Normalized MAE by Horizon",
         xaxis_title="Horizon",
         yaxis_title="Normalized MAE (%)",
@@ -663,13 +667,75 @@ def plot_impact_forecast_metrics(
 
     return fig
 
+fuel_cp = {
+    'coal': 'black',
+    'gas': 'brown',
+}
+
+def plot_sample_fuel_mix(jobs: List[AnalysisDataHandler], max_sample_period="7D"):
+
+    # sort jobs by region to group them together
+    jobs.sort(key=attrgetter("region"))
+
+    # Initialize a subplot with one row per region
+    fig = sp.make_subplots(
+        rows=len(jobs),
+        cols=1,
+        shared_xaxes=True,
+        subplot_titles=[f"{j.region} - {j.model_date}" for j in jobs],
+        vertical_spacing=0.2,
+    )
+
+    times = get_random_overlapping_period([j.fuel_mix for j in jobs], max_sample_period)
+
+    for i, _job in enumerate(jobs, start=1):
+
+        # Create cumulative values for stacking
+        stacked_values = _job.fuel_mix[_job.fuel_mix.index.isin(times)]
+        for j in range(1, len(stacked_values.columns)):
+            stacked_values.iloc[:, j] += stacked_values.iloc[:, j - 1]
+
+        # Add each fuel type as an area
+        for j, fuel in enumerate(_job.fuel_mix.columns):
+            fig.add_trace(
+                go.Scatter(
+                    x=stacked_values.index,
+                    y=stacked_values.iloc[:, j],
+                    fill="tonexty" if j > 0 else "tozeroy",
+                    mode="none",  # Hide lines to emphasize the filled area
+                    name=f"{_job.region} - {fuel}",
+                    fillcolor=fuel_cp[fuel],
+                ),
+                row=i,
+                col=1,
+            )
+
+    # Update layout for the figure
+    fig.update_layout(
+        height=300 * len(jobs),  # Adjust height dynamically based on regions
+        title="Marginal Fuel Mix Data Sample Comparisons by Region",
+        yaxis_title=f"{jobs[0].signal_type}",
+        showlegend=True,
+        margin=dict(l=150, r=20, t=60, b=80),
+        xaxis=dict(
+            type="date",
+            tickformat="%Y-%m-%d %H:%M",
+            tickangle=45,
+            showgrid=True,
+        ),
+    )
+
+    return fig
+
 
 def parse_report_command_line_args(sys_args):
     parser = argparse.ArgumentParser(
         description="Parse command line arguments to report_moers script"
     )
 
-    parser.add_argument("-region", "--region_list", nargs="+", help="List of region abbrevs.")
+    parser.add_argument(
+        "-region", "--region_list", nargs="+", help="List of region abbrevs."
+    )
 
     parser.add_argument(
         "-d",
@@ -705,34 +771,19 @@ def parse_report_command_line_args(sys_args):
         "-o",
         "--output_dir",
         type=str,
-        default=str(Path(__file__).parent / "analysis"),
+        default=str(Path(__file__).parents[2] / "analysis"),
         help="Top level directory to save model report. Default is '<project_root>/research/moer_reports'.",
     )
 
     parser.add_argument(
-        "-u",
-        "--username",
+        "--steps",
         type=str,
-        default=None,
-        help="WattTime Username can be provided as a CLI arg or set as an environment variable (WATTTIME_USER)",
+        nargs="+",
+        default=["signal", "fuel_mix", "forecast"],
+        choices=["signal", "fuel_mix", "forecast"],
+        help="Steps to run. Default is ['signal', 'fuel_mix', 'forecast'].",
     )
-
-    parser.add_argument(
-        "-p",
-        "--password",
-        type=str,
-        default=None,
-        help="WattTime Password can be provided as a CLI arg or set as an environment variable (WATTTIME_PASSWORD)",
-    )
-
-    parser.add_argument(
-        "-f",
-        "--forecast_sample_days",
-        type=int,
-        default=12,
-        help="Number of days to sample from forecast. Default is 12.",
-    )
-
+    
     args = parser.parse_args(sys_args)
 
     now = datetime.now(timezone.utc)
@@ -744,6 +795,23 @@ def parse_report_command_line_args(sys_args):
     return args
 
 
+PLOTS = {
+    "signal":[
+        plot_sample_moers,
+        plot_distribution_moers,
+        plot_region_heatmaps
+    ],
+    "fuel_mix":[
+        plot_sample_fuel_mix
+    ],
+    "forecast":[
+        plot_norm_mae,
+        plot_rank_corr,
+        plot_impact_forecast_metrics
+    ]
+}
+
+
 def run_report_notebook(
     region_list: List[str],
     model_date_list: List[str],
@@ -751,38 +819,32 @@ def run_report_notebook(
     eval_start: datetime,
     eval_end: datetime,
     output_dir: Path,
-    api_username: Optional[str] = None,
-    api_password: Optional[str] = None,
-    forecast_sample_days: Optional[int] = None,
+    steps: Literal["signal", "fuel_mix", "forecast"] = ["signal", "fuel_mix", "forecast"],
 ):
-    filename = f"{signal_type}_{model}_model_stats"
+    filename = f"{signal_type}_{'&'.join(region_list)}_{'&'.join(model_date_list)}_model_stats"
 
     # run notebook
-    output_notebook = output_dir / f"{filename}.ipynb"
-    output_html = output_dir / f"{filename}.html"
-    pm.execute_notebook(
-        Path(__file__).parents[0] / "new_moer_model_report.ipynb",
-        str(output_notebook),
-        parameters=dict(
-            region_list=region_list,
-            model_date_list=model_date_list,
-            signal_type=signal_type,
-            eval_start=eval_start.isoformat(),
-            eval_end=eval_end.isoformat(),
-            api_username=api_username,
-            api_password=api_password,
-            forecast_sample_days=forecast_sample_days,
-        ),
+    output_path = output_dir / f"{filename}.html"
+    input_template_path = Path(__file__).parent / r"report_card_template.html"
+
+    f = DataHandlerFactory(
+        eval_start=eval_start,
+        eval_end=eval_end,
+        regions=region_list,
+        model_dates=model_date_list,
+        signal_types=signal_type,
     )
 
-    # HTML exporter with the custom template
-    html_exporter = HTMLExporter()
-    html_exporter.exclude_input = True  # hide code cells
+    plotly_html = {}
+    for step in steps:
+        for plot_func in PLOTS[step]:
+            _plot = plot_func(f.data_handlers)
+            plotly_html[plot_func.__name__] = _plot.to_html(full_html=False, include_plotlyjs=False)
 
-    # Convert the notebook to HTML + write to file
-    (body, resources) = html_exporter.from_filename(str(output_notebook))
-    with open(str(output_html), "w", encoding="utf-8") as f:
-        f.write(body)
+    with open(output_path, "w", encoding="utf-8") as output_file:
+        with open(input_template_path) as template_file:
+            j2_template = Template(template_file.read())
+            output_file.write(j2_template.render(plotly_html))
 
 
 if __name__ == "__main__":
@@ -791,12 +853,10 @@ if __name__ == "__main__":
 
     run_report_notebook(
         region_list=cli_args.region_list,
-        model_date_list=cli_args.model_date_list,
+        model_date_list=cli_args.models,
         signal_type=cli_args.signal_type,
         eval_start=cli_args.start,
         eval_end=cli_args.end,
         output_dir=Path(cli_args.output_dir),
-        api_username=cli_args.username,
-        api_password=cli_args.password,
-        forecast_sample_days=cli_args.forecast_sample_days,
+        steps=cli_args.steps
     )

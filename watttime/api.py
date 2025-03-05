@@ -217,9 +217,11 @@ class WattTimeBase:
             self._apply_rate_limit(ts)
 
         try:
+            LOG.debug(f"Making API Request: {url} | Params: {params}")
             rsp = self.session.get(url, headers=self.headers, params=params)
             rsp.raise_for_status()
             j = rsp.json()
+            LOG.debug(f"...Request took: {round(time.time() - ts, 2)} seconds")
         except requests.exceptions.RequestException as e:
             raise RuntimeError(
                 f"API Request Failed: {e}\nURL: {url}\nParams: {params}"

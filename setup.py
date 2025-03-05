@@ -9,6 +9,6 @@ setup(
     packages=["watttime", "watttime.evaluation"],
     python_requires=">=3.8",
     install_requires=["requests", "pandas>1.0.0", "holidays", "python-dateutil"],
-    extras_require={"report": ["papermill", "nbconvert", "plotly", "scipy"]},
+    extras_require={"report": ["jinja2", "plotly", "scipy"]},
     scripts=["watttime/report.py"],
 )

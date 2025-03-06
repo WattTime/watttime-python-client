@@ -1,104 +1,349 @@
 <!DOCTYPE html>
-
-<html>
-
+<html lang="en">
 <head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>WattTime Analysis Report</title>
 
-<meta charset="utf-8" />   
-<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <!-- Plotly CDN -->
+  <script src="https://cdn.plot.ly/plotly-latest.min.js"></script>
 
-<!-- Plotly CDN -->
-<script src="https://cdn.plot.ly/plotly-latest.min.js"></script>
+  <!-- Google Fonts -->
+  <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@400&family=Lexend+Deca:wght@500&display=swap" rel="stylesheet">
 
-<!-- Google Fonts -->
-<link href="https://fonts.googleapis.com/css2?family=Poppins:wght@400&family=Lexend+Deca:wght@500&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --primary-color: #f4c400;
+      --border-color: #ccc;
+      --bg-light: #f9f9f9;
+      --code-bg: #f4f4f4;
+    }
 
-<style>
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+    }
+
     body {
-        font-family: 'Poppins', sans-serif;
-        margin: 0;
-        padding: 0;
+      font-family: 'Poppins', sans-serif;
+      line-height: 1.6;
+      color: #333;
     }
-    .header {
-        display: flex;
-        align-items: center;
-        padding: 10px 20px;
-        background-color: white;
-        border-bottom: 2px solid #f4c400; /* Adds a yellow underline */
-    }
-    .logo img {
-        height: 50px; /* Adjust size as needed */
-    }
-    .content {
-        max-width: 900px;
-        margin: 0 auto;
-        padding: 20px;
-    }
-    h2 {
-        font-family: 'Lexend Deca', sans-serif;
-        font-weight: 500;
-    }
-</style>
 
+    .header {
+      display: flex;
+      align-items: center;
+      padding: 10px 20px;
+      background-color: white;
+      border-bottom: 2px solid var(--primary-color);
+      box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+    }
+
+    .logo img {
+      height: 50px;
+    }
+
+    .content {
+      max-width: 900px;
+      margin: 0 auto;
+      padding: 20px;
+    }
+
+    h2 {
+      font-family: 'Lexend Deca', sans-serif;
+      font-weight: 500;
+      margin: 1.5rem 0 1rem;
+    }
+
+    h3 {
+      margin: 1.2rem 0 0.8rem;
+    }
+
+    p {
+      margin-bottom: 1rem;
+    }
+
+    /* Tab System */
+    .tab-container {
+      margin-bottom: 2rem;
+    }
+
+    .tabs {
+      display: flex;
+      flex-wrap: wrap;
+      border-bottom: 2px solid var(--border-color);
+      margin-bottom: 0;
+    }
+
+    .tab {
+      padding: 10px 20px;
+      cursor: pointer;
+      border: 1px solid var(--border-color);
+      border-bottom: none;
+      background-color: var(--bg-light);
+      border-radius: 4px 4px 0 0;
+      transition: background-color 0.2s;
+      position: relative;
+      z-index: 1;
+      margin-right: 2px;
+    }
+
+    .tab:hover {
+      background-color: #f0f0f0;
+    }
+
+    .tab.active {
+      background-color: white;
+      font-weight: bold;
+      border-bottom: 2px solid white;
+      margin-bottom: -2px;
+    }
+
+    .tab-content {
+      display: none;
+      width: 100%;
+      padding-top: 1rem;
+      animation: fadeIn 0.3s ease-in-out;
+    }
+
+    .tab-content.active {
+      display: block;
+      width: 100%;
+    }
+
+    @keyframes fadeIn {
+      from { opacity: 0; }
+      to { opacity: 1; }
+    }
+
+    .code-block {
+      background-color: var(--code-bg);
+      padding: 15px;
+      border-radius: 5px;
+      font-family: monospace;
+      white-space: pre-wrap;
+      overflow-x: auto;
+      margin: 1rem 0;
+    }
+
+    /* Responsive adjustments */
+    @media (max-width: 768px) {
+      .tabs {
+        flex-direction: column;
+        border-bottom: none;
+      }
+      
+      .tab {
+        border: 1px solid var(--border-color);
+        border-radius: 0;
+        margin-right: 0;
+        margin-bottom: -1px;
+      }
+      
+      .tab:first-child {
+        border-radius: 4px 4px 0 0;
+      }
+      
+      .tab:last-child {
+        border-radius: 0 0 4px 4px;
+      }
+      
+      .tab.active {
+        margin-bottom: -1px;
+        border-bottom: 1px solid var(--border-color);
+        border-left: 3px solid var(--primary-color);
+      }
+    }
+  </style>
+  
+  <script>
+    document.addEventListener('DOMContentLoaded', function() {
+      // Initialize all tab groups
+      const tabGroups = document.querySelectorAll('.tab-container');
+      tabGroups.forEach(initializeTabGroup);
+      
+      // Handle tab clicks via event delegation
+      document.addEventListener('click', function(event) {
+        const tab = event.target.closest('.tab');
+        if (tab) {
+          const tabGroup = tab.getAttribute('data-group');
+          const tabName = tab.getAttribute('data-tab');
+          if (tabGroup && tabName) {
+            switchToTab(tabGroup, tabName);
+          }
+        }
+      });
+    });
+
+    // Initialize a tab group
+    function initializeTabGroup(container) {
+      const groupName = container.getAttribute('data-group');
+      if (!groupName) return;
+      
+      // Find the first tab and activate it
+      const firstTab = container.querySelector('.tab');
+      if (firstTab) {
+        const tabName = firstTab.getAttribute('data-tab');
+        switchToTab(groupName, tabName, false); // Initialize without animation
+      }
+    }
+
+    // Switch to a specific tab
+    function switchToTab(groupName, tabName, animate = true) {
+      // Deactivate all tabs in this group
+      const allTabs = document.querySelectorAll(`.tab[data-group="${groupName}"]`);
+      allTabs.forEach(tab => tab.classList.remove('active'));
+      
+      // Hide all tab content for this group
+      const allContents = document.querySelectorAll(`.tab-content[data-group="${groupName}"]`);
+      allContents.forEach(content => {
+        content.classList.remove('active');
+        content.style.display = 'none';
+      });
+      
+      // Activate the selected tab
+      const selectedTab = document.querySelector(`.tab[data-group="${groupName}"][data-tab="${tabName}"]`);
+      if (selectedTab) {
+        selectedTab.classList.add('active');
+      }
+      
+      // Show the selected content
+      const selectedContent = document.getElementById(`${groupName}_${tabName}`);
+      if (selectedContent) {
+        selectedContent.classList.add('active');
+        selectedContent.style.display = 'block';
+        
+        // If using Plotly charts, trigger a resize event to ensure proper rendering
+        if (animate) {
+          setTimeout(() => {
+            window.dispatchEvent(new Event('resize'));
+          }, 50);
+        } else {
+          window.dispatchEvent(new Event('resize'));
+        }
+      }
+    }
+  </script>
 </head>
 
 <body>
-
-<div class="header">
+  <div class="header">
     <div class="logo">
-        <img src="https://watttime.org/wp-content/uploads/2023/01/WattTime-logo-2023-black-1920px.png" alt="WattTime Logo">
+      <img src="https://watttime.org/wp-content/uploads/2023/01/WattTime-logo-2023-black-1920px.png" alt="WattTime Logo">
     </div>
-</div>
+  </div>
 
-<div class="content">
-{% if show_signal %}
-<h2>Data Distribution Changes</h2>
-<p>We assess the distribution of signal values using three metrics, described below.</p>
+  <div class="content">
+    {# Define a reusable macro for tab containers #}
+    {% macro tab_container(group_name, data_dict, title=None, description=None) %}
+      {% if title %}<h3>{{ title }}</h3>{% endif %}
+      {% if description %}<p>{{ description }}</p>{% endif %}
+      
+      <div class="tab-container" data-group="{{ group_name }}">
+        <div class="tabs">
+          {% for tab_title in data_dict.keys() %}
+            <div class="tab" data-group="{{ group_name }}" data-tab="{{ tab_title|replace(' ', '_') }}">{{ tab_title }}</div>
+          {% endfor %}
+        </div>
+        
+        {% for tab_title, content_html in data_dict.items() %}
+          <div id="{{ group_name }}_{{ tab_title|replace(' ', '_') }}" class="tab-content" data-group="{{ group_name }}">
+            {{ content_html|safe }}
+          </div>
+        {% endfor %}
+      </div>
+    {% endmacro %}
 
-<ul>
-    <li><strong>Diurnal MOER Values During a Random Week:</strong> This plot shows a sample of the signal values over a one-week period. These may not be representative of the signal across all times of the year, but it is helpful to understand diurnal cycles and relative signal periods during a randomly selected period.</li>
-    
-    <li><strong>Box and Whiskers of Signal Distribution:</strong> This plot shows a "box and whiskers" representation of the distribution of signal values. Outliers are shown beyond the distribution when present.</li>
-    
-    <li><strong>Heatmap of Mean Value by Month and Hour:</strong> This plot shows the average signal value by month and hour in a heatmap. Darker values represent lower average values during that month and hour, while lighter values represent higher average values.</li>
-</ul>
+    {# Historical Signal Data Section #}
+    {% if show_signal %}
+    <h2>Analysis of Historical Signal Data</h2>
+    <p>We assess the distribution of signal values using metrics plotted below.</p>
 
-{{ plot_sample_moers }}
-{{ plot_distribution_moers }}
-{{ plot_region_heatmaps }}
-{% endif %}
+    {{ tab_container(
+      "plot_sample_moers", 
+      plot_sample_moers,
+      "1) Plot of Signal Values Over Time",
+      "The first thing we look at when examining a new model is a plot of the signal over time, compared against other models for the same region and time period if applicable. Things we are looking for in this plot include: Is there a consistent diurnal pattern (e.g. higher or lower during the day/night)? What is the magintude of the range of values across the day? Does the signal change across seasons as we would expect (e.g. weather often affects demand and renewable generation). You can pan left and right on the plots to see the full range of data."
+    ) }}
 
-{% if show_fuel_mix %}
-<h2>Marginal Fuel Mix Comparisons</h2>
-<p>Comparing the marginal fuel mix produced by different models before a carbon intensity or damages rate has been applied allows for us to see why signal values have changed. For instance, differences in training data may lead to different marginal fuel mixes being identified (e.g. coal retirements between model training periods).</p>
+    {{ tab_container(
+      "plot_distribution_moers", 
+      plot_distribution_moers,
+      "2) Distribution of Historical Signal",
+      "A box and whiskers plot is helpful to sucintly examine the entire distribution of signal values. When studying this plot, look for how the median and interquartile range changes between model values. A dramatic shift could be caused by changes to the underlying grid (e.g. coal retirements), or new modelling features (e.g. considering curtailment). Any large changes should be explainable by the modeler."
+    ) }}
 
-{{ plot_sample_fuel_mix }}
-{% endif %}
+    {{ tab_container(
+      "plot_heatmaps", 
+      plot_heatmaps,
+      "3) Heatmaps of Signal Values Over Time",
+      "These heatmaps provide a succcinct way to look for diurnal and seasonal trends in signal values. To achieve this purpose, the color values are normalized for each model seperately to make the rank order differences more apparent. Generally, we do not expect significant differences in the relative diurnal rank ordering of models without an explainable cause, such as changes to the power system or new modelling features."
+    ) }}
 
-{% if show_forecasts %}
-<h2>Forecast Performance</h2>
-<p>We assess the overall performance of our forecasts using a few main metrics, described below.</p>
+    {{ tab_container(
+      "plot_max_impact_potential", 
+      plot_max_impact_potential,
+      "4) Maximum Achivable Impact Potential of Signal Values",
+      "Simulations are run for typical customer patterns including charging an EV during the day (3 hours in a 12 hour window starting at 8 AM), the night (2 hours in a 8 hour window starting at 9 PM), and running a thermostat (running for 30 out of 60 minutes throughout the day). Each of these metrics could capture a different source of impact (e.g. solar curtailment may only be accessible to EV day charging). Inspecting these values helps us understand the impact potential of implementing AER with different model versions."
+    ) }}
+    {% endif %}
 
-<ul>
-    <li><strong>Normalized Mean Absolute Error (Norm MAE):</strong> Mean Absolute Error (MAE) is the average of absolute forecast errors. This represents the magnitude of error to expect from the forecast on average. A model with an MAE closest to 0 is ideal. Norm MAE is MAE divided by the average of the true values. Normalizing MAE allows us to compare models across different datasets. It is expressed as a percentage (%) of the average true value over the validation time period.</li>
-    
-    <li><strong>Rank Correlation:</strong> A number between -1 and 1 that quantifies the degree to which the rank ordering of two datasets are related. A rank correlation of 1 means the forecast predictions are rank ordered perfectly compared to the true values, making the forecast perfectly effective for time optimization use cases. For many use cases of our forecast models (such as AER), it is more important that predictions are correctly rank ordered within a forecast window, rather than each forecast being accurate in terms of absolute values.</li>
-    
-    <li><strong>AER CO2 Savings:</strong> This metric represents the impact in lbs CO2/MWh of using the forecast model for energy usage optimization. We compare these CO2 savings against the "Max Potential" case (i.e., the case of using perfect forecasts). In this notebook, we model three different popular AER scenarios:
-        <ul>
-            <li>EV-night: Charging an electric vehicle for 3 hours out of a 12-hour overnight window starting at 19:00 local time.</li>
-            <li>EV-day: Charging an electric vehicle for 2 hours out of an 8-hour daytime window starting at 09:00 local time.</li>
-            <li>Thermostat: Optimizing thermostat usage in continual 1-hour windows throughout a 24-hour period, only actively using energy for half of the time.</li>
-        </ul>
-    </li>
-</ul>
+    {# Fuel Mix Section #}
+    {% if show_fuel_mix %}
+    <h2>Marginal Fuel Mix Comparisons</h2>
+    <p>Comparing the marginal fuel mix produced by different models before a carbon intensity or damages rate has been applied allows for us to see why signal values have changed.</p>
 
-{{ plot_norm_mae }}
-{{ plot_rank_corr }}
-{{ plot_impact_forecast_metrics }}
-{% endif %}
-</div>
+    {{ tab_container(
+      "plot_sample_fuel_mix", 
+      plot_sample_fuel_mix,
+      "1) Plot of Marginal Fuel Mix Over Time",
+      "Most models allow for multiple fuel types to be marginal at a given time. Each fuel type is asigned a percentage of the total margianl fuel mix, and these will sum to 100%. Changes in signal value are primarily caused by differences in the marginal fuel mix, but can be affected by other things (such as modeled differences in carbon intensity or damages over time). In addition to fuel types like natural gas, coal, and oil being marginal, interchange can also be a marginal fuel type. Interchange can represent either imports or exports. This plot shows a time series of the marignal fuel mix. It is helpful to look for diurnal and seasonal patterns, along with differences between models. Users can pan to examine different time periods."
+    ) }}
 
+    {{ tab_container(
+      "plot_fuelmix_heatmap",
+      plot_fuelmix_heatmap,
+      "2) Heatmaps of Marginal Fuel Mix Over Time",
+      "These heatmaps show the average percentage of the marginal fuel mix for a given fuel type by month and hour. This plot is helpful for examining diurnal and seasonal trends in the marginal fuelmix that can be impacting the signal value. It is also useful to understand which hours of the day curtailment is occuring, indicated by the carbon_free fuel type which may be present."
+    ) }}
+    {% endif %}
+
+    {# Forecast Section #}
+    {% if show_forecast %}
+    <h2>Forecast Performance</h2>
+    <p>Our modeled signal values produce real-time or historical outputs. To achieve AER impact while guaranting an acceptable charge rate / duty factor it is necessary to use a forecast to schedule electricity consumption or charging ahead of time. Our forecast models use traditional machine learning techniques to predict what the signal value will be ahead of time. Our forecast models tend to perform worse at further time horizons from the time they are instatiated. As such, we examine the performance of our forecast models at predicting the signal value over a variety of time horizons.</p>
+
+    {{ tab_container(
+      "plot_norm_mae", 
+      plot_norm_mae,
+      "1) Normalized Mean Absolute Error by Horizon",
+      "MAE helps us understand the degree of error in our forecasts. Normalized MAE is a more useful metric because it accounts for the magnitude of the signal values. This metric is reported by varying horizon hours, which are the temporal distance from the time the forecast was produced (generated_at). We expect for models to perform better at lower horizons."
+    ) }}
+
+    {{ tab_container(
+      "plot_rank_corr", 
+      plot_rank_corr,
+      "2) Rank Correlation by Horizon",
+      "Rank correlation quantifies the degree to which the rank ordering of two datasets are related. We expect for models to perform better at lower horizons."
+    ) }}
+
+    {{ tab_container(
+      "plot_impact_forecast_metrics", 
+      plot_impact_forecast_metrics,
+      "3) Simulation of AER Impact using Forecasts",
+      "Simulations are run for typical customer patterns including charging an EV during the day (3 hours in a 12 hour window starting at 8 AM), the night (2 hours in a 8 hour window starting at 9 PM), and running a thermostat (running for 30 out of 60 minutes throughout the day). Each of these metrics could capture a different source of impact (e.g. solar curtailment may only be accessible to EV day charging). These metrics assume that the modeled values are accurate, and only quantify the degree of error caused by the forecast model."
+    ) }}
+    {% endif %}
+
+    {# Footer Section #}
+    <h2>About this Report</h2>
+
+    <p>This report was generated using the following inputs:</p>
+    <pre class="code-block">{{ report_input_dict }}</pre>
+
+    <p>The following model metadata was collected when requesting data to generate this report using the WattTime SDK:</p>
+    <pre class="code-block">{{ collected_model_meta }}</pre>
+  </div>
 </body>
-
 </html>

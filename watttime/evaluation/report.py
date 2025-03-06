@@ -1,21 +1,27 @@
 import argparse
 import calendar
 import sys
+import json
 from datetime import datetime, timedelta, timezone
 from dateutil.parser import parse
 from operator import attrgetter
 from pathlib import Path
-from typing import List, Optional, Union, Literal
+from typing import List, Optional, Union, Literal, Dict
 from zoneinfo import ZoneInfo
 
 import numpy as np
 import pandas as pd
 import plotly.graph_objects as go
 import plotly.subplots as sp
+import plotly.colors as pc
 import scipy.stats as stats
 
 from jinja2 import Template
-from watttime.evaluation.get_wt_api_forecast_evaluation_data import AnalysisDataHandler, DataHandlerFactory
+from watttime.evaluation.get_wt_api_forecast_evaluation_data import (
+    AnalysisDataHandler,
+    DataHandlerFactory,
+)
+from watttime.evaluation.fuels_cp import fuel_cp
 
 # hacky way to allow running this script locally
 sys.path.append(str(Path(__file__).parents[1].resolve()))
@@ -45,7 +51,7 @@ def round_time(dt: datetime, minutes: int = 5) -> datetime:
     return dt.replace(minute=(dt.minute // minutes) * minutes, second=0, microsecond=0)
 
 
-def get_random_overlapping_period(dfs, max_period="7D"):
+def get_random_overlapping_period(dfs, max_period="30D", resample_freq="1H"):
     """
     Find a random overlapping time period between multiple DataFrames' datetime indices,
     maximizing the period up to `max_period`.
@@ -71,7 +77,7 @@ def get_random_overlapping_period(dfs, max_period="7D"):
 
     # If the total overlap duration is less than or equal to max_period, return the full range
     if total_overlap_duration <= max_timedelta:
-        overlap_range = pd.date_range(start=start_overlap, end=end_overlap, freq="5T")
+        overlap_range = pd.date_range(start=start_overlap, end=end_overlap, freq=resample_freq)
         # Check if all indices exist in both DataFrames
         if all(df.index.isin(overlap_range).all() for df in dfs):
             return overlap_range
@@ -84,12 +90,12 @@ def get_random_overlapping_period(dfs, max_period="7D"):
     while attempts < max_attempts:
         random_start_time = pd.Timestamp(
             np.random.choice(
-                pd.date_range(start_overlap, end_overlap - max_timedelta, freq="5T")
+                pd.date_range(start_overlap, end_overlap - max_timedelta, freq=resample_freq)
             )
         )
         random_end_time = random_start_time + max_timedelta
         overlap_range = pd.date_range(
-            start=random_start_time, end=random_end_time, freq="5T"
+            start=random_start_time, end=random_end_time, freq=resample_freq
         )
         # Check if all indices exist in both DataFrames
         if all(overlap_range.isin(df.index).all() for df in dfs):
@@ -98,7 +104,7 @@ def get_random_overlapping_period(dfs, max_period="7D"):
     raise ValueError(f"No common overlap found after {max_attempts} attempts.")
 
 
-def plot_sample_moers(jobs: List[AnalysisDataHandler], max_sample_period="7D"):
+def plot_sample_moers(jobs: List[AnalysisDataHandler], max_sample_period="30D") -> Dict[str, go.Figure]:
     """
     Plot a sample of old and new MOER values over time, creating a subplot for each unique region.
 
@@ -109,60 +115,55 @@ def plot_sample_moers(jobs: List[AnalysisDataHandler], max_sample_period="7D"):
         plotly.graph_objects.Figure: A Plotly figure with timeseries of values.
     """
 
-    # Create a figure with a subplot for each region, stacked vertically
+    figs = {}
     unique_regions = set([j.region for j in jobs])
-    fig = sp.make_subplots(
-        rows=len(unique_regions),
-        cols=1,
-        shared_xaxes=True,
-        vertical_spacing=0.1,
-        subplot_titles=[f"{region.upper()}" for region in unique_regions],
-    )
-
     for i, region_abbrev in enumerate(unique_regions, start=1):
+        
+        fig = go.Figure()
+            
         region_abbrev = region_abbrev.upper()
         _jobs = [j for j in jobs if j.region == region_abbrev]
 
         times = get_random_overlapping_period(
-            [j.moers for j in _jobs], max_sample_period
+            [j.moers for j in _jobs], max_sample_period,
         )
 
         for _job in _jobs:
+                        
             fig.add_trace(
                 go.Scatter(
                     x=times,
-                    y=_job.moers.loc[times, "signal_value"].to_list(),
+                    y=_job.moers.loc[times]['signal_value'],
                     mode="lines",
                     name=_job.model_date,
                     line=dict(width=2),
-                    showlegend=(i == 1),
-                ),
-                row=i,
-                col=1,
+                    showlegend=True,
+                )
             )
 
-    # Update layout for the figure
-    fig.update_layout(
-        height=300
-        * len(
-            unique_regions
-        ),  # Adjust height dynamically regionsed on the number of regions
-        title="Data Sample Comparisons by Region",
-        yaxis_title=f"{jobs[0].signal_type}",
-        showlegend=True,
-        margin=dict(l=150, r=20, t=60, b=80),
-        xaxis=dict(
-            type="date",
-            tickformat="%Y-%m-%d %H:%M",
-            tickangle=45,
-            showgrid=True,
-        ),
-    )
+            # Update layout for the figure
+            fig.update_layout(
+                height=300,
+                yaxis=dict(
+                    title=f"{jobs[0].signal_type}",
+                    fixedrange=True  # Disable y-axis panning
+                ),
+                showlegend=True,
+                margin=dict(l=50, r=50, t=50, b=50),
+                xaxis=dict(
+                    type="date",
+                    tickformat="%Y-%m-%d %H:%M",
+                    tickangle=45,
+                    showgrid=True,
+                    range=[times.min(), times.min() + pd.Timedelta("7D")],  # Default 1-week view
+                ),
+            )
+        figs[region_abbrev] = fig
 
-    return fig
+    return figs
 
 
-def plot_distribution_moers(jobs: List[AnalysisDataHandler]):
+def plot_distribution_moers(jobs: List[AnalysisDataHandler]) -> Dict[str, go.Figure]:
     """
     Plot the distribution of old and new MOER values for each region, creating a stacked subplot.
 
@@ -174,15 +175,10 @@ def plot_distribution_moers(jobs: List[AnalysisDataHandler]):
     """
     # Create a figure with a subplot for each region, stacked vertically
     unique_regions = set([j.region for j in jobs])
-    fig = sp.make_subplots(
-        rows=len(unique_regions),
-        cols=1,
-        shared_xaxes=True,
-        vertical_spacing=0.2,
-        subplot_titles=[f"{region.upper()}" for region in unique_regions],
-    )
+    figs = {}
 
     for i, region_abbrev in enumerate(unique_regions, start=1):
+        fig = go.Figure()
         region_abbrev = region_abbrev.upper()
         _jobs = [j for j in jobs if j.region == region_abbrev]
         for _job in _jobs:
@@ -193,34 +189,30 @@ def plot_distribution_moers(jobs: List[AnalysisDataHandler]):
                     x=_job.moers["signal_value"].dropna(),
                     name=_job.model_date,
                     opacity=0.6,
-                ),
-                row=i,
-                col=1,
+                )
             )
 
-    # Update layout for the figure
-    fig.update_layout(
-        height=300
-        * len(
-            unique_regions
-        ),  # Adjust height dynamically regionsed on the number of regions
-        title=f"{jobs[0].signal_type} Distribution Comparisons by Region",
-        xaxis_title=f"{jobs[0].signal_type} Values",
-        showlegend=True,
-        margin=dict(l=150, r=20, t=60, b=80),
-        xaxis=dict(
-            type="linear",
-            tickangle=45,
-            showgrid=True,
-        ),
-        yaxis_visible=False,
-        yaxis_showticklabels=False,
-    )
+        # Update layout for the figure
+        fig.update_layout(
+            height=300,
+            xaxis_title=f"{jobs[0].signal_type} Values",
+            showlegend=True,
+            margin=dict(l=50, r=50, t=50, b=50),
+            xaxis=dict(
+                type="linear",
+                tickangle=45,
+                showgrid=True,
+            ),
+            yaxis_visible=False,
+            yaxis_showticklabels=False,
+        )
+        
+        figs[region_abbrev] = fig
 
-    return fig
+    return figs
 
 
-def plot_region_heatmaps(jobs: List[AnalysisDataHandler], colorscale="Cividis"):
+def plot_heatmaps(jobs: List[AnalysisDataHandler], colorscale="RdBu_r") -> Dict[str, go.Figure]:
     """
     Generate vertically stacked heatmaps for each region in the region_list.
 
@@ -231,68 +223,73 @@ def plot_region_heatmaps(jobs: List[AnalysisDataHandler], colorscale="Cividis"):
         plotly.graph_objects.Figure: Figure containing stacked heatmaps.
     """
 
-    jobs = sorted(jobs, key=attrgetter("region", "model_date"))
-
-    # Initialize a subplot with one row per region
-    fig = sp.make_subplots(
-        rows=len(jobs),
-        cols=1,
-        shared_xaxes=True,
-        subplot_titles=[f"{j.region} - {j.model_date}" for j in jobs],
-        vertical_spacing=0.2,
-    )
-
+    unique_regions = set([j.region for j in jobs])
+    figs = {}
+    
     # share upper and lower bounds between plots
-    zmin = 1e6
-    zmax = 0
-    for job in jobs:
-        jmin = job.moers["signal_value"].quantile(0.01)
-        jmax = job.moers["signal_value"].quantile(0.99)
+    # zmin = 1e6
+    # zmax = 0
+    # for job in jobs:
+    #     jmin = job.moers["signal_value"].quantile(0.01)
+    #     jmax = job.moers["signal_value"].quantile(0.99)
 
-        if jmin < zmin:
-            zmin = jmin
-        if jmax > zmax:
-            zmax = jmax
-
-    for i, _job in enumerate(jobs, start=1):
-        heat = _job.moers.assign(
-            month=_job.moers.index.month, hour=_job.moers.index.hour
-        )
-        heat = heat.dropna(subset=["signal_value"])
-        heat = (
-            heat.groupby(["month", "hour"])["signal_value"]
-            .mean()
-            .unstack(fill_value=np.nan)
-        )
-        heat.index = [
-            calendar.month_abbr[m] for m in heat.index
-        ]  # Map month numbers to month abbreviations
-
-        # Create a heatmap trace
-        heatmap_trace = go.Heatmap(
-            z=heat.values,
-            x=heat.columns,  # Hours
-            y=heat.index,  # Month abbreviations
-            zmin=zmin,
-            zmax=zmax,
-            colorscale=colorscale,
-            colorbar_title="MOER",
-            showscale=(i == 1),  # Show color scale only on the first heatmap
+    #     if jmin < zmin:
+    #         zmin = jmin
+    #     if jmax > zmax:
+    #         zmax = jmax
+            
+    for i, region_abbrev in enumerate(unique_regions, start=1):
+        region_abbrev = region_abbrev.upper()
+        _jobs = [j for j in jobs if j.region == region_abbrev]
+        
+        # Initialize a subplot with one row per region
+        fig = sp.make_subplots(
+            rows=len(_jobs),
+            cols=1,
+            shared_xaxes=True,
+            subplot_titles=[j.model_date for j in _jobs],
+            vertical_spacing=0.2,
         )
 
-        # Add the heatmap trace to the subplot
-        fig.add_trace(heatmap_trace, row=i, col=1)
+        for j, _job in enumerate(_jobs, start=1):
+            heat = _job.moers.assign(
+                month=_job.moers.index.month, hour=_job.moers.index.hour
+            )
+            heat = heat.dropna(subset=["signal_value"])
+            heat = (
+                heat.groupby(["month", "hour"])["signal_value"]
+                .mean()
+                .unstack(fill_value=np.nan)
+            )
+            heat.index = [
+                calendar.month_abbr[m] for m in heat.index
+            ]  # Map month numbers to month abbreviations
 
-    # Update layout
-    fig.update_layout(
-        height=500 * len(jobs),  # Adjust the height regionsed on the number of regions
-        title=f"Average {jobs[0].signal_type} by Month & Hour",
-        xaxis_title="Hour of Day",
-        yaxis_title="Month",
-        xaxis=dict(title="Hour of Day", tickmode="linear"),
-    )
+            # Create a heatmap trace
+            heatmap_trace = go.Heatmap(
+                z=heat.values,
+                x=heat.columns,  # Hours
+                y=heat.index,  # Month abbreviations
+                # zmin=zmin,
+                # zmax=zmax,
+                colorscale=colorscale,
+                colorbar_title=_job.signal_type,
+                showscale=True,  # Show color scale only on the first heatmap
+            )
 
-    return fig
+            # Add the heatmap trace to the subplot
+            fig.add_trace(heatmap_trace, row=j, col=1)
+
+        # Update layout
+        fig.update_layout(
+            height=300 * len(_jobs),  # Adjust the height regionsed on the number of regions
+            xaxis_title="Hour of Day",
+            yaxis_title="Month",
+            xaxis=dict(title="Hour of Day", tickmode="linear"),
+        )
+        figs[region_abbrev] = fig
+
+    return figs
 
 
 def calc_norm_mae(
@@ -428,31 +425,24 @@ def calc_rank_compare_metrics(
     return {
         "co2_reduction": round(co2_reduction, 1),
         "co2_potential": round(co2_potential, 1),
-    }
+    }        
 
 
-def plot_norm_mae(jobs: List[AnalysisDataHandler], horizons_hr=[1, 12, 24, 48, 72]):
+def plot_norm_mae(jobs: List[AnalysisDataHandler], horizons_hr=[1, 6, 12, 18, 24]) -> Dict[str, go.Figure]:
     """
     Create a Plotly bar chart for rank correlation by horizon with one subplot per region (abbrev).
     """
 
     # Create subplots
     unique_regions = set([j.region for j in jobs])
-    fig = sp.make_subplots(
-        rows=len(unique_regions),
-        cols=1,
-        shared_xaxes=True,
-        vertical_spacing=0.2,
-        subplot_titles=list(unique_regions),
-    )
-
     y_min = y_max = 0
-
+    figs = {}
+    
     # Iterate through each region and create a bar plot
     for i, region_abbrev in enumerate(unique_regions, start=1):
         region_abbrev = region_abbrev.upper()
+        fig = go.Figure()
         _jobs = [j for j in jobs if j.region == region_abbrev]
-
         x_values = [f"{h}hr" for h in horizons_hr]  # Add horizon labels
 
         for _job in _jobs:
@@ -469,31 +459,27 @@ def plot_norm_mae(jobs: List[AnalysisDataHandler], horizons_hr=[1, 12, 24, 48, 7
                     name=_job.model_date,
                     text=[f"{y:.1f}%" for y in y_values],  # Add text labels on bars
                     textposition="outside",
-                ),
-                row=i,
-                col=1,
+                )
             )
-    # Set uniform y-axis range for all subplots
-    fig.update_yaxes(range=[y_min - (0.25 * y_max), y_max + (0.25 * y_max)])
 
-    fig.update_layout(
-        height=300
-        * len(
-            unique_regions
-        ),  # Adjust figure height regionsed on the number of subplots
-        title_text="Normalized MAE by Horizon",
-        xaxis_title="Horizon",
-        yaxis_title="Normalized MAE (%)",
-        showlegend=True,  # Legends appear in individual subplot titles
-        margin=dict(l=50, r=50, t=50, b=50),
-        barmode="group",  # Ensure bars for each region are grouped
-    )
-    fig.update_xaxes(title_text="Horizon (Hours)", row=len(unique_regions), col=1)
+            fig.update_layout(
+                height=300,
+                xaxis_title="Horizon (Hours)",
+                yaxis_title="Normalized MAE (%)",
+                showlegend=True,  # Legends appear in individual subplot titles
+                margin=dict(l=50, r=50, t=50, b=50),
+                barmode="group",  # Ensure bars for each region are grouped
+            )
+            
+            figs[region_abbrev] = fig
 
-    return fig
+        for region, fig in figs.items():
+            figs[region] = fig.update_yaxes(range=[y_min - (0.25 * y_max), y_max + (0.25 * y_max)])
+
+    return figs
 
 
-def plot_rank_corr(jobs: List[AnalysisDataHandler], horizons_hr=[12, 24, 48, 72]):
+def plot_rank_corr(jobs: List[AnalysisDataHandler], horizons_hr=[1, 6, 12, 18, 24]) -> Dict[str, go.Figure]:
     """
     Create a Plotly line plot for rank correlation by horizon with one subplot per region (abbrev).
 
@@ -509,19 +495,12 @@ def plot_rank_corr(jobs: List[AnalysisDataHandler], horizons_hr=[12, 24, 48, 72]
 
     # Create subplots
     unique_regions = set([j.region for j in jobs])
-    fig = sp.make_subplots(
-        rows=len(unique_regions),
-        cols=1,
-        shared_xaxes=True,
-        vertical_spacing=0.2,
-        subplot_titles=list(unique_regions),
-    )
-
     y_min = y_max = 0
+    figs = {}
 
     # Iterate through each region and create a line plot
     for i, region_abbrev in enumerate(unique_regions, start=1):
-
+        fig = go.Figure()
         region_abbrev = region_abbrev.upper()
         _jobs = [j for j in jobs if j.region == region_abbrev]
 
@@ -540,32 +519,28 @@ def plot_rank_corr(jobs: List[AnalysisDataHandler], horizons_hr=[12, 24, 48, 72]
                 go.Bar(
                     x=x_values,
                     y=y_values,
-                    name=f"{_job.region} - {_job.model_date}",
+                    name=_job.model_date,
                     text=[f"{y:.3f}" for y in y_values],  # Add text labels on bars
                     textposition="outside",
-                ),
-                row=i,
-                col=1,
+                )
             )
+            
+        # Update layout
+        fig.update_layout(
+            height=300,
+            xaxis_title="Horizon (Hours)",
+            yaxis_title="Rank Correlation",
+            showlegend=True,
+            margin=dict(l=50, r=50, t=50, b=50),
+        )
+        
+        figs[region_abbrev] = fig
+    
+    for region, fig in figs.items():
+        # Set uniform y-axis range for all subplots
+        figs[region] = fig.update_yaxes(range=[y_min - (0.25 * y_max), y_max + (0.25 * y_max)])
 
-    # Set uniform y-axis range for all subplots
-    fig.update_yaxes(range=[y_min - (0.2 * y_max), y_max + (0.2 * y_max)])
-
-    # Update layout
-    fig.update_layout(
-        height=300
-        * len(unique_regions),  # Adjust figure height based on the number of subplots
-        title_text=f"Rank Correlation by Horizon",
-        xaxis_title="Horizon",
-        yaxis_title="Rank Correlation",
-        showlegend=True,  # Legends appear in individual subplot titles
-        margin=dict(l=50, r=50, t=50, b=50),
-    )
-
-    # Update x-axis for all subplots
-    fig.update_xaxes(title_text="Horizon (Hours)", row=len(unique_regions), col=1)
-
-    return fig
+    return figs
 
 
 # TODO: translate to local time for start windows?
@@ -592,141 +567,399 @@ def plot_impact_forecast_metrics(
     jobs: List[AnalysisDataHandler], scenarios=["EV-night", "EV-day", "Thermostat"]
 ):
 
-    # Create subplots
-    fig = sp.make_subplots(
-        rows=len(jobs),
-        cols=1,
-        shared_xaxes=True,
-        vertical_spacing=0.2,
-        subplot_titles=[f"{j.region} - {j.model_date}" for j in jobs],
-    )
+    unique_regions = set([j.region for j in jobs])
+    figs = {}
+    y_max = 0
 
-    # Iterate through each region and create bar plots
-    for i, _job in enumerate(jobs, start=1):
-
-        _metrics = [
-            {
-                **calc_rank_compare_metrics(_job.forecasts_v_moers, **AER_SCENARIOS[s]),
-                "scenario": s,
-            }
-            for s in scenarios
-        ]
-
-        _metrics = pd.DataFrame(_metrics)
-
-        # Add the 'co2_potential' bar trace
-        fig.add_trace(
-            go.Bar(
-                x=_metrics["scenario"],
-                y=_metrics["co2_potential"],
-                name=f"CO2 Potential Savings",  # Legend only in the first subplot
-                marker=dict(
-                    color="rgba(200, 200, 200, 0.8)"
-                ),  # Light gray for potential
-                hovertemplate="%{x}: %{y:.1f} lbs CO2/MWh<extra></extra>",
-            ),
-            row=i,
-            col=1,
+    for i, region_abbrev in enumerate(unique_regions, start=1):
+        
+        _jobs = [j for j in jobs if j.region == region_abbrev]
+        fig = sp.make_subplots(
+            rows=len(_jobs),
+            cols=1,
+            shared_xaxes=True,
+            subplot_titles=[j.model_date for j in jobs],
+            vertical_spacing=0.2,
         )
+        
+        # Iterate through each region and create bar plots
+        for j, _job in enumerate(_jobs, start=1):
 
-        # Add the 'co2_reduction' bar trace
-        fig.add_trace(
-            go.Bar(
-                x=_metrics["scenario"],
-                y=_metrics["co2_reduction"],
-                name="Forecast Achieved CO2 Savings",
-                text=[
-                    f"{(r / p) * 100:.1f}%"
-                    for r, p in zip(
-                        _metrics["co2_reduction"], _metrics["co2_potential"]
-                    )
-                ],
-                textposition="outside",
-                marker=dict(color="rgba(0, 128, 0, 0.8)"),  # Green for reduction
-                hovertemplate="%{x}: %{y:.1f} lbs CO2/MWh<extra></extra>",
-            ),
-            row=i,
-            col=1,
-        )
+            _metrics = [
+                {
+                    **calc_rank_compare_metrics(_job.forecasts_v_moers, **AER_SCENARIOS[s]),
+                    "scenario": s,
+                }
+                for s in scenarios
+            ]
 
-    # Update layout
-    fig.update_layout(
-        height=400 * len(jobs),  # Adjust figure height based on the number of subplots
-        title_text="Simulated CO2 Savings by AER Scenario and Region",
-        xaxis_title="Scenario",
-        yaxis_title="CO2 Savings (lbs/MWh)",
-        barmode="group",  # Grouped bars (side by side)
-        showlegend=True,  # Show legend
-        margin=dict(l=50, r=50, t=80, b=50),
-    )
+            _metrics = pd.DataFrame(_metrics)
 
-    # Update axes for all subplots
-    for i in range(1, len(jobs) + 1):
-        fig.update_xaxes(title_text="Scenario", row=i, col=1)
-        fig.update_yaxes(title_text="CO2 Savings (lbs/MWh)", row=i, col=1)
-
-    return fig
-
-fuel_cp = {
-    'coal': 'black',
-    'gas': 'brown',
-}
-
-def plot_sample_fuel_mix(jobs: List[AnalysisDataHandler], max_sample_period="7D"):
-
-    # sort jobs by region to group them together
-    jobs.sort(key=attrgetter("region"))
-
-    # Initialize a subplot with one row per region
-    fig = sp.make_subplots(
-        rows=len(jobs),
-        cols=1,
-        shared_xaxes=True,
-        subplot_titles=[f"{j.region} - {j.model_date}" for j in jobs],
-        vertical_spacing=0.2,
-    )
-
-    times = get_random_overlapping_period([j.fuel_mix for j in jobs], max_sample_period)
-
-    for i, _job in enumerate(jobs, start=1):
-
-        # Create cumulative values for stacking
-        stacked_values = _job.fuel_mix[_job.fuel_mix.index.isin(times)]
-        for j in range(1, len(stacked_values.columns)):
-            stacked_values.iloc[:, j] += stacked_values.iloc[:, j - 1]
-
-        # Add each fuel type as an area
-        for j, fuel in enumerate(_job.fuel_mix.columns):
+            # Add the 'co2_potential' bar trace
             fig.add_trace(
-                go.Scatter(
-                    x=stacked_values.index,
-                    y=stacked_values.iloc[:, j],
-                    fill="tonexty" if j > 0 else "tozeroy",
-                    mode="none",  # Hide lines to emphasize the filled area
-                    name=f"{_job.region} - {fuel}",
-                    fillcolor=fuel_cp[fuel],
+                go.Bar(
+                    x=_metrics["scenario"],
+                    y=_metrics["co2_potential"],
+                    name=f"CO2 Potential Savings",  # Legend only in the first subplot
+                    marker=dict(
+                        color="rgba(200, 200, 200, 0.8)"
+                    ),  # Light gray for potential
+                    hovertemplate="%{x}: %{y:.1f} lbs CO2/MWh<extra></extra>",
                 ),
-                row=i,
+                row=j,
                 col=1,
             )
 
-    # Update layout for the figure
-    fig.update_layout(
-        height=300 * len(jobs),  # Adjust height dynamically based on regions
-        title="Marginal Fuel Mix Data Sample Comparisons by Region",
-        yaxis_title=f"{jobs[0].signal_type}",
-        showlegend=True,
-        margin=dict(l=150, r=20, t=60, b=80),
-        xaxis=dict(
-            type="date",
-            tickformat="%Y-%m-%d %H:%M",
-            tickangle=45,
-            showgrid=True,
-        ),
+            # Add the 'co2_reduction' bar trace
+            fig.add_trace(
+                go.Bar(
+                    x=_metrics["scenario"],
+                    y=_metrics["co2_reduction"],
+                    name="Forecast Achieved",
+                    text=[
+                        f"{(r / p) * 100:.1f}%"
+                        for r, p in zip(
+                            _metrics["co2_reduction"], _metrics["co2_potential"]
+                        )
+                    ],
+                    textposition="outside",
+                    marker=dict(color="rgba(0, 128, 0, 0.8)"),  # Green for reduction
+                    hovertemplate="%{x}: %{y:.1f} lbs CO2/MWh<extra></extra>",
+                ),
+                row=j,
+                col=1,
+            )
+            
+            y_max = max(_metrics["co2_reduction"].max(), _metrics['co2_potential'].max(), y_max)
+
+        # Update layout
+        fig.update_layout(
+            height=300 * len(_jobs),
+            xaxis_title="Scenario",
+            yaxis_title="CO2 Savings (lbs/MWh)",
+            barmode="group",  # Grouped bars (side by side)
+            showlegend=True,  # Show legend
+            margin=dict(l=50, r=50, t=50, b=50),
+        )
+
+        # Update axes for all subplots
+        for i in range(1, len(jobs) + 1):
+            fig.update_xaxes(title_text="Scenario", row=i, col=1)
+            fig.update_yaxes(title_text="CO2 Savings (lbs/MWh)", row=i, col=1)
+            
+        figs[region_abbrev] = fig
+    
+    for region, fig in figs.items():
+        # Set uniform y-axis range for all subplots
+        figs[region] = fig.update_yaxes(range=[0, y_max + (0.25 * y_max)])
+
+    return figs
+
+
+def plot_sample_fuel_mix(jobs: List[AnalysisDataHandler], max_sample_period="30D") -> Dict[str, go.Figure]:
+
+    figs = {}
+    unique_regions = set([j.region for j in jobs])
+    times = get_random_overlapping_period([j.fuel_mix for j in jobs], max_sample_period)
+    for i, region_abbrev in enumerate(unique_regions, start=1):
+        _jobs = [j for j in jobs if j.region == region_abbrev]
+
+        # Initialize a subplot with one row per region
+        fig = sp.make_subplots(
+            rows=len(_jobs),
+            cols=1,
+            shared_xaxes=True,
+            subplot_titles=[j.model_date for j in jobs],
+            vertical_spacing=0.2,
+        )
+
+        for j, _job in enumerate(_jobs, start=1):
+            
+            stacked_values = _job.fuel_mix.loc[times]
+
+            # Create cumulative values for stacking
+            for k in range(1, len(stacked_values.columns)):
+                stacked_values.iloc[:, k] += stacked_values.iloc[:, k - 1]
+
+            # Add each fuel type as an area
+            for k, fuel in enumerate(_job.fuel_mix.columns):
+                fig.add_trace(
+                    go.Scatter(
+                        x=stacked_values.index,
+                        y=stacked_values.iloc[:, k],
+                        fill="tonexty" if j > 0 else "tozeroy",
+                        mode="none",  # Hide lines to emphasize the filled area
+                        name=fuel,
+                        fillcolor=fuel_cp[fuel],
+                    ),
+                    row=j,
+                    col=1,
+                )
+
+        # Update layout for the figure
+        fig.update_layout(
+            height=300 * len(_jobs),
+            yaxis=dict(
+                title=f"{jobs[0].signal_type}",
+                fixedrange=True  # Disable y-axis panning
+            ),
+            showlegend=True,
+            margin=dict(l=50, r=50, t=50, b=50),
+            xaxis=dict(
+                type="date",
+                tickformat="%Y-%m-%d %H:%M",
+                tickangle=45,
+                showgrid=True,
+                range=[times.min(), times.min() + pd.Timedelta("7D")],
+            ),
+        )
+        figs[region_abbrev] = fig
+
+    return figs
+
+
+def calc_max_potential(df, charge_mins, window_mins, window_starts=None, truth_col="signal_value"):
+    """Predict the maximum potential CO2 Savings, without any forecast to estimate the upper limit of impact from a given signal value."""
+    
+    if window_starts:
+        # Generate window ranges based on start times and duration
+        unique_dates = set(df.index.date)
+        window_ranges = []
+        for date in unique_dates:
+            for start_time in window_starts:
+                start = pd.Timestamp(f"{date} {start_time}")
+                end = start + pd.Timedelta(f"{window_mins} min")
+                window_ranges.append((start, end))
+        
+        # Assign each row to a window
+        def assign_window(row):
+            point_time = row.name.replace(tzinfo=None)
+            for start, end in window_ranges:
+                if point_time >= start and point_time < end:
+                    return start  # Label window by its start time
+            return pd.NaT
+        
+        df["window"] = df.apply(assign_window, axis=1)
+        
+    else:
+        def assign_rolling_window(row):
+            window_start = row.name.floor(f"{window_mins}T")
+            # window_end = window_start + pd.Timedelta(f"{window_mins} min")
+            return window_start
+        
+        df["window"] = df.apply(assign_rolling_window, axis=1)
+        
+    df = df.dropna(subset=["window"])
+    df = df.assign(
+        y_rank=df.groupby('window')[truth_col].rank(method='first')
     )
+    y_best_total = (
+        df[df["y_rank"] <= (charge_mins / 5)]
+        .groupby("window")[truth_col]
+        .mean()
+    )
+    y_avg_total = df.groupby("window")[truth_col].mean()
+    co2_potential = (y_avg_total - y_best_total).sum()
+    return {"co2_potential": round(co2_potential, 1)}
 
-    return fig
 
+def plot_max_impact_potential(jobs: List[AnalysisDataHandler], scenarios: List[str] = ["EV-night", "EV-day", "Thermostat"]):
+    unique_regions = set([j.region for j in jobs])
+    figs = {}
+    y_max = 0
+    for i, region_abbrev in enumerate(unique_regions, start=1):
+        _jobs = [j for j in jobs if j.region == region_abbrev]
+        region_abbrev = region_abbrev.upper()
+        fig = go.Figure()
+        
+        for j, _job in enumerate(_jobs, start=1):
+        
+            _metrics = [
+                {
+                    **calc_max_potential(_job.moers, **AER_SCENARIOS[s]),
+                    "scenario": s,
+                }
+                for s in scenarios
+            ]
+
+            _metrics = pd.DataFrame(_metrics)
+
+            # Add the 'co2_potential' bar trace
+            fig.add_trace(
+                go.Bar(
+                    x=_metrics["scenario"],
+                    y=_metrics["co2_potential"],
+                    name=_job.model_date,  # Legend only in the first subplot
+                    hovertemplate="%{x}: %{y:.1f} lbs CO2/MWh<extra></extra>",
+                )
+            )
+            
+            y_max = max(_metrics['co2_potential'].max(), y_max)
+        
+        figs[region_abbrev] = fig
+    
+    return figs
+
+
+def plot_fuelmix_heatmap(jobs: List[AnalysisDataHandler]):
+    def create_pivot_table(df, column):
+        df = df.assign(
+            month=df.index.month,
+            hour=df.index.hour
+        )
+        grouped = df.groupby(['month', 'hour'])[column].mean().reset_index()
+        pivot = grouped.pivot(index='month', columns='hour', values=column)
+        return pivot
+    
+    def create_buttons(column_names, num_subplots):
+        buttons = []
+        for i, name in enumerate(column_names):
+            # Create visibility array for all traces
+            visible = []
+            for j in range(num_subplots):
+                # For each subplot, make only the trace for current fuel type visible
+                for k in range(len(column_names)):
+                    visible.append(True if k == i else False)
+            
+            button = dict(
+                label=name,
+                method="update",
+                args=[{"visible": visible}]
+            )
+            buttons.append(button)
+        return buttons
+    
+    def make_alpha_gradient(hex_color, steps=20):
+        """Generate a Plotly colorscale with an alpha gradient from 0 to 1."""
+        rgba_colors = [
+            f'rgba{pc.hex_to_rgb(hex_color) + (alpha,)}'
+            for alpha in [i / (steps - 1) for i in range(steps)]
+        ]
+        return [[i / (steps - 1), rgba] for i, rgba in enumerate(rgba_colors)]
+    
+    unique_regions = set([j.region for j in jobs])
+    figs = {}
+    
+    for region_abbrev in unique_regions:
+        region_abbrev = region_abbrev.upper()
+        region_jobs = [j for j in jobs if j.region.upper() == region_abbrev]
+        
+        # We need to ensure all jobs have the same fuel types for the buttons to work
+        all_columns = set()
+        for job in region_jobs:
+            all_columns.update(job.fuel_mix.columns)
+        
+        # Create subplot titles with model dates
+        subplot_titles = [j.model_date for j in region_jobs]
+        
+        # Create subplots
+        fig = sp.make_subplots(
+            rows=len(region_jobs),
+            cols=1,
+            shared_xaxes=True,
+            subplot_titles=subplot_titles,
+        )
+        
+        all_columns_list = sorted(list(all_columns))  # Sort to ensure consistent order
+        
+        # Count the total number of traces we'll add
+        total_traces = len(region_jobs) * len(all_columns_list)
+        
+        # Track which trace index we're on
+        trace_idx = 0
+        
+        # Add traces for each job
+        for job_idx, job in enumerate(region_jobs, start=1):
+            for fuel_idx, fuel in enumerate(all_columns_list):
+                # Check if this fuel exists in the current job
+                if fuel in job.fuel_mix.columns:
+                    pivot = create_pivot_table(job.fuel_mix, fuel)
+                    
+                    # Determine visibility
+                    visible = (fuel_idx == 0)  # Only the first fuel type is visible by default
+                    
+                    # Add the heatmap trace for this fuel
+                    try:
+                        fuel_color = fuel_cp[fuel]  # Assuming fuel_cp is a color mapping dictionary
+                    except (NameError, KeyError):
+                        # If fuel_cp doesn't exist or doesn't have this fuel, use a default color
+                        import plotly.express as px
+                        colors = px.colors.qualitative.Plotly
+                        fuel_color = colors[fuel_idx % len(colors)]
+                    
+                    fig.add_trace(
+                        go.Heatmap(
+                            z=pivot.values,
+                            x=pivot.columns,
+                            y=pivot.index,
+                            colorscale=make_alpha_gradient(fuel_color),
+                            name=f"{fuel} ({job.model_date})",
+                            visible=visible,
+                            showscale=(job_idx == 1),  # Only show colorscale for the first job
+                            zmin=0, zmax=1,
+                        ),
+                        row=job_idx, col=1
+                    )
+                else:
+                    # Add an empty trace to maintain the correct index structure
+                    fig.add_trace(
+                        go.Heatmap(
+                            z=[[0]],
+                            x=[0],
+                            y=[0],
+                            visible=False,
+                            showscale=False,
+                            name=f"{fuel} ({job.model_date}) - missing"
+                        ),
+                        row=job_idx, col=1
+                    )
+                
+                trace_idx += 1
+        
+        # Add buttons that control visibility across all subplots
+        buttons = create_buttons(all_columns_list, len(region_jobs))
+        
+        # Month names mapping
+        month_names = {1: 'Jan', 2: 'Feb', 3: 'Mar', 4: 'Apr', 5: 'May', 6: 'Jun',
+                      7: 'Jul', 8: 'Aug', 9: 'Sep', 10: 'Oct', 11: 'Nov', 12: 'Dec'}
+        
+        # Update layout
+        fig.update_layout(
+            updatemenus=[
+                dict(
+                    type="buttons",
+                    direction="right",
+                    active=0,
+                    x=0.1,
+                    y=1.15,
+                    buttons=buttons
+                )
+            ],
+            height=300 * len(region_jobs),  # Adjust height based on number of jobs
+            xaxis_title="Hour of Day",
+        )
+        
+        # Update all y-axes to show month names
+        for i in range(1, len(region_jobs) + 1):
+            fig.update_yaxes(
+                title="Month",
+                tickvals=list(month_names.keys()),
+                ticktext=list(month_names.values()),
+                row=i, col=1
+            )
+            
+            # Update all x-axes
+            fig.update_xaxes(
+                title="Hour of Day" if i == len(region_jobs) else None,  # Only show title on bottom plot
+                tickmode="linear",
+                dtick=2,  # Show every 2 hours
+                row=i, col=1
+            )
+        
+        figs[region_abbrev] = fig
+    
+    return figs
+        
 
 def parse_report_command_line_args(sys_args):
     parser = argparse.ArgumentParser(
@@ -783,7 +1016,7 @@ def parse_report_command_line_args(sys_args):
         choices=["signal", "fuel_mix", "forecast"],
         help="Steps to run. Default is ['signal', 'fuel_mix', 'forecast'].",
     )
-    
+
     args = parser.parse_args(sys_args)
 
     now = datetime.now(timezone.utc)
@@ -796,32 +1029,28 @@ def parse_report_command_line_args(sys_args):
 
 
 PLOTS = {
-    "signal":[
-        plot_sample_moers,
-        plot_distribution_moers,
-        plot_region_heatmaps
-    ],
-    "fuel_mix":[
-        plot_sample_fuel_mix
-    ],
-    "forecast":[
-        plot_norm_mae,
-        plot_rank_corr,
-        plot_impact_forecast_metrics
-    ]
+    "signal": [plot_sample_moers, plot_distribution_moers, plot_heatmaps, plot_max_impact_potential],
+    "fuel_mix": [plot_sample_fuel_mix, plot_fuelmix_heatmap],
+    "forecast": [plot_norm_mae, plot_rank_corr, plot_impact_forecast_metrics],
 }
 
 
-def run_report_notebook(
+def generate_report(
     region_list: List[str],
     model_date_list: List[str],
     signal_type: str,
     eval_start: datetime,
     eval_end: datetime,
     output_dir: Path,
-    steps: Literal["signal", "fuel_mix", "forecast"] = ["signal", "fuel_mix", "forecast"],
+    steps: Literal["signal", "fuel_mix", "forecast"] = [
+        "signal",
+        "fuel_mix",
+        "forecast",
+    ],
 ):
-    filename = f"{signal_type}_{'&'.join(region_list)}_{'&'.join(model_date_list)}_model_stats"
+    filename = (
+        f"{signal_type}_{'&'.join(region_list)}_{'&'.join(model_date_list)}_model_stats"
+    )
 
     # run notebook
     output_path = output_dir / f"{filename}.html"
@@ -839,24 +1068,65 @@ def run_report_notebook(
     for step in steps:
         for plot_func in PLOTS[step]:
             _plot = plot_func(f.data_handlers)
-            plotly_html[plot_func.__name__] = _plot.to_html(full_html=False, include_plotlyjs=False)
+            
+            if isinstance(_plot, dict):
+                plotly_html[plot_func.__name__] = {}
+                for region_abbrev, _p in _plot.items():
+                    # for trace in _p.data:
+                    #     trace.x = [t.strftime("%Y-%m-%d %H:%M") for t in trace.x]  # Keep only date and hour-minute
+                    #     trace.y = [round(y, 3) for y in trace.y]  # Reduce decimal places
+                        
+                    plotly_html[plot_func.__name__][region_abbrev] = _p.to_html(
+                        full_html=False, include_plotlyjs=False
+                    )
+            else:
+                assert isinstance(_plot, go.Figure)
+                
+                # reduce datatype precision in plot
+                # for trace in _plot.data:
+                #     trace.x = [t.strftime("%Y-%m-%d %H:%M") for t in trace.x]  # Keep only date and hour-minute
+                #     trace.y = [round(y, 3) for y in trace.y]  # Reduce decimal places
+                
+                plotly_html[plot_func.__name__] = _plot.to_html(
+                        full_html=False, include_plotlyjs=False
+                )
+                
+    plotly_html['report_input_dict'] = json.dumps(
+        dict(
+            region_list=region_list,
+            model_date_list=model_date_list,
+            signal_type=signal_type,
+            eval_start=str(eval_start),
+            eval_end=str(eval_end),
+            steps=steps
+        ), indent=4
+    )
+    
+    plotly_html['collected_model_meta'] = json.dumps(f.collected_model_meta, indent=4)
 
     with open(output_path, "w", encoding="utf-8") as output_file:
         with open(input_template_path) as template_file:
             j2_template = Template(template_file.read())
-            output_file.write(j2_template.render(plotly_html))
+            output_file.write(
+                j2_template.render(
+                    plotly_html,
+                    show_signal="signal" in steps,
+                    show_fuel_mix="fuel_mix" in steps,
+                    show_forecast="forecast" in steps,
+                )
+            )
 
 
 if __name__ == "__main__":
 
     cli_args = parse_report_command_line_args(sys.argv[1:])
 
-    run_report_notebook(
+    generate_report(
         region_list=cli_args.region_list,
         model_date_list=cli_args.models,
         signal_type=cli_args.signal_type,
         eval_start=cli_args.start,
         eval_end=cli_args.end,
         output_dir=Path(cli_args.output_dir),
-        steps=cli_args.steps
+        steps=cli_args.steps,
     )

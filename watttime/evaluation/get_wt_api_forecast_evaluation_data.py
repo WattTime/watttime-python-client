@@ -109,7 +109,7 @@ class AnalysisDataHandler:
         )
 
         self.returned_meta = self.wt_hist._last_request_meta
-        self.returned_hist_model_date = self.wt_hist._last_request_meta["model"]["date"]
+        self.returned_hist_model_date = self.wt_hist._last_request_meta.get("model", {}).get("date", None)
         return moers
 
     @cached_property
@@ -131,9 +131,7 @@ class AnalysisDataHandler:
             ).dt.total_seconds() / 60
             forecasts.rename({"value": "predicted_value"}, axis="columns", inplace=True)
             self.returned_meta = self.wt_forecast._last_request_meta
-            self.returned_forecast_model_date = self.wt_forecast._last_request_meta[
-                "model"
-            ]["date"]
+            self.returned_forecast_model_date = self.wt_forecast._last_request_meta.get("model", {}).get("date", None)
             return forecasts
 
     @cached_property
@@ -150,7 +148,7 @@ class AnalysisDataHandler:
         )
 
         self.returned_meta = self.wt_fuel_mix._last_request_meta
-        # self.returned_fuel_mix_model_date = self.wt_fuel_mix._last_request_meta["model"]["date"]
+        self.returned_fuel_mix_model_date = self.wt_fuel_mix._last_request_meta.get("model", {}).get("date", None)
         return fm
 
     def moer_v_fuel_mix(self):
@@ -237,3 +235,15 @@ class DataHandlerFactory:
     def yield_datahandlers(self) -> AnalysisDataHandler:
         for dh in self.data_handlers:
             yield dh
+            
+    @property
+    def collected_model_meta(self):
+        return [
+            {
+                "region": dh.region,
+                "requested_model_date": dh.model_date,
+                "returned_hist_model_date": getattr(dh, "returned_hist_model_date", None),
+                "returned_fuel_mix_model_date": getattr(dh, "returned_fuel_mix_model_date", None),
+                "returned_forecast_model_date": getattr(dh, "returned_forecast_model_date", None),
+            } for dh in self.data_handlers
+        ]

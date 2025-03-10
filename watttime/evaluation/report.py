@@ -84,24 +84,12 @@ def get_random_overlapping_period(dfs, max_period="30D", resample_freq="1H"):
         else:
             raise ValueError("No common overlap found among the provided DataFrames.")
 
-    # Otherwise, select a random period within the overlapping range
-    max_attempts = 10
-    attempts = 0
-    while attempts < max_attempts:
-        random_start_time = pd.Timestamp(
-            np.random.choice(
-                pd.date_range(start_overlap, end_overlap - max_timedelta, freq=resample_freq)
-            )
-        )
-        random_end_time = random_start_time + max_timedelta
-        overlap_range = pd.date_range(
-            start=random_start_time, end=random_end_time, freq=resample_freq
-        )
-        # Check if all indices exist in both DataFrames
-        if all(overlap_range.isin(df.index).all() for df in dfs):
-            return overlap_range
-        attempts += 1
-    raise ValueError(f"No common overlap found after {max_attempts} attempts.")
+    # Otherwise, return the first overlap range that satisfies the max_period
+    overlap_range = pd.date_range(
+        start=start_overlap, end=start_overlap + max_timedelta, freq=resample_freq
+    )
+    assert all(df.index.isin(overlap_range).all() for df in dfs)
+    return overlap_range
 
 
 def plot_sample_moers(jobs: List[AnalysisDataHandler], max_sample_period="30D") -> Dict[str, go.Figure]:
@@ -212,48 +200,33 @@ def plot_distribution_moers(jobs: List[AnalysisDataHandler]) -> Dict[str, go.Fig
     return figs
 
 
-def plot_heatmaps(jobs: List[AnalysisDataHandler], colorscale="RdBu_r") -> Dict[str, go.Figure]:
+def plot_heatmaps(jobs: List[AnalysisDataHandler], colorscale="Oranges") -> Dict[str, go.Figure]:
     """
-    Generate vertically stacked heatmaps for each region in the region_list.
-
+    Generate vertically stacked heatmaps for each region, with each heatmap having its own colorscale.
     Args:
-        jobs (list): List of AnalysisDataHandler objects with a .moers atribute.
-
+        jobs (list): List of AnalysisDataHandler objects with a .moers attribute.
     Returns:
-        plotly.graph_objects.Figure: Figure containing stacked heatmaps.
+        Dict[str, go.Figure]: A dictionary mapping region abbreviations to their heatmap figures.
     """
-
     unique_regions = set([j.region for j in jobs])
     figs = {}
     
-    # share upper and lower bounds between plots
-    # zmin = 1e6
-    # zmax = 0
-    # for job in jobs:
-    #     jmin = job.moers["signal_value"].quantile(0.01)
-    #     jmax = job.moers["signal_value"].quantile(0.99)
-
-    #     if jmin < zmin:
-    #         zmin = jmin
-    #     if jmax > zmax:
-    #         zmax = jmax
-            
-    for i, region_abbrev in enumerate(unique_regions, start=1):
+    for region_abbrev in unique_regions:
         region_abbrev = region_abbrev.upper()
-        _jobs = [j for j in jobs if j.region == region_abbrev]
+        region_jobs = [j for j in jobs if j.region.upper() == region_abbrev]
         
-        # Initialize a subplot with one row per region
+        # Initialize a subplot with one row per job
         fig = sp.make_subplots(
-            rows=len(_jobs),
+            rows=len(region_jobs),
             cols=1,
             shared_xaxes=True,
-            subplot_titles=[j.model_date for j in _jobs],
-            vertical_spacing=0.2,
+            subplot_titles=[j.model_date for j in region_jobs],
+            vertical_spacing=0.1,  # Reduced spacing for better alignment
         )
-
-        for j, _job in enumerate(_jobs, start=1):
-            heat = _job.moers.assign(
-                month=_job.moers.index.month, hour=_job.moers.index.hour
+        
+        for j, job in enumerate(region_jobs, start=1):
+            heat = job.moers.assign(
+                month=job.moers.index.month, hour=job.moers.index.hour
             )
             heat = heat.dropna(subset=["signal_value"])
             heat = (
@@ -261,34 +234,43 @@ def plot_heatmaps(jobs: List[AnalysisDataHandler], colorscale="RdBu_r") -> Dict[
                 .mean()
                 .unstack(fill_value=np.nan)
             )
-            heat.index = [
-                calendar.month_abbr[m] for m in heat.index
-            ]  # Map month numbers to month abbreviations
-
-            # Create a heatmap trace
+            heat.index = [calendar.month_abbr[m] for m in heat.index]  
+            
             heatmap_trace = go.Heatmap(
                 z=heat.values,
-                x=heat.columns,  # Hours
-                y=heat.index,  # Month abbreviations
-                # zmin=zmin,
-                # zmax=zmax,
+                x=heat.columns,
+                y=heat.index,
                 colorscale=colorscale,
-                colorbar_title=_job.signal_type,
-                showscale=True,  # Show color scale only on the first heatmap
+                colorbar_title=None,
+                showscale=True,
+                colorbar=dict(
+                    yanchor="middle",
+                    y=0.5,
+                    len=0.9,
+                    thickness=20,
+                    title=dict(side="right")
+                ),
             )
-
-            # Add the heatmap trace to the subplot
+            
             fig.add_trace(heatmap_trace, row=j, col=1)
-
-        # Update layout
+            
+            fig.update_yaxes(title_text="Month", row=j, col=1)
+            if j == len(region_jobs):  # Only add x-axis title to bottom subplot
+                fig.update_xaxes(title_text="Hour of Day", row=j, col=1)
+        
         fig.update_layout(
-            height=300 * len(_jobs),  # Adjust the height regionsed on the number of regions
-            xaxis_title="Hour of Day",
-            yaxis_title="Month",
-            xaxis=dict(title="Hour of Day", tickmode="linear"),
+            height=250 * len(region_jobs),  # Adjust height per subplot
+            margin=dict(r=100),  # Add right margin for colorbars
+            # title=f"{region_abbrev} Heat Maps"
         )
+        
+        # Update colorbar positions to align with subplots
+        for i, trace in enumerate(fig.data):
+            trace.colorbar.y = 1 - (2*i + 1)/(2*len(region_jobs))
+            trace.colorbar.len = 1/len(region_jobs) * 0.9
+            
         figs[region_abbrev] = fig
-
+        
     return figs
 
 
@@ -328,6 +310,7 @@ def calc_rank_compare_metrics(
     window_starts=None,
     pred_col="predicted_value",
     truth_col="signal_value",
+    load_kw=1000,
 ):
     """
     Calculate rank_compare metrics: co2_reduction, co2_potential, co2_pct.
@@ -385,6 +368,10 @@ def calc_rank_compare_metrics(
 
     # Drop rows outside any window
     df = df.dropna(subset=["window"])
+    
+    # Normalize units from 1 MWh to actual load
+    df[pred_col]*= (load_kw / 1000)
+    df[truth_col]*= (load_kw / 1000)
 
     df["y_rank"] = df.groupby(["window", "generated_at"])[truth_col].rank(
         method="first"
@@ -415,12 +402,6 @@ def calc_rank_compare_metrics(
     # Calculate savings: co2_reduction, co2_potential
     co2_reduction = (y_avg_total - y_actual_total).mean()  # actual savings
     co2_potential = (y_avg_total - y_best_total).mean()  # ideal savings
-    # co2_pct = (co2_reduction / co2_potential) * 100. # actual / ideal; % savings realized
-
-    # if co2_potential != 0:
-    #     co2_pct = (co2_reduction / co2_potential) * 100.
-    # else:
-    #     co2_pct = 100. if co2_reduction == 0 else 0  # Handle the edge case when moers are flat
 
     return {
         "co2_reduction": round(co2_reduction, 1),
@@ -549,16 +530,19 @@ AER_SCENARIOS = {
         "charge_mins": 3 * 60,
         "window_mins": 12 * 60,
         "window_starts": ["19:00"],
+        "load_kw": 19
     },
     "EV-day": {
         "charge_mins": 2 * 60,
         "window_mins": 8 * 60,
         "window_starts": ["09:00"],
+        "load_kw": 19
     },
     "Thermostat": {
         "charge_mins": 30,
         "window_mins": 60,
         "window_starts": None,
+        "load_kw": 3 # typical AC
     },
 }
 
@@ -656,7 +640,7 @@ def plot_impact_forecast_metrics(
     return figs
 
 
-def plot_sample_fuel_mix(jobs: List[AnalysisDataHandler], max_sample_period="30D") -> Dict[str, go.Figure]:
+def plot_sample_fuelmix(jobs: List[AnalysisDataHandler], max_sample_period="30D") -> Dict[str, go.Figure]:
 
     figs = {}
     unique_regions = set([j.region for j in jobs])
@@ -718,7 +702,7 @@ def plot_sample_fuel_mix(jobs: List[AnalysisDataHandler], max_sample_period="30D
     return figs
 
 
-def calc_max_potential(df, charge_mins, window_mins, window_starts=None, truth_col="signal_value"):
+def calc_max_potential(df, charge_mins, window_mins, window_starts=None, truth_col="signal_value", load_kw=1000):
     """Predict the maximum potential CO2 Savings, without any forecast to estimate the upper limit of impact from a given signal value."""
     
     if window_starts:
@@ -753,6 +737,8 @@ def calc_max_potential(df, charge_mins, window_mins, window_starts=None, truth_c
     df = df.assign(
         y_rank=df.groupby('window')[truth_col].rank(method='first')
     )
+    
+    df[truth_col] *= (load_kw / 1000)
     y_best_total = (
         df[df["y_rank"] <= (charge_mins / 5)]
         .groupby("window")[truth_col]
@@ -781,7 +767,7 @@ def plot_max_impact_potential(jobs: List[AnalysisDataHandler], scenarios: List[s
                 }
                 for s in scenarios
             ]
-
+            
             _metrics = pd.DataFrame(_metrics)
 
             # Add the 'co2_potential' bar trace
@@ -807,8 +793,18 @@ def plot_fuelmix_heatmap(jobs: List[AnalysisDataHandler]):
             month=df.index.month,
             hour=df.index.hour
         )
-        grouped = df.groupby(['month', 'hour'])[column].mean().reset_index()
-        pivot = grouped.pivot(index='month', columns='hour', values=column)
+        
+        if column not in df.columns:
+            # Create a zero-filled DataFrame with the expected shape
+            pivot = pd.DataFrame(
+                0, 
+                index=range(1, 13),  # Months 1-12
+                columns=range(24)  # Hours 0-23
+            )
+        else:
+            grouped = df.groupby(['month', 'hour'])[column].mean().reset_index()
+            pivot = grouped.pivot(index='month', columns='hour', values=column)
+        
         return pivot
     
     def create_buttons(column_names, num_subplots):
@@ -829,12 +825,13 @@ def plot_fuelmix_heatmap(jobs: List[AnalysisDataHandler]):
             buttons.append(button)
         return buttons
     
-    def make_alpha_gradient(hex_color, steps=20):
-        """Generate a Plotly colorscale with an alpha gradient from 0 to 1."""
-        rgba_colors = [
-            f'rgba{pc.hex_to_rgb(hex_color) + (alpha,)}'
-            for alpha in [i / (steps - 1) for i in range(steps)]
-        ]
+    def make_alpha_gradient(hex_color, steps=10):
+        rgba_colors = []
+        
+        for i in range(steps):
+            alpha = 0 if i == 0 else min(1, (i / (steps / 1.25)))
+            rgba_colors.append(f'rgba{pc.hex_to_rgb(hex_color) + (alpha,)}')
+        
         return [[i / (steps - 1), rgba] for i, rgba in enumerate(rgba_colors)]
     
     unique_regions = set([j.region for j in jobs])
@@ -862,57 +859,26 @@ def plot_fuelmix_heatmap(jobs: List[AnalysisDataHandler]):
         
         all_columns_list = sorted(list(all_columns))  # Sort to ensure consistent order
         
-        # Count the total number of traces we'll add
-        total_traces = len(region_jobs) * len(all_columns_list)
-        
-        # Track which trace index we're on
         trace_idx = 0
         
         # Add traces for each job
         for job_idx, job in enumerate(region_jobs, start=1):
             for fuel_idx, fuel in enumerate(all_columns_list):
-                # Check if this fuel exists in the current job
-                if fuel in job.fuel_mix.columns:
-                    pivot = create_pivot_table(job.fuel_mix, fuel)
-                    
-                    # Determine visibility
-                    visible = (fuel_idx == 0)  # Only the first fuel type is visible by default
-                    
-                    # Add the heatmap trace for this fuel
-                    try:
-                        fuel_color = fuel_cp[fuel]  # Assuming fuel_cp is a color mapping dictionary
-                    except (NameError, KeyError):
-                        # If fuel_cp doesn't exist or doesn't have this fuel, use a default color
-                        import plotly.express as px
-                        colors = px.colors.qualitative.Plotly
-                        fuel_color = colors[fuel_idx % len(colors)]
-                    
-                    fig.add_trace(
-                        go.Heatmap(
-                            z=pivot.values,
-                            x=pivot.columns,
-                            y=pivot.index,
-                            colorscale=make_alpha_gradient(fuel_color),
-                            name=f"{fuel} ({job.model_date})",
-                            visible=visible,
-                            showscale=(job_idx == 1),  # Only show colorscale for the first job
-                            zmin=0, zmax=1,
-                        ),
-                        row=job_idx, col=1
-                    )
-                else:
-                    # Add an empty trace to maintain the correct index structure
-                    fig.add_trace(
-                        go.Heatmap(
-                            z=[[0]],
-                            x=[0],
-                            y=[0],
-                            visible=False,
-                            showscale=False,
-                            name=f"{fuel} ({job.model_date}) - missing"
-                        ),
-                        row=job_idx, col=1
-                    )
+                pivot = create_pivot_table(job.fuel_mix, fuel)
+
+                fig.add_trace(
+                    go.Heatmap(
+                        z=pivot.values,
+                        x=pivot.columns,
+                        y=pivot.index,
+                        colorscale=make_alpha_gradient(fuel_cp[fuel], steps=10),
+                        name=f"{fuel} ({job.model_date})",
+                        visible=(fuel_idx == 0),
+                        showscale=False,  # Only show colorscale for the first job
+                        zmin=0, zmax=1,
+                    ),
+                    row=job_idx, col=1
+                )
                 
                 trace_idx += 1
         
@@ -930,12 +896,13 @@ def plot_fuelmix_heatmap(jobs: List[AnalysisDataHandler]):
                     type="buttons",
                     direction="right",
                     active=0,
-                    x=0.1,
-                    y=1.15,
+                    x=0,
+                    xanchor="left",
+                    y=-0.15,
                     buttons=buttons
                 )
             ],
-            height=300 * len(region_jobs),  # Adjust height based on number of jobs
+            height=(300 * len(region_jobs)) + 50,  # Adjust height based on number of jobs
             xaxis_title="Hour of Day",
         )
         
@@ -1030,7 +997,7 @@ def parse_report_command_line_args(sys_args):
 
 PLOTS = {
     "signal": [plot_sample_moers, plot_distribution_moers, plot_heatmaps, plot_max_impact_potential],
-    "fuel_mix": [plot_sample_fuel_mix, plot_fuelmix_heatmap],
+    "fuel_mix": [plot_sample_fuelmix, plot_fuelmix_heatmap],
     "forecast": [plot_norm_mae, plot_rank_corr, plot_impact_forecast_metrics],
 }
 

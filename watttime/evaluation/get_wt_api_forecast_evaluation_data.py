@@ -1,4 +1,4 @@
-from typing import Optional, List, Union
+from typing import Optional, List, Union, Dict
 from datetime import datetime
 import inspect
 import warnings
@@ -54,7 +54,7 @@ class AnalysisDataHandler:
     region: str
     eval_start: Union[datetime, str]
     eval_end: Union[datetime, str]
-    forecast_sample_size: Union[int, float] = 1
+    forecast_sample_size: Union[int, float] = 0.1
     forecast_max_horizon: int = 60 * 24
     forecast_sample_seed: int = 42
     signal_type: str = "co2_moer"
@@ -122,6 +122,8 @@ class AnalysisDataHandler:
 
         if self.localize_tz:
             moers.index = moers.index.tz_convert(self.tz)
+            
+        moers = moers.sort_index()
         
         self.returned_meta = self.wt_hist._last_request_meta
         self.returned_hist_model_date = self.wt_hist._last_request_meta.get("model", {}).get("date", None)
@@ -174,7 +176,7 @@ class AnalysisDataHandler:
         self.returned_fuel_mix_model_date = self.wt_fuel_mix._last_request_meta.get("model", {}).get("date", None)
         return fm
 
-    def moer_v_fuel_mix(self):
+    def moer_v_fuel_mix(self) -> pd.DataFrame:
         return self.moers.merge(
             self.fuel_mix,
             how="inner",
@@ -270,3 +272,10 @@ class DataHandlerFactory:
                 "returned_forecast_model_date": getattr(dh, "returned_forecast_model_date", None),
             } for dh in self.data_handlers
         ]
+    
+    @property
+    def data_handlers_by_region_dict(self) -> Dict[str, List[AnalysisDataHandler]]:
+        unique_regions = list(set([dh.region for dh in self.data_handlers]))
+        out = {region: [dh for dh in self.data_handlers if dh.region == region] for region in unique_regions}
+        out = {k: sorted(v, key=lambda x: x.model_date, reverse=True) for k, v in out.items()}
+        return out

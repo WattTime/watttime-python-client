@@ -88,7 +88,7 @@ def get_random_overlapping_period(dfs, max_period="30D", resample_freq="1H"):
     return overlap_range
 
 
-def plot_sample_moers(jobs: List[AnalysisDataHandler], max_sample_period="30D") -> Dict[str, go.Figure]:
+def plot_sample_moers(factory: DataHandlerFactory, max_sample_period="30D") -> Dict[str, go.Figure]:
     """
     Plot a sample of old and new MOER values over time, creating a subplot for each unique region.
 
@@ -100,17 +100,10 @@ def plot_sample_moers(jobs: List[AnalysisDataHandler], max_sample_period="30D") 
     """
 
     figs = {}
-    unique_regions = set([j.region for j in jobs])
-    for region_abbrev in unique_regions:
+    times = get_random_overlapping_period([j.moers for j in factory.data_handlers], max_sample_period)
+    for region_abbrev, region_models in factory.data_handlers_by_region_dict.items():
         
         fig = go.Figure()
-            
-        region_abbrev = region_abbrev.upper()
-        region_models = [j for j in jobs if j.region == region_abbrev]
-
-        times = get_random_overlapping_period(
-            [j.moers for j in region_models], max_sample_period,
-        )
 
         for model_job in region_models:
                         
@@ -129,7 +122,7 @@ def plot_sample_moers(jobs: List[AnalysisDataHandler], max_sample_period="30D") 
             fig.update_layout(
                 height=300,
                 yaxis=dict(
-                    title=f"{jobs[0].signal_type}",
+                    title=f"{model_job.signal_type}",
                     fixedrange=True  # Disable y-axis panning
                 ),
                 showlegend=True,
@@ -147,7 +140,7 @@ def plot_sample_moers(jobs: List[AnalysisDataHandler], max_sample_period="30D") 
     return figs
 
 
-def plot_distribution_moers(jobs: List[AnalysisDataHandler]) -> Dict[str, go.Figure]:
+def plot_distribution_moers(factory: DataHandlerFactory) -> Dict[str, go.Figure]:
     """
     Plot the distribution of old and new MOER values for each region, creating a stacked subplot.
 
@@ -158,13 +151,10 @@ def plot_distribution_moers(jobs: List[AnalysisDataHandler]) -> Dict[str, go.Fig
         plotly.graph_objects.Figure: A Plotly figure with stacked subplots of distributions.
     """
     # Create a figure with a subplot for each region, stacked vertically
-    unique_regions = set([j.region for j in jobs])
     figs = {}
 
-    for region_abbrev in unique_regions:
+    for region_abbrev, region_models in factory.data_handlers_by_region_dict.items():
         fig = go.Figure()
-        region_abbrev = region_abbrev.upper()
-        region_models = [j for j in jobs if j.region == region_abbrev]
         for model_job in region_models:
 
             # Add a histogram trace for the new MOER distribution
@@ -179,7 +169,7 @@ def plot_distribution_moers(jobs: List[AnalysisDataHandler]) -> Dict[str, go.Fig
         # Update layout for the figure
         fig.update_layout(
             height=300,
-            xaxis_title=f"{jobs[0].signal_type} Values",
+            xaxis_title=f"{region_models[0].signal_type} Values",
             showlegend=True,
             margin=dict(l=50, r=50, t=50, b=50),
             xaxis=dict(
@@ -196,7 +186,7 @@ def plot_distribution_moers(jobs: List[AnalysisDataHandler]) -> Dict[str, go.Fig
     return figs
 
 
-def plot_heatmaps(jobs: List[AnalysisDataHandler], colorscale="Oranges") -> Dict[str, go.Figure]:
+def plot_heatmaps(factory: DataHandlerFactory, colorscale="Oranges") -> Dict[str, go.Figure]:
     """
     Generate vertically stacked heatmaps for each region, with each heatmap having its own colorscale.
     Args:
@@ -204,23 +194,19 @@ def plot_heatmaps(jobs: List[AnalysisDataHandler], colorscale="Oranges") -> Dict
     Returns:
         Dict[str, go.Figure]: A dictionary mapping region abbreviations to their heatmap figures.
     """
-    unique_regions = set([j.region for j in jobs])
-    figs = {}
-    
-    for region_abbrev in unique_regions:
-        region_abbrev = region_abbrev.upper()
-        region_jobs = [j for j in jobs if j.region.upper() == region_abbrev]
+    figs = {}    
+    for region_abbrev, region_models in factory.data_handlers_by_region_dict.items():
         
         # Initialize a subplot with one row per job
         fig = sp.make_subplots(
-            rows=len(region_jobs),
+            rows=len(region_models),
             cols=1,
             shared_xaxes=True,
-            subplot_titles=[j.model_date for j in region_jobs],
+            subplot_titles=[j.model_date for j in region_models],
             vertical_spacing=0.1,  # Reduced spacing for better alignment
         )
         
-        for j, job in enumerate(region_jobs, start=1):
+        for j, job in enumerate(region_models, start=1):
             heat = job.moers.assign(
                 month=job.moers.index.month, hour=job.moers.index.hour
             )
@@ -251,19 +237,19 @@ def plot_heatmaps(jobs: List[AnalysisDataHandler], colorscale="Oranges") -> Dict
             fig.add_trace(heatmap_trace, row=j, col=1)
             
             fig.update_yaxes(title_text="Month", row=j, col=1)
-            if j == len(region_jobs):  # Only add x-axis title to bottom subplot
+            if j == len(region_models):  # Only add x-axis title to bottom subplot
                 fig.update_xaxes(title_text="Hour of Day", row=j, col=1)
         
         fig.update_layout(
-            height=300 * len(region_jobs),  # Adjust height per subplot
+            height=300 * len(region_models),  # Adjust height per subplot
             margin=dict(r=100),  # Add right margin for colorbars
             # title=f"{region_abbrev} Heat Maps"
         )
         
         # Update colorbar positions to align with subplots
         for model_ix, trace in enumerate(fig.data):
-            trace.colorbar.y = 1 - (2*model_ix + 1)/(2*len(region_jobs))
-            trace.colorbar.len = 1/len(region_jobs) * 0.9
+            trace.colorbar.y = 1 - (2*model_ix + 1)/(2*len(region_models))
+            trace.colorbar.len = 1/len(region_models) * 0.9
             
         figs[region_abbrev] = fig
         
@@ -298,6 +284,48 @@ def calc_rank_corr(
 
     return np.nanmean(corr).round(3)
 
+def simulate_charge(df: pd.DataFrame, sort_col: str, charge_mins: int):
+    
+    assert sort_col in df.columns
+    include_generated_at = "generated_at" in df.index.names
+    
+    df = df.sort_index(ascending=True)
+    df['rank'] = df.groupby(["window_start"] + (["generated_at"] if include_generated_at else []))[sort_col].rank(ascending=True, method='first')
+    charge_needed = charge_mins // 5
+    df = df.assign(charge_status=False)
+    for w in df.groupby("window_start"):
+        _, w_df = w
+        
+        # STATEFULLNESS HEURISTIC: point_time must be equal to generate_at
+        # TODO: really this should be "less then the next generated_at" in the case
+        # that point_time and generated_at are not available for every 5 mins
+        if include_generated_at:
+            w_df = w_df.loc[w_df.index.get_level_values('point_time') == w_df.index.get_level_values('generated_at')]
+        
+        # STATEFULLNESS HEURISTIC: Take charging periods iteratively,
+        # at each step only consider if rank of value is less than charge_needed
+        # e.g. charge_needed diminishes overtime
+        w_df = w_df.sort_values((["generated_at"] if include_generated_at else []) +['rank'], ascending=True)
+        charge_periods = []
+        _charge_needed = charge_needed
+        while (_charge_needed > 0) and (len(w_df) > 0):
+            # charging conditions:
+            # 1) currently point_time is in the lowest periods (according to n periods from _charge_needed)
+            # 2) there are not enough times in the df left to deliver a full charge without charging now
+            # 3) The current rank is high from the initial sort, but still lower than anything remaining.
+            if (w_df.iloc[0]['rank'] <= _charge_needed) or (len(w_df) == _charge_needed) or (w_df.iloc[0]['rank'] == w_df['rank'].min()):
+                _charge_needed -= 1
+                charge_periods.append(w_df.iloc[0].name)
+            w_df = w_df.iloc[1:]  # skip this row
+            
+        # Assign charge status only if a full charge is completed
+        # (e.g. don't have enough data at tail to complete a full charge)
+        if len(charge_periods) == charge_needed:
+            df.loc[charge_periods, 'charge_status'] = True
+    
+    assert df['charge_status'].sum() >= (len(df['window_start'].unique()) - 1) * charge_needed
+    assert df['charge_status'].sum() <= (len(df['window_start'].unique())) * charge_needed
+    return df['charge_status']
 
 def calc_rank_compare_metrics(
     in_df,
@@ -309,7 +337,6 @@ def calc_rank_compare_metrics(
     load_kw=1000,
 ):
     df = in_df.copy()
-    df.dropna(inplace=True)
 
     if window_starts:
         # Extract unique dates and create window ranges
@@ -350,41 +377,6 @@ def calc_rank_compare_metrics(
             (df.index.get_level_values("generated_at") >= df["window_end"]), "window_start"] = pd.NaT
     df = df.dropna(subset=["window_start"])
 
-    def simulate_charge(df, sort_col: Literal[truth_col, pred_col], charge_mins: int):
-        
-        df['rank'] = df.groupby(["window_start", "generated_at"])[sort_col].rank(ascending=True)
-        charge_needed = charge_mins // 5
-        df = df.assign(charge_status=False)
-        df = df.sort_index(ascending=True)
-        for w in df.groupby("window_start"):
-            _, w_df = w
-            
-            # STATEFULLNESS HEURISTIC: point_time must be equal to generate_at
-            # TODO: really this should be "less then the next generated_at" in the case
-            # that point_time and generated_at are not available for every 5 mins
-            w_df = w_df.loc[w_df.index.get_level_values('point_time') == w_df.index.get_level_values('generated_at')]
-            
-            # STATEFULLNESS HEURISTIC: Take charging periods iteratively,
-            # at each step only consider if rank of value is less than charge_needed
-            # e.g. charge_needed diminishes overtime
-            w_df = w_df.sort_values(['generated_at', 'rank'], ascending=[True, True])
-            charge_periods = []
-            _charge_needed = charge_needed
-            while (_charge_needed > 0) and (len(w_df) > 0):
-                if (w_df.iloc[0]['rank'] <= _charge_needed) or (len(w_df) == _charge_needed):
-                    _charge_needed -= 1
-                    charge_periods.append(w_df.iloc[0].name)
-                w_df = w_df.iloc[1:]  # skip this row
-                
-            # Assign charge status only if a full charge is completed
-            # (e.g. don't have enough data at tail to complete a full charge)
-            if len(charge_periods) == charge_needed:
-                df.loc[charge_periods, 'charge_status'] = True
-        
-        assert df['charge_status'].sum() >= (len(df['window_start'].unique()) - 1) * charge_needed
-        assert df['charge_status'].sum() <= (len(df['window_start'].unique())) * charge_needed
-        return df['charge_status']
-
     df = df.assign(
         truth_charge_status=simulate_charge(df, truth_col, charge_mins),
         pred_charge_status=simulate_charge(df, pred_col, charge_mins),
@@ -396,7 +388,7 @@ def calc_rank_compare_metrics(
     )
     
     # baseline: immediate charging rather than AER
-    df = df.assign(sequential_rank = df.reset_index().groupby(['window_start'])['point_time'].rank(method='first', ascending=True).values)
+    df = df.assign(sequential_rank=df.groupby('window_start').cumcount())
     df = df.assign(baseline_charge_status = df['sequential_rank'] <= charge_mins // 5)
     df = df.assign(baseline_charge_emissions = df[truth_col] * df['baseline_charge_status'] * (load_kw / 1000))
 
@@ -408,31 +400,31 @@ def calc_rank_compare_metrics(
     y_pred_emissions = df['pred_charge_emissions'].sum()
     y_base_emissions = df['baseline_charge_emissions'].sum()
 
-    # Calculate savings: co2_reduction, co2_potential
-    co2_reduction = (y_base_emissions - y_pred_emissions).mean()  # actual savings
-    co2_potential = (y_base_emissions - y_actual_emissions).mean()  # ideal savings
+    # Calculate savings: reduction, potential
+    reduction = (y_base_emissions - y_pred_emissions) / len(set(df.index.date))
+    potential = (y_base_emissions - y_actual_emissions) / len(set(df.index.date))
+    
+    # Normalize to mean per window
+    reduction /= len(df['window_start'].unique())
+    potential /= len(df['window_start'].unique())
 
     return {
-        "co2_reduction": round(co2_reduction, 1),
-        "co2_potential": round(co2_potential, 1),
+        "reduction": round(reduction, 1),
+        "potential": round(potential, 1),
     }        
 
 
-def plot_norm_mae(jobs: List[AnalysisDataHandler], horizons_hr=[1, 6, 12, 18, 24]) -> Dict[str, go.Figure]:
+def plot_norm_mae(factory: DataHandlerFactory, horizons_hr=[1, 6, 12, 18, 24]) -> Dict[str, go.Figure]:
     """
     Create a Plotly bar chart for rank correlation by horizon with one subplot per region (abbrev).
     """
 
-    # Create subplots
-    unique_regions = set([j.region for j in jobs])
     y_min = y_max = 0
     figs = {}
     
     # Iterate through each region and create a bar plot
-    for region_abbrev in unique_regions:
-        region_abbrev = region_abbrev.upper()
+    for region_abbrev, region_models in factory.data_handlers_by_region_dict.items():
         fig = go.Figure()
-        region_models = [j for j in jobs if j.region == region_abbrev]
         x_values = [f"{h}hr" for h in horizons_hr]  # Add horizon labels
 
         for model_job in region_models:
@@ -469,7 +461,7 @@ def plot_norm_mae(jobs: List[AnalysisDataHandler], horizons_hr=[1, 6, 12, 18, 24
     return figs
 
 
-def plot_rank_corr(jobs: List[AnalysisDataHandler], horizons_hr=[1, 6, 12, 18, 24]) -> Dict[str, go.Figure]:
+def plot_rank_corr(factory: DataHandlerFactory, horizons_hr=[1, 6, 12, 18, 24]) -> Dict[str, go.Figure]:
     """
     Create a Plotly line plot for rank correlation by horizon with one subplot per region (abbrev).
 
@@ -483,16 +475,12 @@ def plot_rank_corr(jobs: List[AnalysisDataHandler], horizons_hr=[1, 6, 12, 18, 2
 
     """
 
-    # Create subplots
-    unique_regions = set([j.region for j in jobs])
     y_min = y_max = 0
     figs = {}
 
     # Iterate through each region and create a line plot
-    for region_abbrev in unique_regions:
+    for region_abbrev, region_models in factory.data_handlers_by_region_dict.items():
         fig = go.Figure()
-        region_abbrev = region_abbrev.upper()
-        region_models = [j for j in jobs if j.region == region_abbrev]
 
         # Extract data for the line plot
         x_values = [f"{h}hr" for h in horizons_hr]  # Add horizon labels
@@ -557,21 +545,19 @@ AER_SCENARIOS = {
 
 
 def plot_impact_forecast_metrics(
-    jobs: List[AnalysisDataHandler], scenarios=["EV-night", "EV-day", "Thermostat"]
+    factory: DataHandlerFactory, scenarios=["EV-night", "EV-day", "Thermostat"]
 ):
 
-    unique_regions = set([j.region for j in jobs])
     figs = {}
     y_max = 0
 
-    for region_abbrev in unique_regions:
+    for region_abbrev, region_models in factory.data_handlers_by_region_dict.items():
         
-        region_models = [j for j in jobs if j.region == region_abbrev]
         fig = sp.make_subplots(
             rows=len(region_models),
             cols=1,
             shared_xaxes=True,
-            subplot_titles=[j.model_date for j in jobs],
+            subplot_titles=[j.model_date for j in region_models],
             vertical_spacing=0.2,
         )
         
@@ -590,7 +576,7 @@ def plot_impact_forecast_metrics(
             fig.add_trace(
                 go.Bar(
                     x=_metrics["scenario"],
-                    y=_metrics["co2_potential"],
+                    y=_metrics["potential"],
                     name=f"CO2 Potential Savings",  # Legend only in the first subplot
                     marker=dict(
                         color="rgba(200, 200, 200, 0.8)"
@@ -604,12 +590,12 @@ def plot_impact_forecast_metrics(
             fig.add_trace(
                 go.Bar(
                     x=_metrics["scenario"],
-                    y=_metrics["co2_reduction"],
+                    y=_metrics["reduction"],
                     name="Forecast Achieved",
                     text=[
                         f"{(r / (p + 1e-6)) * 100:.1f}%"
                         for r, p in zip(
-                            _metrics["co2_reduction"], _metrics["co2_potential"]
+                            _metrics["reduction"], _metrics["potential"]
                         )
                     ],
                     textposition="outside",
@@ -620,7 +606,7 @@ def plot_impact_forecast_metrics(
                 col=1,
             )
             
-            y_max = max(_metrics["co2_reduction"].max(), _metrics['co2_potential'].max(), y_max)
+            y_max = max(_metrics["reduction"].max(), _metrics['potential'].max(), y_max)
 
         # Update layout
         fig.update_layout(
@@ -633,7 +619,7 @@ def plot_impact_forecast_metrics(
         )
 
         # Update axes for all subplots
-        for model_ix in range(1, len(jobs) + 1):
+        for model_ix in range(1, len(region_models) + 1):
             fig.update_xaxes(title_text="Scenario", row=model_ix, col=1)
             fig.update_yaxes(title_text="CO2 Savings (lbs/MWh)", row=model_ix, col=1)
             
@@ -646,20 +632,18 @@ def plot_impact_forecast_metrics(
     return figs
 
 
-def plot_sample_fuelmix(jobs: List[AnalysisDataHandler], max_sample_period="30D") -> Dict[str, go.Figure]:
+def plot_sample_fuelmix(factory: DataHandlerFactory, max_sample_period="30D") -> Dict[str, go.Figure]:
 
     figs = {}
-    unique_regions = set([j.region for j in jobs])
-    times = get_random_overlapping_period([j.fuel_mix for j in jobs], max_sample_period)
-    for region_abbrev in unique_regions:
-        region_models = [j for j in jobs if j.region == region_abbrev]
+    times = get_random_overlapping_period([j.fuel_mix for j in factory.data_handlers], max_sample_period)
+    for region_abbrev, region_models in factory.data_handlers_by_region_dict.items():
 
         # Initialize a subplot with one row per region
         fig = sp.make_subplots(
             rows=len(region_models),
             cols=1,
             shared_xaxes=True,
-            subplot_titles=[j.model_date for j in jobs],
+            subplot_titles=[j.model_date for j in region_models],
             vertical_spacing=0.2,
         )
 
@@ -690,7 +674,7 @@ def plot_sample_fuelmix(jobs: List[AnalysisDataHandler], max_sample_period="30D"
         fig.update_layout(
             height=300 * len(region_models),
             yaxis=dict(
-                title=f"{jobs[0].signal_type}",
+                title=f"{region_models[0].signal_type}",
                 fixedrange=True  # Disable y-axis panning
             ),
             showlegend=True,
@@ -708,60 +692,75 @@ def plot_sample_fuelmix(jobs: List[AnalysisDataHandler], max_sample_period="30D"
     return figs
 
 
-def calc_max_potential(df, charge_mins, window_mins, window_starts=None, truth_col="signal_value", load_kw=1000):
+def calc_max_potential(in_df, charge_mins, window_mins, window_starts=None, truth_col="signal_value", load_kw=1000):
     """Predict the maximum potential CO2 Savings, without any forecast to estimate the upper limit of impact from a given signal value."""
     
+    df = in_df.copy()
+
     if window_starts:
-        # Generate window ranges based on start times and duration
+        # Extract unique dates and create window ranges
         unique_dates = set(df.index.date)
         window_ranges = []
         for date in unique_dates:
             for start_time in window_starts:
                 start = pd.Timestamp(f"{date} {start_time}")
-                end = start + pd.Timedelta(f"{window_mins} min")
+                end = start + pd.Timedelta(minutes=window_mins)
                 window_ranges.append((start, end))
         
-        # Assign each row to a window
-        def assign_window(row):
-            point_time = row.name.replace(tzinfo=None)
-            for start, end in window_ranges:
-                if point_time >= start and point_time < end:
-                    return start  # Label window by its start time
-            return pd.NaT
+        # Convert to DataFrame
+        window_df = pd.DataFrame(window_ranges, columns=["window_start", "window_end"])
+        window_df = window_df.sort_values("window_start")
+        tz = df.index.get_level_values('point_time')[0].tz
+        window_df = window_df.assign(
+            window_start=pd.to_datetime(window_df["window_start"], errors='coerce').dt.tz_localize(tz),
+            window_end=pd.to_datetime(window_df["window_end"], errors='coerce').dt.tz_localize(tz)
+        )
+        window_df = window_df.dropna(subset=["window_start"])
         
-        df["window"] = df.apply(assign_window, axis=1)
-        
-    else:
-        def assign_rolling_window(row):
-            window_start = row.name.floor(f"{window_mins}T", ambiguous=True)
-            # window_end = window_start + pd.Timedelta(f"{window_mins} min")
-            return window_start
-        
-        df["window"] = df.apply(assign_rolling_window, axis=1)
-        
-    df = df.dropna(subset=["window"])
-    df = df.assign(
-        y_rank=df.groupby('window')[truth_col].rank(method='first')
-    )
+        # Ensure df is sorted by "point_time" before merging
+        df = df.sort_index(level="point_time")
+
+        # Use merge_asof to efficiently assign windows
+        df = pd.merge_asof(
+            df.reset_index().sort_values("point_time"),
+            window_df,
+            left_on="point_time",
+            right_on="window_start",
+            direction="backward"
+        ).set_index(df.index.names)
     
-    df[truth_col] *= (load_kw / 1000)
-    y_best_total = (
-        df[df["y_rank"] <= (charge_mins / 5)]
-        .groupby("window")[truth_col]
-        .mean()
-    )
-    y_avg_total = df.groupby("window")[truth_col].mean()
-    co2_potential = (y_avg_total - y_best_total).sum()
-    return {"co2_potential": round(co2_potential, 1)}
+    else:
+        # Assign each row to a rolling window of `window_mins` based on `generated_at`
+        df["window_start"] = df.index.get_level_values("point_time").floor(f"{window_mins}min")
+        df['window_end'] = df["window_start"] + pd.Timedelta(f"{window_mins} min")
 
+    # Filter out rows that do not fall within the valid window
+    df = df.dropna(subset=["window_start"])
+    df = df.loc[(df.index.get_level_values("point_time") < df["window_end"]) & (df.index.get_level_values("point_time") >= df["window_start"])]
+    
+    df = df.assign(charge_status = simulate_charge(df, truth_col, charge_mins))
+    df = df.assign(charge_emissions = df[truth_col] * df["charge_status"] * (load_kw / 1000))
+    
+    # baseline: immediate charging rather than AER
+    df = df.assign(sequential_rank=df.groupby('window_start').cumcount())
+    df = df.assign(baseline_charge_status = df['sequential_rank'] < charge_mins // 5)
+    df = df.assign(baseline_charge_emissions = df[truth_col] * df['baseline_charge_status'] * (load_kw / 1000))
+    
+    assert df['baseline_charge_status'].sum() >= (len(df['window_start'].unique()) - 1) * charge_mins // 5
+    assert df['baseline_charge_status'].sum() <= (len(df['window_start'].unique())) * charge_mins // 5
+    
+    y_best_total = df['charge_emissions'].sum()
+    y_baseline_total = df['baseline_charge_emissions'].sum()
+    
+    potential = (y_baseline_total - y_best_total) / len(set(df.index.date))
+        
+    return {"potential": round(potential, 1)}
 
-def plot_max_impact_potential(jobs: List[AnalysisDataHandler], scenarios: List[str] = ["EV-night", "EV-day", "Thermostat"]):
-    unique_regions = set([j.region for j in jobs])
+# def plot_max_impact_potential(factory: DataHandlerFactory, scenarios: List[str] = ["EV-night", "EV-day", "Thermostat"]):
+def plot_max_impact_potential(factory: DataHandlerFactory, scenarios: List[str] = ["EV-night"]):
     figs = {}
     y_max = 0
-    for region_abbrev in unique_regions:
-        region_models = [j for j in jobs if j.region == region_abbrev]
-        region_abbrev = region_abbrev.upper()
+    for region_abbrev, region_models in factory.data_handlers_by_region_dict.items():
         fig = go.Figure()
         
         for model_job in region_models:
@@ -776,17 +775,17 @@ def plot_max_impact_potential(jobs: List[AnalysisDataHandler], scenarios: List[s
             
             _metrics = pd.DataFrame(_metrics)
 
-            # Add the 'co2_potential' bar trace
+            # Add the 'potential' bar trace
             fig.add_trace(
                 go.Bar(
                     x=_metrics["scenario"],
-                    y=_metrics["co2_potential"],
+                    y=_metrics["potential"],
                     name=model_job.model_date,  # Legend only in the first subplot
                     hovertemplate="%{x}: %{y:.1f} lbs CO2/MWh<extra></extra>",
                 )
             )
             
-            y_max = max(_metrics['co2_potential'].max(), y_max)
+            y_max = max(_metrics['potential'].max(), y_max)
             
             fig.update_layout(
                 height=300 * len(region_models),
@@ -801,7 +800,7 @@ def plot_max_impact_potential(jobs: List[AnalysisDataHandler], scenarios: List[s
     return figs
 
 
-def plot_fuelmix_heatmap(jobs: List[AnalysisDataHandler]):
+def plot_fuelmix_heatmap(factory: DataHandlerFactory):
     def create_pivot_table(df, column):
         df = df.assign(
             month=df.index.month,
@@ -848,24 +847,21 @@ def plot_fuelmix_heatmap(jobs: List[AnalysisDataHandler]):
         
         return [[i / (steps - 1), rgba] for i, rgba in enumerate(rgba_colors)]
     
-    unique_regions = set([j.region for j in jobs])
     figs = {}
     
-    for region_abbrev in unique_regions:
-        region_abbrev = region_abbrev.upper()
-        region_jobs = [j for j in jobs if j.region.upper() == region_abbrev]
-        
+    for region_abbrev, region_models in factory.data_handlers_by_region_dict.items():
+
         # We need to ensure all jobs have the same fuel types for the buttons to work
         all_columns = set()
-        for job in region_jobs:
+        for job in region_models:
             all_columns.update(job.fuel_mix.columns)
         
         # Create subplot titles with model dates
-        subplot_titles = [j.model_date for j in region_jobs]
+        subplot_titles = [j.model_date for j in region_models]
         
         # Create subplots
         fig = sp.make_subplots(
-            rows=len(region_jobs),
+            rows=len(region_models),
             cols=1,
             shared_xaxes=True,
             subplot_titles=subplot_titles,
@@ -876,7 +872,7 @@ def plot_fuelmix_heatmap(jobs: List[AnalysisDataHandler]):
         trace_idx = 0
         
         # Add traces for each job
-        for job_idx, job in enumerate(region_jobs, start=1):
+        for job_idx, job in enumerate(region_models, start=1):
             for fuel_idx, fuel in enumerate(all_columns_list):
                 pivot = create_pivot_table(job.fuel_mix, fuel)
 
@@ -897,7 +893,7 @@ def plot_fuelmix_heatmap(jobs: List[AnalysisDataHandler]):
                 trace_idx += 1
         
         # Add buttons that control visibility across all subplots
-        buttons = create_buttons(all_columns_list, len(region_jobs))
+        buttons = create_buttons(all_columns_list, len(region_models))
         
         # Month names mapping
         month_names = {1: 'Jan', 2: 'Feb', 3: 'Mar', 4: 'Apr', 5: 'May', 6: 'Jun',
@@ -916,12 +912,12 @@ def plot_fuelmix_heatmap(jobs: List[AnalysisDataHandler]):
                     buttons=buttons
                 )
             ],
-            height=(300 * len(region_jobs)) + 50,  # Adjust height based on number of jobs
+            height=(300 * len(region_models)) + 50,  # Adjust height based on number of jobs
             xaxis_title="Hour of Day",
         )
         
         # Update all y-axes to show month names
-        for model_ix in range(1, len(region_jobs) + 1):
+        for model_ix in range(1, len(region_models) + 1):
             fig.update_yaxes(
                 title="Month",
                 tickvals=list(month_names.keys()),
@@ -931,7 +927,7 @@ def plot_fuelmix_heatmap(jobs: List[AnalysisDataHandler]):
             
             # Update all x-axes
             fig.update_xaxes(
-                title="Hour of Day" if model_ix == len(region_jobs) else None,  # Only show title on bottom plot
+                title="Hour of Day" if model_ix == len(region_models) else None,  # Only show title on bottom plot
                 tickmode="linear",
                 dtick=2,  # Show every 2 hours
                 row=model_ix, col=1
@@ -940,7 +936,94 @@ def plot_fuelmix_heatmap(jobs: List[AnalysisDataHandler]):
         figs[region_abbrev] = fig
     
     return figs
+
+
+def plot_bland_altman(factory: DataHandlerFactory, n_samples: int = 2500) -> Dict[str, go.Figure]:
+    """
+    A Bland-Altman plot is useful to see the difference between two measurements (models).
+    
+    It includes a scatterplot of the deltas between the two measurements, along with a reference line.
+    signifying the mean of the deltas, and confidence intervals for the mean.
+    """
+    figs = {}
+    for region_abbrev, region_models in factory.data_handlers_by_region_dict.items():
         
+        if len(region_models) == 1:
+            return None
+        
+        merged_moers = pd.concat([dh.moers for dh in region_models], axis='columns').dropna()
+        merged_moers.columns = [dh.model_date for dh in region_models]
+        merged_moers = merged_moers.sort_index(axis='columns') # put newest models last
+        
+        # TODO: consider more than two models
+        if len(merged_moers.columns) < 2:
+            merged_moers = merged_moers.iloc[:, :2]
+            
+        
+        merged_moers = merged_moers.assign(
+            delta=merged_moers.max(axis='columns') - merged_moers.min(axis='columns'),
+            mean = merged_moers.mean(axis='columns')
+        )
+        merged_moers = merged_moers.sample(n_samples)
+
+        fig = go.Figure()
+
+        # scatter
+        fig.add_trace(go.Scatter(
+            x=merged_moers['mean'], y=merged_moers['delta'], mode='markers',
+            marker=dict(opacity=0.5),
+            name="Delta of Model Values"
+        ))
+
+        # reference line
+        fig.add_trace(go.Scatter(
+            x=[merged_moers['mean'].min(), merged_moers['mean'].max()], 
+            y=[merged_moers['delta'].mean(), merged_moers['delta'].mean()], 
+            mode='lines', 
+            line=dict(color='red'),
+            name='Mean Delta'
+        ))
+
+        # ci
+        fig.add_trace(go.Scatter(
+            x=[merged_moers['mean'].min(), merged_moers['mean'].max()], 
+            y=[
+                merged_moers['delta'].mean() + merged_moers['delta'].std() * 1.96,
+                merged_moers['delta'].mean() + merged_moers['delta'].std() * 1.96
+            ],
+            mode='lines', 
+            line=dict(color='red', dash='dash'),
+            opacity=0.5,
+            name='95% CI'
+        ))
+
+        fig.add_trace(go.Scatter(
+            x=[merged_moers['mean'].min(), merged_moers['mean'].max()], 
+            y=[
+                merged_moers['delta'].mean() - merged_moers['delta'].std() * 1.96,
+                merged_moers['delta'].mean() - merged_moers['delta'].std() * 1.96
+            ],
+            mode='lines', 
+            line=dict(color='red', dash='dash'),
+            opacity=0.5,
+            showlegend=False
+        ))
+
+        fig.update_layout(
+            height=500,
+            xaxis_title='Mean',
+            yaxis_title='Delta',
+            legend=dict(
+                orientation="h",
+                yanchor="bottom",
+                y=1.02,
+                xanchor="right",
+                x=1
+        ))
+
+        figs[region_abbrev] = fig
+    return figs
+
 
 def parse_report_command_line_args(sys_args):
     parser = argparse.ArgumentParser(
@@ -1010,7 +1093,7 @@ def parse_report_command_line_args(sys_args):
 
 
 PLOTS = {
-    "signal": [plot_sample_moers, plot_distribution_moers, plot_heatmaps, plot_max_impact_potential],
+    "signal": [plot_sample_moers, plot_distribution_moers, plot_heatmaps, plot_bland_altman, plot_max_impact_potential],
     "fuel_mix": [plot_sample_fuelmix, plot_fuelmix_heatmap],
     "forecast": [plot_norm_mae, plot_rank_corr, plot_impact_forecast_metrics],
 }
@@ -1025,9 +1108,8 @@ def generate_report(
     output_dir: Path,
     steps: Literal["signal", "fuel_mix", "forecast"] = [
         "signal",
-        "fuel_mix",
         "forecast",
-    ],
+    ],  # no fuel_mix by default
 ):
     filename = (
         f"{signal_type}_{'&'.join(region_list)}_{'&'.join(model_date_list)}_model_stats"
@@ -1037,7 +1119,7 @@ def generate_report(
     output_path = output_dir / f"{filename}.html"
     input_template_path = Path(__file__).parent / r"report_card_template.html"
 
-    f = DataHandlerFactory(
+    factory = DataHandlerFactory(
         eval_start=eval_start,
         eval_end=eval_end,
         regions=region_list,
@@ -1048,9 +1130,12 @@ def generate_report(
     plotly_html = {}
     for step in steps:
         for plot_func in PLOTS[step]:
-            _plot = plot_func(f.data_handlers)
+            _plot = plot_func(factory)
             
-            if isinstance(_plot, dict):
+            if _plot is None:
+                continue
+            
+            elif isinstance(_plot, dict):
                 plotly_html[plot_func.__name__] = {}
                 for region_abbrev, _p in _plot.items():
                     # for trace in _p.data:
@@ -1083,7 +1168,7 @@ def generate_report(
         ), indent=4
     )
     
-    plotly_html['collected_model_meta'] = json.dumps(f.collected_model_meta, indent=4)
+    plotly_html['collected_model_meta'] = json.dumps(factory.collected_model_meta, indent=4)
 
     with open(output_path, "w", encoding="utf-8") as output_file:
         with open(input_template_path) as template_file:

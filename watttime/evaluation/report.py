@@ -78,17 +78,13 @@ def get_random_overlapping_period(dfs, max_period="30D", resample_freq="1H"):
     # If the total overlap duration is less than or equal to max_period, return the full range
     if total_overlap_duration <= max_timedelta:
         overlap_range = pd.date_range(start=start_overlap, end=end_overlap, freq=resample_freq)
-        # Check if all indices exist in both DataFrames
-        if all(df.index.isin(overlap_range).all() for df in dfs):
-            return overlap_range
-        else:
-            raise ValueError("No common overlap found among the provided DataFrames.")
 
     # Otherwise, return the first overlap range that satisfies the max_period
-    overlap_range = pd.date_range(
-        start=start_overlap, end=start_overlap + max_timedelta, freq=resample_freq
-    )
-    assert all(df.index.isin(overlap_range).all() for df in dfs)
+    else:
+        overlap_range = pd.date_range(
+            start=start_overlap, end=start_overlap + max_timedelta, freq=resample_freq
+        )
+    assert all([all(t in df.index for t in overlap_range) for df in dfs]), "Not all DataFrames contain the overlapping range." 
     return overlap_range
 
 
@@ -259,7 +255,7 @@ def plot_heatmaps(jobs: List[AnalysisDataHandler], colorscale="Oranges") -> Dict
                 fig.update_xaxes(title_text="Hour of Day", row=j, col=1)
         
         fig.update_layout(
-            height=250 * len(region_jobs),  # Adjust height per subplot
+            height=300 * len(region_jobs),  # Adjust height per subplot
             margin=dict(r=100),  # Add right margin for colorbars
             # title=f"{region_abbrev} Heat Maps"
         )
@@ -293,7 +289,7 @@ def calc_rank_corr(
 ):
     """Returns mean daily Rank Correlation"""
 
-    filtered_df = df = df[df["horizon_mins"] <= horizon_mins].dropna()
+    filtered_df = df[df["horizon_mins"] <= horizon_mins].dropna()
     corr = filtered_df.groupby("generated_at").apply(
         lambda group_df: stats.spearmanr(
             group_df[truth_col], group_df[pred_col]
@@ -312,96 +308,109 @@ def calc_rank_compare_metrics(
     truth_col="signal_value",
     load_kw=1000,
 ):
-    """
-    Calculate rank_compare metrics: co2_reduction, co2_potential, co2_pct.
-
-    Parameters:
-        in_df (pd.DataFrame): DataFrame containing the 'truth' and 'predicted' MOER values.
-        charge_hours (int): Charge window in minutes.
-        window_hours (int): Comparison window in minutes.
-        window_starts (list or None): Start times for windows (e.g., ["09:00"]).
-        truth_col (str): Column name for the 'truth' MOER values.
-        pred_col (str): Column name for the 'predicted' MOER values.
-
-    Returns:
-        dict: co2_reduction, co2_potential, co2_pct metrics.
-    """
-
     df = in_df.copy()
     df.dropna(inplace=True)
 
-    # Rank of truth and predicted columns within each window
     if window_starts:
-        # Generate window ranges based on start times and duration
-        unique_dates = df.index.get_level_values(
-            "generated_at"
-        ).unique()  # Extract unique dates
+        # Extract unique dates and create window ranges
+        unique_dates = df.index.get_level_values("generated_at").unique()
         window_ranges = []
         for date in unique_dates:
             for start_time in window_starts:
                 start = pd.Timestamp(f"{date} {start_time}")
                 end = start + pd.Timedelta(minutes=window_mins)
                 window_ranges.append((start, end))
+        
+        # Convert to DataFrame
+        window_df = pd.DataFrame(window_ranges, columns=["window_start", "window_end"])
+        window_df = window_df.sort_values("window_start")
+        tz = df.index.get_level_values('generated_at')[0].tz
+        window_df = window_df.assign(window_start=pd.to_datetime(window_df["window_start"], errors='coerce').dt.tz_convert(tz))
+        window_df = window_df.dropna(subset=["window_start"])
+        
+        # Ensure df is sorted by "generated_at" before merging
+        df = df.sort_index(level="generated_at")
 
-        # Assign each row to a window
-        def assign_window(row):
-            point_time, generated_at = row.name
-            for start, end in window_ranges:
-                if start <= generated_at < end and point_time < end:
-                    return start  # Label window by its start time
-            return pd.NaT
-
-        df["window"] = df.apply(assign_window, axis=1)
-    else:
-        # Default behavior: use rolling windows
-        def assign_rolling_window(row):
-            generated_at, point_time = row.name
-            window_start = generated_at.floor(f"{window_mins}T")
-            window_end = window_start + pd.Timedelta(minutes=window_mins)
-
-            # Only assign window if point_time is within the window range
-            if point_time < window_end:
-                return window_start
-            return pd.NaT
-
-        df["window"] = df.apply(assign_rolling_window, axis=1)
-
-    # Drop rows outside any window
-    df = df.dropna(subset=["window"])
+        # Use merge_asof to efficiently assign windows
+        df = pd.merge_asof(
+            df.reset_index().sort_values("generated_at"),
+            window_df,
+            left_on="generated_at",
+            right_on="window_start",
+            direction="backward"
+        ).set_index(df.index.names)
     
-    # Normalize units from 1 MWh to actual load
-    df[pred_col]*= (load_kw / 1000)
-    df[truth_col]*= (load_kw / 1000)
+    else:
+        # Assign each row to a rolling window of `window_mins` based on `generated_at`
+        df["window_start"] = df.index.get_level_values("generated_at").floor(f"{window_mins}min")
+        df['window_end'] = df["window_start"] + pd.Timedelta(f"{window_mins} min")
 
-    df["y_rank"] = df.groupby(["window", "generated_at"])[truth_col].rank(
-        method="first"
-    )
-    df["y_pred_rank"] = df.groupby(["window", "generated_at"])[pred_col].rank(
-        method="first"
-    )
+    # Filter out rows that do not fall within the valid window
+    df.loc[(df.index.get_level_values("point_time") >= df["window_end"]) | 
+            (df.index.get_level_values("generated_at") >= df["window_end"]), "window_start"] = pd.NaT
+    df = df.dropna(subset=["window_start"])
 
-    # TODO: remove this filter and replace with while loop simulation for max savings
-    max_rank = df["y_rank"].max()
-    df = df.groupby(["generated_at", "window"]).filter(
-        lambda group: group["y_rank"].max() == max_rank
-    )
+    def simulate_charge(df, sort_col: Literal[truth_col, pred_col], charge_mins: int):
+        
+        df['rank'] = df.groupby(["window_start", "generated_at"])[sort_col].rank(ascending=True)
+        charge_needed = charge_mins // 5
+        df = df.assign(charge_status=False)
+        df = df.sort_index(ascending=True)
+        for w in df.groupby("window_start"):
+            _, w_df = w
+            
+            # STATEFULLNESS HEURISTIC: point_time must be equal to generate_at
+            # TODO: really this should be "less then the next generated_at" in the case
+            # that point_time and generated_at are not available for every 5 mins
+            w_df = w_df.loc[w_df.index.get_level_values('point_time') == w_df.index.get_level_values('generated_at')]
+            
+            # STATEFULLNESS HEURISTIC: Take charging periods iteratively,
+            # at each step only consider if rank of value is less than charge_needed
+            # e.g. charge_needed diminishes overtime
+            w_df = w_df.sort_values(['generated_at', 'rank'], ascending=[True, True])
+            charge_periods = []
+            _charge_needed = charge_needed
+            while (_charge_needed > 0) and (len(w_df) > 0):
+                if (w_df.iloc[0]['rank'] <= _charge_needed) or (len(w_df) == _charge_needed):
+                    _charge_needed -= 1
+                    charge_periods.append(w_df.iloc[0].name)
+                w_df = w_df.iloc[1:]  # skip this row
+                
+            # Assign charge status only if a full charge is completed
+            # (e.g. don't have enough data at tail to complete a full charge)
+            if len(charge_periods) == charge_needed:
+                df.loc[charge_periods, 'charge_status'] = True
+        
+        assert df['charge_status'].sum() >= (len(df['window_start'].unique()) - 1) * charge_needed
+        assert df['charge_status'].sum() <= (len(df['window_start'].unique())) * charge_needed
+        return df['charge_status']
 
-    # Calculate total C02 emissions in lbs/Mwh of each scenario
-    y_actual_total = (
-        df[df["y_pred_rank"] <= (charge_mins / 5)]
-        .groupby(["window", "generated_at"])[truth_col]
-        .mean()
+    df = df.assign(
+        truth_charge_status=simulate_charge(df, truth_col, charge_mins),
+        pred_charge_status=simulate_charge(df, pred_col, charge_mins),
     )
-    y_best_total = (
-        df[df["y_rank"] <= (charge_mins / 5)]
-        .groupby(["window", "generated_at"])[truth_col]
-        .mean()
+    
+    df = df.assign(
+        truth_charge_emissions=df[truth_col] * df['truth_charge_status'] * (load_kw / 1000),
+        pred_charge_emissions=df[truth_col] * df['pred_charge_status'] * (load_kw / 1000),
     )
-    y_avg_total = df.groupby(["window", "generated_at"])[truth_col].mean()
+    
+    # baseline: immediate charging rather than AER
+    df = df.assign(sequential_rank = df.reset_index().groupby(['window_start'])['point_time'].rank(method='first', ascending=True).values)
+    df = df.assign(baseline_charge_status = df['sequential_rank'] <= charge_mins // 5)
+    df = df.assign(baseline_charge_emissions = df[truth_col] * df['baseline_charge_status'] * (load_kw / 1000))
+
+    assert df['baseline_charge_status'].sum() >= (len(df['window_start'].unique()) - 1) * charge_mins // 5
+    assert df['baseline_charge_status'].sum() <= (len(df['window_start'].unique())) * charge_mins // 5
+    
+    # Calculate total CO2 emissions ("truth")
+    y_actual_emissions = df['truth_charge_emissions'].sum()
+    y_pred_emissions = df['pred_charge_emissions'].sum()
+    y_base_emissions = df['baseline_charge_emissions'].sum()
 
     # Calculate savings: co2_reduction, co2_potential
-    co2_reduction = (y_avg_total - y_actual_total).mean()  # actual savings
-    co2_potential = (y_avg_total - y_best_total).mean()  # ideal savings
+    co2_reduction = (y_base_emissions - y_pred_emissions).mean()  # actual savings
+    co2_potential = (y_base_emissions - y_actual_emissions).mean()  # ideal savings
 
     return {
         "co2_reduction": round(co2_reduction, 1),
@@ -598,7 +607,7 @@ def plot_impact_forecast_metrics(
                     y=_metrics["co2_reduction"],
                     name="Forecast Achieved",
                     text=[
-                        f"{(r / p) * 100:.1f}%"
+                        f"{(r / (p + 1e-6)) * 100:.1f}%"
                         for r, p in zip(
                             _metrics["co2_reduction"], _metrics["co2_potential"]
                         )
@@ -659,16 +668,16 @@ def plot_sample_fuelmix(jobs: List[AnalysisDataHandler], max_sample_period="30D"
             stacked_values = model_job.fuel_mix.loc[times]
 
             # Create cumulative values for stacking
-            for k in range(1, len(stacked_values.columns)):
-                stacked_values.iloc[:, k] += stacked_values.iloc[:, k - 1]
+            for fuel_ix in range(1, len(stacked_values.columns)):
+                stacked_values.iloc[:, fuel_ix] += stacked_values.iloc[:, fuel_ix - 1]
 
             # Add each fuel type as an area
-            for k, fuel in enumerate(model_job.fuel_mix.columns):
+            for fuel_ix, fuel in enumerate(model_job.fuel_mix.columns):
                 fig.add_trace(
                     go.Scatter(
                         x=stacked_values.index,
-                        y=stacked_values.iloc[:, k],
-                        fill="tonexty" if j > 0 else "tozeroy",
+                        y=stacked_values.iloc[:, fuel_ix],
+                        fill="tonexty" if model_ix > 0 else "tozeroy",
                         mode="none",  # Hide lines to emphasize the filled area
                         name=fuel,
                         fillcolor=fuel_cp[fuel],
@@ -724,7 +733,7 @@ def calc_max_potential(df, charge_mins, window_mins, window_starts=None, truth_c
         
     else:
         def assign_rolling_window(row):
-            window_start = row.name.floor(f"{window_mins}T")
+            window_start = row.name.floor(f"{window_mins}T", ambiguous=True)
             # window_end = window_start + pd.Timedelta(f"{window_mins} min")
             return window_start
         
@@ -778,9 +787,17 @@ def plot_max_impact_potential(jobs: List[AnalysisDataHandler], scenarios: List[s
             )
             
             y_max = max(_metrics['co2_potential'].max(), y_max)
+            
+            fig.update_layout(
+                height=300 * len(region_models),
+                yaxis=dict(
+                    title="lbs CO2/MWh",
+                    fixedrange=True  # Disable y-axis panning
+                )
+            )
         
         figs[region_abbrev] = fig
-    
+        
     return figs
 
 

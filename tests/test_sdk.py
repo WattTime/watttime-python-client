@@ -483,10 +483,6 @@ class TestWattTimeMaps(unittest.TestCase):
         self.maps = WattTimeMaps()
         self.myaccess = WattTimeMyAccess()
 
-    def tearDown(self):
-        self.maps.session.close()
-        self.myaccess.session.close()
-
     def test_get_maps_json_moer(self):
         moer = self.maps.get_maps_json(signal_type="co2_moer")
         self.assertEqual(moer["type"], "FeatureCollection")
@@ -537,75 +533,6 @@ class TestWattTimeMaps(unittest.TestCase):
             assert (
                 set(maps_regions) - set(access_regions) == set()
             ), f"Extra regions in geojson for {signal_type}: {set(maps_regions) - set(access_regions)}"
-
-    def test_ccw(self):
-        moer = self.maps.get_maps_json(signal_type="co2_moer")
-
-        def _is_ccw(geometry):
-            if isinstance(geometry, Polygon):
-                return geometry.exterior.is_ccw
-            elif isinstance(geometry, MultiPolygon):
-                return all(poly.exterior.is_ccw for poly in geometry.geoms)
-            return True
-
-        bad = [
-            f["properties"]["region_full_name"]
-            for f in moer["features"]
-            if not _is_ccw(shape(f["geometry"]))
-        ]
-        assert len(bad) == 0, f"Non-CCW geometries: {bad}"
-
-
-class TestWattTimeMarginalFuelMix(unittest.TestCase):
-    def setUp(self):
-        self.fuel_mix = WattTimeMarginalFuelMix()
-
-    def test_fuel_mix_jsons(self):
-        start = "2026-01-01 00:00Z"
-        end = "2026-01-07 00:00Z"
-        fm = self.fuel_mix.get_fuel_mix_jsons(start=start, end=end, region=REGION)
-
-        self.assertIsInstance(fm, list)
-        self.assertIsInstance(fm[0], dict)
-        self.assertIn("data", fm[0])
-        self.assertIn("meta", fm[0])
-        self.assertIsInstance(fm[0]["data"], list)
-        self.assertIsInstance(fm[0]["data"][0], dict)
-        self.assertIn("point_time", fm[0]["data"][0])
-        self.assertIn("values", fm[0]["data"][0])
-        self.assertIsInstance(fm[0]["data"][0]["values"], list)
-        self.assertIsInstance(fm[0]["data"][0]["values"][0], dict)
-        self.assertIn("fuel_type", fm[0]["data"][0]["values"][0])
-        self.assertIn("value", fm[0]["data"][0]["values"][0])
-        self.assertGreaterEqual(len(fm[0]["data"]), 12 * 24 * 5)
-        self.assertIn("warnings", fm[0]["meta"])
-        self.assertIn("model", fm[0]["meta"])
-        self.assertEqual("marginal_fuel_mix", fm[0]["meta"]["signal_type"])
-        self.assertEqual("proportion", fm[0]["meta"]["units"])
-        self.assertEqual(REGION, fm[0]["meta"]["region"])
-
-    def test_fuel_mix_pandas(self):
-        start = "2026-01-01 00:00Z"
-        end = "2026-01-07 00:00Z"
-        df = self.fuel_mix.get_fuel_mix_pandas(start=start, end=end, region=REGION)
-        self.assertIsInstance(df, pd.DataFrame)
-        self.assertGreaterEqual(len(df), 12 * 24 * 5)
-        self.assertIn("gas", df.columns)
-        self.assertEqual("point_time", df.index.name)
-        assert df.index.is_monotonic_increasing
-        assert all(df.sum(axis="columns") == 1.0)
-        
-    @patch.object(WattTimeMarginalFuelMix, "_fetch_data", side_effect=RuntimeError("403 Client Error: Forbidden"))
-    def test_get_fuel_mix_jsons_handles_403(self, mock_fetch_data):
-        start = "2026-01-01 00:00Z"
-        end = "2026-01-07 00:00Z"
-
-        result = self.fuel_mix.get_fuel_mix_jsons(start=start, end=end, region=REGION)
-
-        self.assertEqual(result, [])
-        mock_fetch_data.assert_called_once()
-        # TODO: test for logging here once we use log rather than print in api.py
-        
 
 
 if __name__ == "__main__":

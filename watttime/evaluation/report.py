@@ -48,7 +48,7 @@ def round_time(dt: datetime, minutes: int = 5) -> datetime:
     return dt.replace(minute=(dt.minute // minutes) * minutes, second=0, microsecond=0)
 
 
-def get_random_overlapping_period(dfs, max_period="30D", resample_freq="1H"):
+def get_random_overlapping_period(dfs, max_period="365D", resample_freq="1H"):
     """
     Find a random overlapping time period between multiple DataFrames' datetime indices,
     maximizing the period up to `max_period`.
@@ -90,7 +90,7 @@ def get_random_overlapping_period(dfs, max_period="30D", resample_freq="1H"):
 
 
 def plot_sample_moers(
-    factory: DataHandlerFactory, max_sample_period="30D"
+    factory: DataHandlerFactory, max_sample_period="365D"
 ) -> Dict[str, go.Figure]:
     """
     Plot a sample of old and new MOER values over time, creating a subplot for each unique region.
@@ -676,7 +676,7 @@ def plot_impact_forecast_metrics(
 
 
 def plot_sample_fuelmix(
-    factory: DataHandlerFactory, max_sample_period="30D"
+    factory: DataHandlerFactory, max_sample_period="365D"
 ) -> Dict[str, go.Figure]:
 
     figs = {}

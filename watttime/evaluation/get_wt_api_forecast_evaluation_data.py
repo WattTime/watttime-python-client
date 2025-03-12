@@ -68,8 +68,8 @@ class AnalysisDataHandler:
     wt_hist: Optional[api.WattTimeHistorical] = api.WattTimeHistorical(
         multithreaded=True
     )
-    wt_fuel_mix: Optional[api_do_not_commit.WattTimeFuelMix] = (
-        api_do_not_commit.WattTimeFuelMix(multithreaded=False)
+    wt_fuel_mix: Optional[api_do_not_commit.WattTimeMarginalFuelMix] = (
+        api_do_not_commit.WattTimeMarginalFuelMix(multithreaded=False)
     )
 
     def __post_init__(self):

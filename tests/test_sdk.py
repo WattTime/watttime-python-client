@@ -135,10 +135,22 @@ class TestWattTimeBase(unittest.TestCase):
         self.assertIsInstance(parsed_end, datetime)
         self.assertEqual(parsed_end.tzinfo, UTC)
 
-    @mock.patch("watttime.requests.Session.post", side_effect=mocked_register)
+    @mock.patch("requests.post", side_effect=mocked_register)
     def test_mock_register(self, mock_post):
         resp = self.base.register(email=os.getenv("WATTTIME_EMAIL"))
         self.assertEqual(len(mock_post.call_args_list), 1)
+
+    def test_get_password(self):
+
+        with mock.patch.dict(os.environ, {}, clear=True), self.assertRaises(ValueError):
+            wt_base = WattTimeBase()
+
+        with mock.patch.dict(os.environ, {}, clear=True):
+            wt_base = WattTimeBase(
+                username="WATTTIME_USERNAME", password="WATTTIME_PASSWORD"
+            )
+            self.assertEqual(wt_base.username, "WATTTIME_USERNAME")
+            self.assertEqual(wt_base.password, "WATTTIME_PASSWORD")
 
 
 class TestWattTimeHistorical(unittest.TestCase):
@@ -430,6 +442,7 @@ class TestWattTimeForecast(unittest.TestCase):
 class TestWattTimeMaps(unittest.TestCase):
     def setUp(self):
         self.maps = WattTimeMaps()
+        self.myaccess = WattTimeMyAccess()
 
     def test_get_maps_json_moer(self):
         moer = self.maps.get_maps_json(signal_type="co2_moer")
@@ -465,6 +478,22 @@ class TestWattTimeMaps(unittest.TestCase):
         self.assertEqual(region["region"], "PSCO")
         self.assertEqual(region["region_full_name"], "Public Service Co of Colorado")
         self.assertEqual(region["signal_type"], "co2_moer")
+
+    def test_my_access_in_geojson(self):
+        access = self.myaccess.get_access_pandas()
+        for signal_type in ["co2_moer", "co2_aoer", "health_damage"]:
+            access_regions = access.loc[
+                access["signal_type"] == signal_type, "region"
+            ].unique()
+            maps = self.maps.get_maps_json(signal_type=signal_type)
+            maps_regions = [i["properties"]["region"] for i in maps["features"]]
+
+            assert (
+                set(access_regions) - set(maps_regions) == set()
+            ), f"Missing regions in geojson for {signal_type}: {set(access_regions) - set(maps_regions)}"
+            assert (
+                set(maps_regions) - set(access_regions) == set()
+            ), f"Extra regions in geojson for {signal_type}: {set(maps_regions) - set(access_regions)}"
 
 
 if __name__ == "__main__":

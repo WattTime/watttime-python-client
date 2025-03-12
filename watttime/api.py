@@ -31,8 +31,17 @@ class WattTimeBase:
             username (Optional[str]): The username to use for authentication. If not provided, the value will be retrieved from the environment variable "WATTTIME_USER".
             password (Optional[str]): The password to use for authentication. If not provided, the value will be retrieved from the environment variable "WATTTIME_PASSWORD".
         """
-        self.username = username or os.getenv("WATTTIME_USER")
-        self.password = password or os.getenv("WATTTIME_PASSWORD")
+
+        # This only applies to the current session, is not stored persistently
+        if username and not os.getenv("WATTTIME_USER"):
+            os.environ["WATTTIME_USER"] = username
+        if password and not os.getenv("WATTTIME_PASSWORD"):
+            os.environ["WATTTIME_PASSWORD"] = password
+
+        # Accessing attributes will raise exception if variables are not set
+        _ = self.password
+        _ = self.username
+
         self.token = None
         self.headers = None
         self.token_valid_until = None
@@ -49,6 +58,28 @@ class WattTimeBase:
 
         self.session = requests.Session()
 
+    @property
+    def password(self):
+        password = os.getenv("WATTTIME_PASSWORD")
+        if not password:
+            raise ValueError(
+                "WATTTIME_PASSWORD env variable is not set."
+                + "Please set this variable, or pass in a password upon initialization,"
+                + "which will store it as a variable only for the current session"
+            )
+        return password
+
+    @property
+    def username(self):
+        username = os.getenv("WATTTIME_USER")
+        if not username:
+            raise ValueError(
+                "WATTTIME_USER env variable is not set."
+                + "Please set this variable, or pass in a username upon initialization,"
+                + "which will store it as a variable only for the current session"
+            )
+        return username
+      
     def _login(self):
         """
         Login to the WattTime API, which provides a JWT valid for 30 minutes
@@ -214,6 +245,8 @@ class WattTimeBase:
 
         if j.get("meta", {}).get("warnings"):
             print("Warnings Returned: %s | Response: %s", params, j["meta"])
+
+        self._last_request_meta = j.get("meta", {})
 
         return j
 
@@ -463,13 +496,16 @@ class WattTimeForecast(WattTimeBase):
         Returns:
             pd.DataFrame: A pandas DataFrame containing the parsed historical forecast data.
         """
-        out = pd.DataFrame()
-        for json in json_list:
-            for entry in json.get("data", []):
-                _df = pd.json_normalize(entry, record_path=["forecast"])
-                _df = _df.assign(generated_at=pd.to_datetime(entry["generated_at"]))
-                out = pd.concat([out, _df], ignore_index=True)
-        return out
+        data = []
+        for j in json_list:
+            for gen_at in j["data"]:
+                for point_time in gen_at["forecast"]:
+                    point_time["generated_at"] = gen_at["generated_at"]
+                    data.append(point_time)
+        df = pd.DataFrame.from_records(data)
+        df["point_time"] = pd.to_datetime(df["point_time"])
+        df["generated_at"] = pd.to_datetime(df["generated_at"])
+        return df
 
     def get_forecast_json(
         self,

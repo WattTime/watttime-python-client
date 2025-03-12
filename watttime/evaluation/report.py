@@ -23,9 +23,6 @@ from watttime.evaluation.get_wt_api_forecast_evaluation_data import (
 )
 from watttime.evaluation.fuels_cp import fuel_cp
 
-# hacky way to allow running this script locally
-sys.path.append(str(Path(__file__).parents[1].resolve()))
-
 
 def convert_to_timezone(dt: datetime, tz: Union[str, ZoneInfo]) -> datetime:
     """

@@ -67,8 +67,8 @@ class AnalysisDataHandler:
     wt_hist: Optional[api.WattTimeHistorical] = api.WattTimeHistorical(
         multithreaded=True
     )
-    wt_fuel_mix: Optional[api.WattTimeMarginalFuelMix] = (
-        api.WattTimeMarginalFuelMix(multithreaded=False)
+    wt_fuel_mix: Optional[api.WattTimeMarginalFuelMix] = api.WattTimeMarginalFuelMix(
+        multithreaded=False
     )
 
     def __post_init__(self):
@@ -92,15 +92,19 @@ class AnalysisDataHandler:
         k = max(k, 1)
         random.seed(self.forecast_sample_seed)
         self.sample_days = random.sample(self.eval_days, k)
-        
+
         # get tz by looking up centroid of region.
         # Note that some regions may contain multiple timezones
         if self.localize_tz:
             wt_maps = api.WattTimeMaps()
             all_maps = wt_maps.get_maps_json()
-            region = {f['properties']['region']: f['geometry'] for f in all_maps['features']}[self.region]
+            region = {
+                f["properties"]["region"]: f["geometry"] for f in all_maps["features"]
+            }[self.region]
             centroid = shape(region).centroid
-            self.tz = TimezoneFinder().certain_timezone_at(lat=centroid.y, lng=centroid.x)
+            self.tz = TimezoneFinder().certain_timezone_at(
+                lat=centroid.y, lng=centroid.x
+            )
 
     @cached_property
     def moers(self) -> pd.DataFrame:
@@ -121,11 +125,13 @@ class AnalysisDataHandler:
 
         if self.localize_tz:
             moers.index = moers.index.tz_convert(self.tz)
-            
+
         moers = moers.sort_index()
-        
+
         self.returned_meta = self.wt_hist._last_request_meta
-        self.returned_hist_model_date = self.wt_hist._last_request_meta.get("model", {}).get("date", None)
+        self.returned_hist_model_date = self.wt_hist._last_request_meta.get(
+            "model", {}
+        ).get("date", None)
         return moers
 
     @cached_property
@@ -146,13 +152,17 @@ class AnalysisDataHandler:
                 forecasts["point_time"] - forecasts["generated_at"]
             ).dt.total_seconds() / 60
             forecasts.rename({"value": "predicted_value"}, axis="columns", inplace=True)
-            
+
             if self.localize_tz:
-                forecasts['generated_at'] = forecasts['generated_at'].dt.tz_convert(self.tz)
+                forecasts["generated_at"] = forecasts["generated_at"].dt.tz_convert(
+                    self.tz
+                )
                 forecasts["point_time"] = forecasts["point_time"].dt.tz_convert(self.tz)
-            
+
             self.returned_meta = self.wt_forecast._last_request_meta
-            self.returned_forecast_model_date = self.wt_forecast._last_request_meta.get("model", {}).get("date", None)
+            self.returned_forecast_model_date = self.wt_forecast._last_request_meta.get(
+                "model", {}
+            ).get("date", None)
             return forecasts
 
     @cached_property
@@ -167,12 +177,14 @@ class AnalysisDataHandler:
             signal_type="marginal_fuel_mix",
             model=self.model_date,
         )
-        
+
         if self.localize_tz:
             fm.index = fm.index.tz_convert(self.tz)
-        
+
         self.returned_meta = self.wt_fuel_mix._last_request_meta
-        self.returned_fuel_mix_model_date = self.wt_fuel_mix._last_request_meta.get("model", {}).get("date", None)
+        self.returned_fuel_mix_model_date = self.wt_fuel_mix._last_request_meta.get(
+            "model", {}
+        ).get("date", None)
         return fm
 
     def moer_v_fuel_mix(self) -> pd.DataFrame:
@@ -259,22 +271,35 @@ class DataHandlerFactory:
     def yield_datahandlers(self) -> AnalysisDataHandler:
         for dh in self.data_handlers:
             yield dh
-            
+
     @property
     def collected_model_meta(self):
         return [
             {
                 "region": dh.region,
                 "requested_model_date": dh.model_date,
-                "returned_hist_model_date": getattr(dh, "returned_hist_model_date", None),
-                "returned_fuel_mix_model_date": getattr(dh, "returned_fuel_mix_model_date", None),
-                "returned_forecast_model_date": getattr(dh, "returned_forecast_model_date", None),
-            } for dh in self.data_handlers
+                "returned_hist_model_date": getattr(
+                    dh, "returned_hist_model_date", None
+                ),
+                "returned_fuel_mix_model_date": getattr(
+                    dh, "returned_fuel_mix_model_date", None
+                ),
+                "returned_forecast_model_date": getattr(
+                    dh, "returned_forecast_model_date", None
+                ),
+            }
+            for dh in self.data_handlers
         ]
-    
+
     @property
     def data_handlers_by_region_dict(self) -> Dict[str, List[AnalysisDataHandler]]:
         unique_regions = list(set([dh.region for dh in self.data_handlers]))
-        out = {region: [dh for dh in self.data_handlers if dh.region == region] for region in unique_regions}
-        out = {k: sorted(v, key=lambda x: x.model_date, reverse=True) for k, v in out.items()}
+        out = {
+            region: [dh for dh in self.data_handlers if dh.region == region]
+            for region in unique_regions
+        }
+        out = {
+            k: sorted(v, key=lambda x: x.model_date, reverse=True)
+            for k, v in out.items()
+        }
         return out

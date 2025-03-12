@@ -15,7 +15,6 @@ from shapely.geometry import shape
 from timezonefinder import TimezoneFinder
 
 from watttime import api
-from watttime import api_do_not_commit
 
 
 @dataclass
@@ -68,8 +67,8 @@ class AnalysisDataHandler:
     wt_hist: Optional[api.WattTimeHistorical] = api.WattTimeHistorical(
         multithreaded=True
     )
-    wt_fuel_mix: Optional[api_do_not_commit.WattTimeMarginalFuelMix] = (
-        api_do_not_commit.WattTimeMarginalFuelMix(multithreaded=False)
+    wt_fuel_mix: Optional[api.WattTimeMarginalFuelMix] = (
+        api.WattTimeMarginalFuelMix(multithreaded=False)
     )
 
     def __post_init__(self):

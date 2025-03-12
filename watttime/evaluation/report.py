@@ -83,9 +83,7 @@ def get_random_overlapping_period(dfs, max_period="365D", resample_freq="1H"):
         overlap_range = pd.date_range(
             start=start_overlap, end=start_overlap + max_timedelta, freq=resample_freq
         )
-    assert all(
-        [all(t in df.index for t in overlap_range) for df in dfs]
-    ), "Not all DataFrames contain the overlapping range."
+
     return overlap_range
 
 
@@ -112,10 +110,12 @@ def plot_sample_moers(
 
         for model_job in region_models:
 
+            _df = model_job.moers.reindex(times)
+
             fig.add_trace(
                 go.Scatter(
-                    x=times,
-                    y=model_job.moers.loc[times]["signal_value"],
+                    x=_df.index,
+                    y=_df.signal_value,
                     mode="lines",
                     name=model_job.model_date,
                     line=dict(width=2),
@@ -294,43 +294,50 @@ def calc_rank_corr(
 
     return np.nanmean(corr).round(3)
 
+
 def simulate_charge(df: pd.DataFrame, sort_col: str, charge_mins: int):
-    
+
     assert sort_col in df.columns
     include_generated_at = "generated_at" in df.index.names
-    
+
     charge_needed = charge_mins // 5
     df = df.assign(charge_status=False)
     df = df.sort_index(ascending=True)
     for w in df.reset_index().groupby("window_start"):
         window_start, w_df = w
-        
+
         if include_generated_at:
             charge_periods = []
             _charge_needed = charge_needed
             for g in w_df.groupby("generated_at"):
                 generated_at, g_df = g
-            
+
                 # how many forecasted points are below the current value?
                 n_below_now = (g_df[sort_col] <= g_df.iloc[0][sort_col]).sum()
                 should_charge_now = n_below_now <= _charge_needed
-                                
+
                 if should_charge_now:
-                    charge_periods.append((generated_at, generated_at))  # point_time and generated_at must be equal
+                    charge_periods.append(
+                        (generated_at, generated_at)
+                    )  # point_time and generated_at must be equal
                     _charge_needed -= 1
-                
+
                 if _charge_needed == 0:
                     break
-        
+
         else:
-            w_df['rank'] = w_df[sort_col].rank(ascending=True, method='first')
-            charge_periods = w_df.loc[w_df['rank'] <= charge_needed, 'point_time']
-        
-        df.loc[charge_periods, 'charge_status'] = True
-    
-    assert df['charge_status'].sum() <= (len(df['window_start'].unique())) * charge_needed
-    assert df['charge_status'].sum() >= (len(df['window_start'].unique()) * 0.97 * charge_needed)
-    return df['charge_status']
+            w_df["rank"] = w_df[sort_col].rank(ascending=True, method="first")
+            charge_periods = w_df.loc[w_df["rank"] <= charge_needed, "point_time"]
+
+        df.loc[charge_periods, "charge_status"] = True
+
+    assert (
+        df["charge_status"].sum() <= (len(df["window_start"].unique())) * charge_needed
+    )
+    assert df["charge_status"].sum() >= (
+        len(df["window_start"].unique()) * 0.97 * charge_needed
+    )
+    return df["charge_status"]
 
 
 def calc_rank_compare_metrics(
@@ -384,14 +391,16 @@ def calc_rank_compare_metrics(
     # Filter out rows that do not fall within the valid window
     df.loc[
         (df.index.get_level_values("point_time") >= df["window_end"])
-        | (df.index.get_level_values("generated_at") >= df["window_end"]) |
-        (df.index.get_level_values("generated_at") <= df['window_start']),
+        | (df.index.get_level_values("generated_at") >= df["window_end"])
+        | (df.index.get_level_values("generated_at") <= df["window_start"]),
         "window_start",
     ] = pd.NaT
     df = df.dropna(subset=["window_start"])
-    
+
     # Filter out rows where there aren't enough generated_ats to fulfill charge_mins
-    n_generated_at_in_window = df.groupby('window_start').transform(lambda x: x.reset_index()['generated_at'].nunique())[pred_col]
+    n_generated_at_in_window = df.groupby("window_start").transform(
+        lambda x: x.reset_index()["generated_at"].nunique()
+    )[pred_col]
     df = df.loc[n_generated_at_in_window >= charge_mins // 5]
 
     df = df.assign(
@@ -431,7 +440,7 @@ def calc_rank_compare_metrics(
     y_best_emissions = df["truth_charge_emissions"].sum()
     y_pred_emissions = df["pred_charge_emissions"].sum()
     y_base_emissions = df["baseline_charge_emissions"].sum()
-    
+
     assert y_pred_emissions >= y_best_emissions
     assert y_base_emissions >= y_best_emissions
 
@@ -696,7 +705,7 @@ def plot_sample_fuelmix(
 
         for model_ix, model_job in enumerate(region_models, start=1):
 
-            stacked_values = model_job.fuel_mix.loc[times]
+            stacked_values = model_job.fuel_mix.reindex(times)
 
             # Create cumulative values for stacking
             for fuel_ix in range(1, len(stacked_values.columns)):
@@ -826,7 +835,7 @@ def calc_max_potential(
 
     y_best_total = df["charge_emissions"].sum()
     y_baseline_total = df["baseline_charge_emissions"].sum()
-    
+
     assert y_best_total <= y_baseline_total
 
     potential = (y_baseline_total - y_best_total) / len(set(df.index.date))
@@ -869,9 +878,7 @@ def plot_max_impact_potential(
 
             fig.update_layout(
                 height=300 * len(region_models),
-                yaxis=dict(
-                    title="lbs CO2", fixedrange=True  # Disable y-axis panning
-                ),
+                yaxis=dict(title="lbs CO2", fixedrange=True),  # Disable y-axis panning
             )
 
         figs[region_abbrev] = fig

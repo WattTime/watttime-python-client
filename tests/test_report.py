@@ -24,7 +24,7 @@ class TestPlotCreationMultiModel(unittest.TestCase):
             regions=REGION_LIST,
             model_dates=MODEL_DATE_LIST,
             signal_types=SIGNAL_TYPE,
-            forecast_sample_size=FORECAST_SAMPLE
+            forecast_sample_size=FORECAST_SAMPLE,
         )
 
     def validate_figure(self, fig_dict: Dict[str, go.Figure]):
@@ -32,7 +32,10 @@ class TestPlotCreationMultiModel(unittest.TestCase):
         self.assertIsInstance(fig_dict[REGION_LIST[0]], go.Figure)
         self.assertGreater(len(fig_dict[REGION_LIST[0]].data), 0)
         _ = fig_dict[REGION_LIST[0]].to_html(
-            full_html=False, include_plotlyjs=False, include_mathjax=False, validate=True
+            full_html=False,
+            include_plotlyjs=False,
+            include_mathjax=False,
+            validate=True,
         )
 
     def test_plot_distribution_moers(self):
@@ -81,7 +84,7 @@ class TestPlotCreationSingleModel(unittest.TestCase):
             regions=REGION_LIST,
             model_dates=MODEL_DATE_LIST[0],
             signal_types=SIGNAL_TYPE,
-            forecast_sample_size=FORECAST_SAMPLE
+            forecast_sample_size=FORECAST_SAMPLE,
         )
 
     def validate_figure(self, fig_dict: Dict[str, go.Figure]):
@@ -89,7 +92,10 @@ class TestPlotCreationSingleModel(unittest.TestCase):
         self.assertIsInstance(fig_dict[REGION_LIST[0]], go.Figure)
         self.assertGreater(len(fig_dict[REGION_LIST[0]].data), 0)
         _ = fig_dict[REGION_LIST[0]].to_html(
-            full_html=False, include_plotlyjs=False, include_mathjax=False, validate=True
+            full_html=False,
+            include_plotlyjs=False,
+            include_mathjax=False,
+            validate=True,
         )
 
     def test_plot_sample_moers_single_job(self):
@@ -129,35 +135,50 @@ class TestSimulateCharge(unittest.TestCase):
                 for gen_at in generated_at_times
                 for offset in point_time_offsets
             ],
-            names=["point_time", "generated_at"]
+            names=["point_time", "generated_at"],
         )
 
         data = {
             "window_start": [pd.Timestamp("2025-03-11 00:00:00")] * len(index),
-            "forecast_value": np.random.randint(1, 20, len(index)),  # Random forecast values
-            "sort_col": np.tile([1, 2, 3, 4], len(generated_at_times))  # Ranks within each generated_at
+            "forecast_value": np.random.randint(
+                1, 20, len(index)
+            ),  # Random forecast values
+            "sort_col": np.tile(
+                [1, 2, 3, 4], len(generated_at_times)
+            ),  # Ranks within each generated_at
         }
 
         self.df = pd.DataFrame(data, index=index)
 
     def test_charge_status_output(self):
         """Ensure the function outputs a charge_status column with correct type."""
-        charge_status = report.simulate_charge(self.df, sort_col="sort_col", charge_mins=30)
+        charge_status = report.simulate_charge(
+            self.df, sort_col="sort_col", charge_mins=30
+        )
         self.assertIsInstance(charge_status, pd.Series)
         self.assertTrue(charge_status.dtype == bool)
 
     def test_correct_length(self):
         """Check that the charge_status output has the correct length."""
-        charge_status = report.simulate_charge(self.df, sort_col="sort_col", charge_mins=30)
+        charge_status = report.simulate_charge(
+            self.df, sort_col="sort_col", charge_mins=30
+        )
         self.assertEqual(len(charge_status), len(self.df))
 
     def test_all_point_times_gte_generated_at(self):
         """Ensure all point_time values are greater than or equal to generated_at."""
-        self.assertTrue((self.df.index.get_level_values("point_time") >= self.df.index.get_level_values("generated_at")).all())
+        self.assertTrue(
+            (
+                self.df.index.get_level_values("point_time")
+                >= self.df.index.get_level_values("generated_at")
+            ).all()
+        )
 
     def test_charging_fully_schedules(self):
         """Verify that a full charge is scheduled correctly."""
-        charge_status = report.simulate_charge(self.df, sort_col="sort_col", charge_mins=30)
+        charge_status = report.simulate_charge(
+            self.df, sort_col="sort_col", charge_mins=30
+        )
         charge_needed = 20 // 5  # Number of charge periods required
         charged_windows = self.df.loc[charge_status].groupby("window_start").size()
         self.assertTrue((charged_windows >= charge_needed - 1).all())

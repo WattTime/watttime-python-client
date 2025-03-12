@@ -720,7 +720,16 @@ class WattTimeMarginalFuelMix(WattTimeBase):
             params["model"] = model
 
         param_chunks = [{**params, "start": c[0], "end": c[1]} for c in chunks]
-        responses = self._fetch_data(url, param_chunks)
+
+        try:
+            responses = self._fetch_data(url, param_chunks)
+        except RuntimeError as e:
+            if "403 Client Error: Forbidden" in str(e):
+                print(
+                    f"The /v3/fuel-mix endpoint is a beta endpoint that provides *marginal* fuel mix data. This endpoint is not currently available to all users, please reach out to WattTime if you believe accessing marginal fuel mix data could be impactful for your usecase!"
+                )
+                return []
+            raise
         return responses
 
     def get_fuel_mix_pandas(

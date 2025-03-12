@@ -506,6 +506,18 @@ class TestWattTimeMarginalFuelMix(unittest.TestCase):
         self.assertEqual("point_time", df.index.name)
         assert df.index.is_monotonic_increasing
         assert all(df.sum(axis="columns") == 1.0)
+        
+    @patch.object(WattTimeMarginalFuelMix, "_fetch_data", side_effect=RuntimeError("403 Client Error: Forbidden"))
+    def test_get_fuel_mix_jsons_handles_403(self, mock_fetch_data):
+        start = "2024-01-01 00:00Z"
+        end = "2024-01-07 00:00Z"
+
+        result = self.fuel_mix.get_fuel_mix_jsons(start=start, end=end, region=REGION)
+
+        self.assertEqual(result, [])
+        mock_fetch_data.assert_called_once()
+        # TODO: test for logging here once we use log rather than print in api.py
+        
 
 
 if __name__ == "__main__":

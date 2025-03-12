@@ -6,7 +6,9 @@ setup(
     long_description=open("README.md").read(),
     long_description_content_type="text/markdown",
     version="v1.3.3",
-    packages=["watttime"],
+    packages=["watttime", "watttime.evaluation"],
     python_requires=">=3.8",
     install_requires=["requests", "pandas>1.0.0", "holidays", "python-dateutil"],
+    extras_require={"report": ["jinja2", "plotly", "scipy", "shapely", "timezonefinder"]},
+    scripts=["watttime/report.py"],
 )

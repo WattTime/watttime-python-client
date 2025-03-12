@@ -2,6 +2,7 @@ import os
 import time
 import threading
 import time
+import logging
 from datetime import date, datetime, timedelta, time as dt_time
 from functools import cache
 from pathlib import Path
@@ -14,8 +15,20 @@ from dateutil.parser import parse
 from pytz import UTC
 
 
+def get_log():
+    logging.basicConfig(
+        format="%(asctime)s [%(levelname)-1s]  " "%(message)s",
+        level=logging.INFO,
+        handlers=[logging.StreamHandler()],
+    )
+    return logging.getLogger()
+
+
+LOG = get_log()
+
+
 class WattTimeBase:
-    url_base = "https://api.watttime.org"
+    url_base = "https://api.staging-primary.watttime.org"
 
     def __init__(
         self,
@@ -47,6 +60,8 @@ class WattTimeBase:
             )  # prevent multiple threads from modifying _last_request_times simultaneously
             self._rate_limit_condition = threading.Condition(self._rate_limit_lock)
 
+        self.session = requests.Session()
+
     def _login(self):
         """
         Login to the WattTime API, which provides a JWT valid for 30 minutes
@@ -56,7 +71,7 @@ class WattTimeBase:
         """
 
         url = f"{self.url_base}/login"
-        rsp = requests.get(
+        rsp = self.session.get(
             url,
             auth=requests.auth.HTTPBasicAuth(self.username, self.password),
             timeout=20,
@@ -147,9 +162,9 @@ class WattTimeBase:
             "org": organization,
         }
 
-        rsp = requests.post(url, json=params, timeout=20)
+        rsp = self.session.post(url, json=params, timeout=20)
         rsp.raise_for_status()
-        print(
+        LOG.info(
             f"Successfully registered {self.username}, please check {email} for a verification email"
         )
 
@@ -202,16 +217,18 @@ class WattTimeBase:
             self._apply_rate_limit(ts)
 
         try:
-            rsp = requests.get(url, headers=self.headers, params=params)
+            LOG.debug(f"Making API Request: {url} | Params: {params}")
+            rsp = self.session.get(url, headers=self.headers, params=params)
             rsp.raise_for_status()
             j = rsp.json()
+            LOG.debug(f"...Request took: {round(time.time() - ts, 2)} seconds")
         except requests.exceptions.RequestException as e:
             raise RuntimeError(
                 f"API Request Failed: {e}\nURL: {url}\nParams: {params}"
             ) from e
 
         if j.get("meta", {}).get("warnings"):
-            print("Warnings Returned: %s | Response: %s", params, j["meta"])
+            LOG.warning("Warnings Returned: %s | Response: %s", params, j["meta"])
 
         self._last_request_meta = j.get("meta", {})
 
@@ -260,7 +277,7 @@ class WattTimeBase:
 
         responses = []
         if self.multithreaded:
-            with ThreadPoolExecutor(max_workers=os.cpu_count() * 5) as executor:
+            with ThreadPoolExecutor(max_workers=10) as executor:
                 futures = {
                     executor.submit(
                         self._make_rate_limited_request, url, params
@@ -393,7 +410,7 @@ class WattTimeHistorical(WattTimeBase):
         start, end = self._parse_dates(start, end)
         fp = out_dir / f"{region}_{signal_type}_{start.date()}_{end.date()}.csv"
         df.to_csv(fp, index=False)
-        print(f"file written to {fp}")
+        LOG.info(f"file written to {fp}")
 
 
 class WattTimeMyAccess(WattTimeBase):
@@ -463,13 +480,16 @@ class WattTimeForecast(WattTimeBase):
         Returns:
             pd.DataFrame: A pandas DataFrame containing the parsed historical forecast data.
         """
-        out = pd.DataFrame()
-        for json in json_list:
-            for entry in json.get("data", []):
-                _df = pd.json_normalize(entry, record_path=["forecast"])
-                _df = _df.assign(generated_at=pd.to_datetime(entry["generated_at"]))
-                out = pd.concat([out, _df], ignore_index=True)
-        return out
+        data = []
+        for j in json_list:
+            for gen_at in j["data"]:
+                for point_time in gen_at["forecast"]:
+                    point_time["generated_at"] = gen_at["generated_at"]
+                    data.append(point_time)
+        df = pd.DataFrame.from_records(data)
+        df["point_time"] = pd.to_datetime(df["point_time"])
+        df["generated_at"] = pd.to_datetime(df["generated_at"])
+        return df
 
     def get_forecast_json(
         self,

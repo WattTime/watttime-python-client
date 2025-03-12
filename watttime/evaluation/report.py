@@ -331,8 +331,8 @@ def simulate_charge(df: pd.DataFrame, sort_col: str, charge_mins: int):
         
         df.loc[charge_periods, 'charge_status'] = True
     
-    assert df['charge_status'].sum() >= (len(df['window_start'].unique()) - 1) * charge_needed
     assert df['charge_status'].sum() <= (len(df['window_start'].unique())) * charge_needed
+    assert df['charge_status'].sum() >= (len(df['window_start'].unique()) * 0.97 * charge_needed)
     return df['charge_status']
 
 
@@ -370,7 +370,7 @@ def calc_rank_compare_metrics(
 
         # Use merge_asof to efficiently assign windows
         df = pd.merge_asof(
-            df.reset_index().sort_values(["generated_at", "point_time"], ascending=True),
+            df.reset_index().sort_values("generated_at", ascending=True),
             window_df,
             left_on="generated_at",
             right_on="window_start",
@@ -392,6 +392,10 @@ def calc_rank_compare_metrics(
         "window_start",
     ] = pd.NaT
     df = df.dropna(subset=["window_start"])
+    
+    # Filter out rows where there aren't enough generated_ats to fulfill charge_mins
+    n_generated_at_in_window = df.groupby('window_start').transform(lambda x: x.reset_index()['generated_at'].nunique())[pred_col]
+    df = df.loc[n_generated_at_in_window >= charge_mins // 5]
 
     df = df.assign(
         truth_charge_status=simulate_charge(df, truth_col, charge_mins),
@@ -419,12 +423,12 @@ def calc_rank_compare_metrics(
 
     assert (
         df["baseline_charge_status"].sum()
-        >= (len(df["window_start"].unique()) - 1) * charge_mins // 5
+        == (len(df["window_start"].unique())) * charge_mins // 5
     )
-    assert (
-        df["baseline_charge_status"].sum()
-        <= (len(df["window_start"].unique()) + 1) * charge_mins // 5
-    )
+    # assert (
+    #     df["baseline_charge_status"].sum()
+    #     <= (len(df["window_start"].unique()) + 1) * charge_mins // 5
+    # )
 
     # Calculate total CO2 emissions ("truth")
     y_best_emissions = df["truth_charge_emissions"].sum()
@@ -625,7 +629,7 @@ def plot_impact_forecast_metrics(
                     marker=dict(
                         color="rgba(200, 200, 200, 0.8)"
                     ),  # Light gray for potential
-                    hovertemplate="%{x}: %{y:.1f} lbs CO2/MWh<extra></extra>",
+                    hovertemplate="%{x}: %{y:.1f} lbs CO2<extra></extra>",
                 ),
                 row=model_ix,
                 col=1,
@@ -642,7 +646,7 @@ def plot_impact_forecast_metrics(
                     ],
                     textposition="outside",
                     marker=dict(color="rgba(0, 128, 0, 0.8)"),  # Green for reduction
-                    hovertemplate="%{x}: %{y:.1f} lbs CO2/MWh<extra></extra>",
+                    hovertemplate="%{x}: %{y:.1f} lbs CO2<extra></extra>",
                 ),
                 row=model_ix,
                 col=1,
@@ -860,7 +864,7 @@ def plot_max_impact_potential(
                     x=_metrics["scenario"],
                     y=_metrics["potential"],
                     name=model_job.model_date,  # Legend only in the first subplot
-                    hovertemplate="%{x}: %{y:.1f} lbs CO2/MWh<extra></extra>",
+                    hovertemplate="%{x}: %{y:.1f} lbs CO2<extra></extra>",
                 )
             )
 
@@ -869,7 +873,7 @@ def plot_max_impact_potential(
             fig.update_layout(
                 height=300 * len(region_models),
                 yaxis=dict(
-                    title="lbs CO2/MWh", fixedrange=True  # Disable y-axis panning
+                    title="lbs CO2", fixedrange=True  # Disable y-axis panning
                 ),
             )
 

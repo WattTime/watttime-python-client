@@ -49,6 +49,10 @@ class RateLimitedRequesterMixin:
 
         rsp = requests.get(url, headers=headers, params=params)
         rsp.raise_for_status()
+
+        # Workaround: This mixin will write an attribute to the parent. Moreover it's a private attribute.
+        # A future release refactors thix mixin and avoids this assignment
+        self._last_request_meta = j.get("meta", {})
         return rsp.json()
 
     def _fetch_data_multithreaded(

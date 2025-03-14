@@ -233,6 +233,21 @@ class TestWattTimeHistorical(unittest.TestCase):
         )
 
 
+class TestWattTimeHistoricalMultiThreaded(unittest.TestCase):
+
+    def setUp(self):
+        self.historical = WattTimeHistorical(multithreaded=True)
+
+    def test_get_historical_jsons_3_months_multithreaded(self):
+        start = "2022-01-01 00:00Z"
+        end = "2022-12-31 00:00Z"
+        jsons = self.historical.get_historical_jsons(start, end, REGION)
+
+        self.assertIsInstance(jsons, list)
+        self.assertGreaterEqual(len(jsons), 1)
+        self.assertIsInstance(jsons[0], dict)
+
+
 class TestWattTimeMyAccess(unittest.TestCase):
     def setUp(self):
         self.access = WattTimeMyAccess()
@@ -294,7 +309,6 @@ class TestWattTimeMyAccess(unittest.TestCase):
 class TestWattTimeForecast(unittest.TestCase):
     def setUp(self):
         self.forecast = WattTimeForecast()
-        self.forecast_mt = WattTimeForecast(multithreaded=True)
 
     def test_get_current_json(self):
         json = self.forecast.get_forecast_json(region=REGION)
@@ -316,18 +330,6 @@ class TestWattTimeForecast(unittest.TestCase):
         start = "2024-01-01 00:00Z"
         end = "2024-01-07 00:00Z"
         json_list = self.forecast.get_historical_forecast_json(
-            start, end, region=REGION
-        )
-        first_json = json_list[0]
-        self.assertIsInstance(json_list, list)
-        self.assertIn("meta", first_json)
-        self.assertEqual(len(first_json["data"]), 288)
-        self.assertIn("generated_at", first_json["data"][0])
-
-    def test_historical_forecast_jsons_multithreaded(self):
-        start = "2024-01-01 00:00Z"
-        end = "2024-01-30 00:00Z"
-        json_list = self.forecast_mt.get_historical_forecast_json(
             start, end, region=REGION
         )
         first_json = json_list[0]
@@ -400,6 +402,24 @@ class TestWattTimeForecast(unittest.TestCase):
         self.assertIn("meta", json3)
         self.assertEqual(len(json3["data"]), 864)
         self.assertIn("point_time", json3["data"][0])
+
+
+class TestWattTimeForecastMultithreaded(unittest.TestCase):
+
+    def setUp(self):
+        self.forecast = WattTimeForecast(multithreaded=True)
+
+    def test_historical_forecast_jsons_multithreaded(self):
+        start = "2024-01-01 00:00Z"
+        end = "2024-01-30 00:00Z"
+        json_list = self.forecast.get_historical_forecast_json(
+            start, end, region=REGION
+        )
+        first_json = json_list[0]
+        self.assertIsInstance(json_list, list)
+        self.assertIn("meta", first_json)
+        self.assertEqual(len(first_json["data"]), 288)
+        self.assertIn("generated_at", first_json["data"][0])
 
 
 class TestWattTimeMaps(unittest.TestCase):

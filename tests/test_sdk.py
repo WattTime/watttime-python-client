@@ -459,7 +459,6 @@ class TestWattTimeMaps(unittest.TestCase):
 
     def tearDown(self):
         self.maps.session.close()
-        self.myaccess.session.close()
 
     def test_get_maps_json_moer(self):
         moer = self.maps.get_maps_json(signal_type="co2_moer")

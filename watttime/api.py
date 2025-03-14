@@ -43,7 +43,7 @@ class WattTimeBase:
         rsp = requests.get(
             url,
             auth=requests.auth.HTTPBasicAuth(self.username, self.password),
-            timeout=20,
+            timeout=60,
         )
         rsp.raise_for_status()
         self.token = rsp.json().get("token", None)
@@ -130,7 +130,7 @@ class WattTimeBase:
             "org": organization,
         }
 
-        rsp = requests.post(url, json=params, timeout=20)
+        rsp = requests.post(url, json=params, timeout=60)
         rsp.raise_for_status()
         print(
             f"Successfully registered {self.username}, please check {email} for a verification email"

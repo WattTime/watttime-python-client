@@ -136,7 +136,7 @@ class TestWattTimeBase(unittest.TestCase):
         self.assertIsInstance(parsed_end, datetime)
         self.assertEqual(parsed_end.tzinfo, UTC)
 
-    @mock.patch("requests.post", side_effect=mocked_register)
+    @mock.patch("watttime.requests.Session.post", side_effect=mocked_register)
     def test_mock_register(self, mock_post):
         resp = self.base.register(email=os.getenv("WATTTIME_EMAIL"))
         self.assertEqual(len(mock_post.call_args_list), 1)

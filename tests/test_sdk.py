@@ -53,6 +53,9 @@ class TestWattTimeBase(unittest.TestCase):
     def setUp(self):
         self.base = WattTimeBase()
 
+    def tearDown(self):
+        self.base.session.close()
+
     def test_login_with_real_api(self):
         self.base._login()
         assert self.base.token is not None
@@ -155,6 +158,9 @@ class TestWattTimeBase(unittest.TestCase):
 class TestWattTimeHistorical(unittest.TestCase):
     def setUp(self):
         self.historical = WattTimeHistorical()
+
+    def tearDown(self):
+        self.historical.session.close()
 
     def test_get_historical_jsons_3_months(self):
         start = "2025-01-01 00:00Z"
@@ -268,6 +274,9 @@ class TestWattTimeHistoricalMultiThreaded(unittest.TestCase):
     def tearDown(self):
         self.historical.session.close()
 
+    def tearDown(self):
+        self.historical.session.close()
+
     def test_get_historical_jsons_3_months_multithreaded(self):
         start = "2026-01-01 00:00Z"
         end = "2026-03-31 00:00Z"
@@ -346,6 +355,9 @@ class TestWattTimeMyAccess(unittest.TestCase):
 class TestWattTimeForecast(unittest.TestCase):
     def setUp(self):
         self.forecast = WattTimeForecast(rate_limit=1, multithreaded=False)
+
+    def tearDown(self):
+        self.forecast.session.close()
 
     def tearDown(self):
         self.forecast.session.close()
@@ -453,6 +465,9 @@ class TestWattTimeForecastMultithreaded(unittest.TestCase):
     def tearDown(self):
         self.forecast.session.close()
 
+    def tearDown(self):
+        self.forecast.session.close()
+
     def test_historical_forecast_jsons_multithreaded(self):
         start = "2026-01-01 00:00Z"
         end = "2026-01-14 00:00Z"
@@ -470,6 +485,10 @@ class TestWattTimeMaps(unittest.TestCase):
     def setUp(self):
         self.maps = WattTimeMaps()
         self.myaccess = WattTimeMyAccess()
+
+    def tearDown(self):
+        self.maps.session.close()
+        self.myaccess.session.close()
 
     def test_get_maps_json_moer(self):
         moer = self.maps.get_maps_json(signal_type="co2_moer")

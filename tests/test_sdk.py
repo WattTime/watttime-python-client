@@ -48,7 +48,7 @@ def mocked_register(*args, **kwargs):
 
 class TestWattTimeBase(unittest.TestCase):
     def setUp(self):
-        self.base = WattTimeBase()
+        self.base = WattTimeBase(rate_limit=2)  # rate limit is used by tests
 
     def tearDown(self):
         self.base.session.close()

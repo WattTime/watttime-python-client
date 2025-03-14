@@ -204,7 +204,7 @@ class WattTimeBase:
             self._apply_rate_limit(ts)
 
         try:
-            rsp = self.session.get(url, headers=self.headers, params=params)
+            rsp = self.session.get(url, headers=self.headers, params=params, timeout=60)
             rsp.raise_for_status()
             j = rsp.json()
         except requests.exceptions.RequestException as e:

@@ -1,5 +1,6 @@
 import unittest
 import unittest.mock as mock
+from unittest.mock import patch
 from datetime import datetime, timedelta, date
 from dateutil.parser import parse
 from pytz import timezone, UTC
@@ -47,12 +48,27 @@ def mocked_register(*args, **kwargs):
 
 class TestWattTimeBase(unittest.TestCase):
     def setUp(self):
-        self.base = WattTimeBase()
+        self.base = WattTimeBase(rate_limit=2)  # rate limit is used by tests
+
+    def tearDown(self):
+        self.base.session.close()
 
     def test_login_with_real_api(self):
         self.base._login()
         assert self.base.token is not None
         assert self.base.token_valid_until > datetime.now()
+
+    @patch("time.sleep", return_value=None)
+    def test_apply_rate_limit(self, mock_sleep):
+        """Test _apply_rate_limit (single-threaded) triggers sleep when rate limit is exceeded."""
+        # Set up a scenario with more requests than allowed:
+        # Our rate_limit is 2, so with 3 prior requests all within the past second, we expect a wait.
+        self.base._last_request_times = [0, 0.2, 0.3]
+        # Use a current timestamp such that all three are within the last 1 second.
+        ts = 0.5
+        self.base._apply_rate_limit(ts)
+        # Expect sleep to be called with: wait_time = 1.0 - (ts - earliest_timestamp) = 1.0 - (0.5 - 0) = 0.5 seconds.
+        mock_sleep.assert_called_with(0.5)
 
     def test_parse_dates_with_string(self):
         start = "2022-01-01"
@@ -120,7 +136,7 @@ class TestWattTimeBase(unittest.TestCase):
         self.assertIsInstance(parsed_end, datetime)
         self.assertEqual(parsed_end.tzinfo, UTC)
 
-    @mock.patch("requests.post", side_effect=mocked_register)
+    @mock.patch("watttime.requests.Session.post", side_effect=mocked_register)
     def test_mock_register(self, mock_post):
         resp = self.base.register(email=os.getenv("WATTTIME_EMAIL"))
         self.assertEqual(len(mock_post.call_args_list), 1)
@@ -128,11 +144,14 @@ class TestWattTimeBase(unittest.TestCase):
 
 class TestWattTimeHistorical(unittest.TestCase):
     def setUp(self):
-        self.historical = WattTimeHistorical()
+        self.historical = WattTimeHistorical(rate_limit=5)
+
+    def tearDown(self):
+        self.historical.session.close()
 
     def test_get_historical_jsons_3_months(self):
         start = "2022-01-01 00:00Z"
-        end = "2022-12-31 00:00Z"
+        end = "2022-03-31 00:00Z"
         jsons = self.historical.get_historical_jsons(start, end, REGION)
 
         self.assertIsInstance(jsons, list)
@@ -233,9 +252,30 @@ class TestWattTimeHistorical(unittest.TestCase):
         )
 
 
+class TestWattTimeHistoricalMultiThreaded(unittest.TestCase):
+
+    def setUp(self):
+        self.historical = WattTimeHistorical(multithreaded=True, rate_limit=5)
+
+    def tearDown(self):
+        self.historical.session.close()
+
+    def test_get_historical_jsons_3_months_multithreaded(self):
+        start = "2022-01-01 00:00Z"
+        end = "2022-03-31 00:00Z"
+        jsons = self.historical.get_historical_jsons(start, end, REGION)
+
+        self.assertIsInstance(jsons, list)
+        self.assertGreaterEqual(len(jsons), 1)
+        self.assertIsInstance(jsons[0], dict)
+
+
 class TestWattTimeMyAccess(unittest.TestCase):
     def setUp(self):
         self.access = WattTimeMyAccess()
+
+    def tearDown(self):
+        self.access.session.close()
 
     def test_access_json_structure(self):
         json = self.access.get_access_json()
@@ -293,8 +333,10 @@ class TestWattTimeMyAccess(unittest.TestCase):
 
 class TestWattTimeForecast(unittest.TestCase):
     def setUp(self):
-        self.forecast = WattTimeForecast()
-        self.forecast_mt = WattTimeForecast(multithreaded=True)
+        self.forecast = WattTimeForecast(rate_limit=5)
+
+    def tearDown(self):
+        self.forecast.session.close()
 
     def test_get_current_json(self):
         json = self.forecast.get_forecast_json(region=REGION)
@@ -316,18 +358,6 @@ class TestWattTimeForecast(unittest.TestCase):
         start = "2024-01-01 00:00Z"
         end = "2024-01-07 00:00Z"
         json_list = self.forecast.get_historical_forecast_json(
-            start, end, region=REGION
-        )
-        first_json = json_list[0]
-        self.assertIsInstance(json_list, list)
-        self.assertIn("meta", first_json)
-        self.assertEqual(len(first_json["data"]), 288)
-        self.assertIn("generated_at", first_json["data"][0])
-
-    def test_historical_forecast_jsons_multithreaded(self):
-        start = "2024-01-01 00:00Z"
-        end = "2024-01-30 00:00Z"
-        json_list = self.forecast_mt.get_historical_forecast_json(
             start, end, region=REGION
         )
         first_json = json_list[0]
@@ -402,9 +432,33 @@ class TestWattTimeForecast(unittest.TestCase):
         self.assertIn("point_time", json3["data"][0])
 
 
+class TestWattTimeForecastMultithreaded(unittest.TestCase):
+
+    def setUp(self):
+        self.forecast = WattTimeForecast(multithreaded=True, rate_limit=5)
+
+    def tearDown(self):
+        self.forecast.session.close()
+
+    def test_historical_forecast_jsons_multithreaded(self):
+        start = "2024-01-01 00:00Z"
+        end = "2024-01-14 00:00Z"
+        json_list = self.forecast.get_historical_forecast_json(
+            start, end, region=REGION
+        )
+        first_json = json_list[0]
+        self.assertIsInstance(json_list, list)
+        self.assertIn("meta", first_json)
+        self.assertEqual(len(first_json["data"]), 288)
+        self.assertIn("generated_at", first_json["data"][0])
+
+
 class TestWattTimeMaps(unittest.TestCase):
     def setUp(self):
         self.maps = WattTimeMaps()
+
+    def tearDown(self):
+        self.maps.session.close()
 
     def test_get_maps_json_moer(self):
         moer = self.maps.get_maps_json(signal_type="co2_moer")

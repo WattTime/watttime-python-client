@@ -50,6 +50,9 @@ class TestWattTimeBase(unittest.TestCase):
     def setUp(self):
         self.base = WattTimeBase()
 
+    def tearDown(self):
+        self.base.session.close()
+
     def test_login_with_real_api(self):
         self.base._login()
         assert self.base.token is not None
@@ -154,6 +157,9 @@ class TestWattTimeBase(unittest.TestCase):
 class TestWattTimeHistorical(unittest.TestCase):
     def setUp(self):
         self.historical = WattTimeHistorical()
+
+    def tearDown(self):
+        self.historical.session.close()
 
     def test_get_historical_jsons_3_months(self):
         start = "2022-01-01 00:00Z"
@@ -263,6 +269,9 @@ class TestWattTimeHistoricalMultiThreaded(unittest.TestCase):
     def setUp(self):
         self.historical = WattTimeHistorical(multithreaded=True)
 
+    def tearDown(self):
+        self.historical.session.close()
+
     def test_get_historical_jsons_3_months_multithreaded(self):
         start = "2022-01-01 00:00Z"
         end = "2022-12-31 00:00Z"
@@ -276,6 +285,9 @@ class TestWattTimeHistoricalMultiThreaded(unittest.TestCase):
 class TestWattTimeMyAccess(unittest.TestCase):
     def setUp(self):
         self.access = WattTimeMyAccess()
+
+    def tearDown(self):
+        self.access.session.close()
 
     def test_access_json_structure(self):
         json = self.access.get_access_json()
@@ -334,6 +346,9 @@ class TestWattTimeMyAccess(unittest.TestCase):
 class TestWattTimeForecast(unittest.TestCase):
     def setUp(self):
         self.forecast = WattTimeForecast()
+
+    def tearDown(self):
+        self.forecast.session.close()
 
     def test_get_current_json(self):
         json = self.forecast.get_forecast_json(region=REGION)
@@ -434,6 +449,9 @@ class TestWattTimeForecastMultithreaded(unittest.TestCase):
     def setUp(self):
         self.forecast = WattTimeForecast(multithreaded=True)
 
+    def tearDown(self):
+        self.forecast.session.close()
+
     def test_historical_forecast_jsons_multithreaded(self):
         start = "2024-01-01 00:00Z"
         end = "2024-01-30 00:00Z"
@@ -451,6 +469,10 @@ class TestWattTimeMaps(unittest.TestCase):
     def setUp(self):
         self.maps = WattTimeMaps()
         self.myaccess = WattTimeMyAccess()
+
+    def tearDown(self):
+        self.maps.session.close()
+        self.myaccess.session.close()
 
     def test_get_maps_json_moer(self):
         moer = self.maps.get_maps_json(signal_type="co2_moer")

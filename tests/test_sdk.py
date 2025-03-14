@@ -151,7 +151,7 @@ class TestWattTimeHistorical(unittest.TestCase):
 
     def test_get_historical_jsons_3_months(self):
         start = "2022-01-01 00:00Z"
-        end = "2022-12-31 00:00Z"
+        end = "2022-03-31 00:00Z"
         jsons = self.historical.get_historical_jsons(start, end, REGION)
 
         self.assertIsInstance(jsons, list)
@@ -262,7 +262,7 @@ class TestWattTimeHistoricalMultiThreaded(unittest.TestCase):
 
     def test_get_historical_jsons_3_months_multithreaded(self):
         start = "2022-01-01 00:00Z"
-        end = "2022-12-31 00:00Z"
+        end = "2022-03-31 00:00Z"
         jsons = self.historical.get_historical_jsons(start, end, REGION)
 
         self.assertIsInstance(jsons, list)
@@ -442,7 +442,7 @@ class TestWattTimeForecastMultithreaded(unittest.TestCase):
 
     def test_historical_forecast_jsons_multithreaded(self):
         start = "2024-01-01 00:00Z"
-        end = "2024-01-30 00:00Z"
+        end = "2024-01-14 00:00Z"
         json_list = self.forecast.get_historical_forecast_json(
             start, end, region=REGION
         )

@@ -813,7 +813,6 @@ class WattTimeOptimizer(WattTimeForecast):
             # print("Charge per interval:", converted_charge_per_interval)
         else:
             converted_charge_per_interval = None
-        print(converted_charge_per_interval)
         model.fit(
             total_charge=total_charge_units,
             total_time=len(moer_values),
@@ -1016,8 +1015,8 @@ class WattTimeRecalculator:
             charge_per_interval (list): List of charging durations per interval
         """
         self.all_schedules = [(initial_schedule, (start_time, end_time))]
+        self.end_time=end_time
         self.total_time_required = total_time_required
-        self.end_time = end_time
         self.charge_per_interval = charge_per_interval
         self.is_contiguous = charge_per_interval is not None
         self.sleep_delay = False
@@ -1043,9 +1042,8 @@ class WattTimeRecalculator:
 
         combined_schedule = self.get_combined_schedule()
 
-        usage_in_minutes = int(
-            combined_schedule.loc[:(next_query_time - timedelta(minutes=5))]["usage"].sum()
-        )
+        usage_in_minutes = combined_schedule.loc[:(next_query_time - timedelta(minutes=5))]["usage"].sum()
+        
         return self.total_time_required - usage_in_minutes
     
     def set_last_schedule_end_time(self, next_query_time: datetime):
@@ -1078,10 +1076,10 @@ class WattTimeRecalculator:
         if new_schedule is not None:
             self.set_last_schedule_end_time(next_query_time)
             self.all_schedules.append((new_schedule, (next_query_time, self.end_time)))
-            if self.is_contiguous:
+            if self.is_contiguous is True:
                 self.sleep_delay = self.check_if_contiguity_sleep_required(new_schedule, next_new_schedule_start_time)
         else:
-            if self.is_contiguous:
+            if self.is_contiguous is True:
                 self.sleep_delay = self.check_if_contiguity_sleep_required(self.all_schedules[0][0], next_new_schedule_start_time)
         if self.is_contiguous is True:
             if self.sleep_delay is True:

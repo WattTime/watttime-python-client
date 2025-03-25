@@ -1,4 +1,5 @@
 # optCharger.py
+import warnings
 import numpy as np
 from .moer import Moer
 
@@ -19,12 +20,13 @@ class OptCharger:
         Initializes the OptCharger object with the given parameters.
     """
 
-    def __init__(self):
+    def __init__(self, verbose):
         """
         Initializes the OptCharger object.
         """
         self.__optimal_charging_emission = None
         self.__optimal_charging_schedule = None
+        self.__verbose = verbose
 
     def __collect_results(self, moer: Moer):
         """
@@ -75,6 +77,10 @@ class OptCharger:
         self.__optimal_charging_emission = (
             self.__optimal_charging_emissions_over_time.sum()
         )
+
+    def verbose_on(self, statement:str):
+        if self.__verbose:
+            print(statement)
 
     @staticmethod
     def __sanitize_emission_multiplier(emission_multiplier_fn, total_charge):
@@ -146,7 +152,7 @@ class OptCharger:
 
         Calls __collect_results to process the results.
         """
-        print("== Baseline fit! ==")
+        self.verbose_on("== Baseline fit! ==")
         schedule = [1] * min(total_charge, total_time) + [0] * max(
             0, total_time - total_charge
         )
@@ -172,7 +178,7 @@ class OptCharger:
 
         Calls __collect_results to process the results.
         """
-        print("== Simple fit! ==")
+        self.verbose_on("== Simple fit! ==")
         sorted_times = np.argsort(moer.get_emission_interval(0, total_time, 1))
 
         charge_to_do = total_charge
@@ -219,7 +225,7 @@ class OptCharger:
         Exception
             If no valid solution is found.
         """
-        print("== Sophisticated fit! ==")
+        self.verbose_on("== Sophisticated fit! ==")
         # This is a matrix with size = number of charge states x number of actions {not charging = 0, charging = 1}
         max_util = np.full((total_charge + 1), np.nan)
         max_util[0] = 0.0
@@ -235,9 +241,7 @@ class OptCharger:
                 )
             else:
                 min_charge, max_charge = 0, total_charge
-            # print("=== Time step", t, "===")
             new_max_util = np.full(max_util.shape, np.nan)
-            # print("min_charge, max_charge =",min_charge,max_charge)
             for c in range(min_charge, max_charge + 1):
                 ## not charging
                 init_val = True
@@ -316,8 +320,7 @@ class OptCharger:
         -----
         This is the __diagonal_fit() algorithm with further constraint on contiguous charging intervals and their respective length
         """
-        print("== Fixed contiguous fit! ==")
-        # print("Charge per interval constraints:", charge_per_interval)
+        self.verbose_on("== Fixed contiguous fit! ==")
         total_interval = len(charge_per_interval)
         # This is a matrix with size = number of time states x number of intervals charged so far
         max_util = np.full((total_time + 1, total_interval + 1), np.nan)
@@ -330,7 +333,7 @@ class OptCharger:
         charge_array_cache = [
             emission_multiplier_fn(x, x + 1) for x in range(0, total_charge + 1)
         ]
-        print("Cumulative charge", cum_charge)
+        # ("Cumulative charge", cum_charge)
         for t in range(1, total_time + 1):
             if t in constraints:
                 min_charge, max_charge = constraints[t]
@@ -442,7 +445,7 @@ class OptCharger:
         -----
         This is the __diagonal_fit() algorithm with further constraint on contiguous charging intervals and their respective length
         """
-        print("== Variable contiguous fit! ==")
+        self.verbose_on("== Variable contiguous fit! ==")
         total_interval = len(charge_per_interval)
         # This is a matrix with size = number of time states x number of charge states x number of intervals charged so far
         max_util = np.full(
@@ -592,7 +595,7 @@ class OptCharger:
         assert optimization_method in ["baseline", "simple", "sophisticated", "auto"]
 
         if emission_multiplier_fn is None:
-            print(
+            warnings.warn(
                 "Warning: No emission_multiplier_fn given. Assuming that device uses constant 1kW of power"
             )
             emission_multiplier_fn = lambda sc, ec: 1.0
@@ -622,7 +625,7 @@ class OptCharger:
             and optimization_method == "auto"
         ) or (optimization_method == "simple"):
             if not constant_emission_multiplier:
-                print(
+                warnings.warn(
                     "Warning: Emissions function is non-constant. Using the simple algorithm is suboptimal."
                 )
             self.__simple_fit(total_charge, total_time, moer)

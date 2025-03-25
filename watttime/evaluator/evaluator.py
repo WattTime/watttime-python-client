@@ -23,7 +23,7 @@ class ImpactEvaluator:
         self.obj = obj
         self.region=region
 
-    def get_historical_actual_data(self, region = None):
+    def get_historical_actual_data(self, region:str = None):
         """
         Retrieve historical actual data for a specific plug-in time, horizon, and region.
 
@@ -70,7 +70,7 @@ class ImpactEvaluator:
         """
         return self.obj["energy_usage_mwh"].values.flatten()
 
-    def get_actual_emissions(self,region):
+    def get_actual_emissions(self,region:str):
         """
         Calculate total CO2 emissions in pounds
         Args:
@@ -82,7 +82,7 @@ class ImpactEvaluator:
         energy_usage_mwh = self.get_energy_usage()
         
         return np.multiply(moer, energy_usage_mwh).sum()
-
+    
     def get_forecast_emissions(self):
         """
         Calculate total CO2 emissions in pounds
@@ -93,7 +93,7 @@ class ImpactEvaluator:
         """
         return self.obj["emissions_co2e_lb"].sum()
     
-    def get_baseline_emissions(self,region):
+    def get_baseline_emissions(self,region:str):
         """
         Calculate total CO2 emissions in pounds.
         Assumes device did not follow an optimized schedule.
@@ -104,12 +104,25 @@ class ImpactEvaluator:
 
         return np.multiply(moer, e).sum()
     
-    def get_all_emissions_values(self,region):
+    def get_all_emissions_values(self,region:str):
         return {
             'baseline': self.get_baseline_emissions(region),
             'forecast': self.get_forecast_emissions(),
             'actual':self.get_actual_emissions(region)
         }
+    
+    def get_timeseries_stats(self,df: pd.DataFrame, col:str = "pred_moer"):
+        ''' Dispersion, slope, and intercept of the moer forecast'''
+        m, b = np.polyfit(np.arange(len(df[col].values)),df[col].values, 1)
+        stddev = df[col].std()
+        mean = df[col].mean()
+        return {
+            'm':m,
+            'b':b,
+            'stddev':stddev,
+            'mean': mean
+        }
+
 
 class OptChargeEvaluator(WattTimeOptimizer):
     """
@@ -259,7 +272,7 @@ class RecalculationOptChargeEvaluator(OptChargeEvaluator):
 
         start_time = self.next_query_time(usage_window_start, interval)
         usage_time_required_minutes = recalculator.get_remaining_time_required(start_time)
-        #print(usage_time_required_minutes)
+        # print(usage_time_required_minutes)
 
         # automation minion
         while usage_time_required_minutes >= 5:

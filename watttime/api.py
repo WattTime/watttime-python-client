@@ -1066,13 +1066,70 @@ class WattTimeRecalculator:
             next_new_schedule_start_time = None,
             new_schedule: Optional[pd.DataFrame] = None
         ):
-        """Add a new charging schedule and update contiguity values.
-
-        Args:
-            next_query_time (datetime): Current query time
-            next_new_schedule_start_time (datetime, optional): Start time for next schedule
-            new_schedule (pd.DataFrame, optional): New charging schedule to add
         """
+        Update charging schedule and contiguity values.
+        
+        Args:
+            next_query_time: Current query time
+            next_new_schedule_start_time: Start time for next schedule
+            new_schedule: New charging schedule to add
+        """
+
+        '''
+
+        if new_schedule is None:
+            if self.is_contiguous is True:
+                # check to see if optimizer scheduling a charging window within the first charging block
+                self.sleep_delay = self.check_if_contiguity_sleep_required(
+                    self.all_schedules[0][0], 
+                    next_new_schedule_start_time
+                )
+        else:
+            self.set_last_schedule_end_time(next_query_time)
+            self.all_schedules.append((new_schedule, (next_query_time, self.end_time)))
+            # wait to check sleep delay until after new schedule is added
+            if self.is_contiguous is True:
+                self.sleep_delay = self.check_if_contiguity_sleep_required(
+                    new_schedule, 
+                    next_new_schedule_start_time
+                )
+        if self.sleep_delay:
+            self._handle_sleep_delay(next_new_schedule_start_time)
+        else:
+            self._update_contiguity_values(next_query_time)
+
+    def _handle_sleep_delay(self, next_new_schedule_start_time):
+        """Handle sleep delay calculations and updates."""
+        schedule = self.get_combined_schedule()
+        zero_usage = schedule.loc[next_new_schedule_start_time:]['usage'] == 0
+        delay_time = (
+            self.end_time if zero_usage[zero_usage].empty 
+            else zero_usage[zero_usage].index.min()
+        )
+        
+        self.contiguity_values_dict = {
+            "delay_usage_window_start": delay_time,
+            "delay_in_minutes": len(zero_usage[~zero_usage]) * 5,
+            "delay_in_intervals": len(zero_usage[~zero_usage]),
+            "remaining_time_required": self.get_remaining_time_required(delay_time),
+            "num_segments_complete": self.number_segments_complete(
+                next_query_time=delay_time
+            )
+        }
+
+    def _update_contiguity_values(self, next_query_time):
+        """Update contiguity values without sleep delay."""
+        self.contiguity_values_dict = {
+            "delay_usage_window_start": None,
+            "delay_in_minutes": None,
+            "delay_in_intervals": None,
+            "remaining_time_required": self.get_remaining_time_required(next_query_time),
+            "num_segments_complete": self.number_segments_complete(
+                next_query_time=next_query_time
+            )
+        }
+
+        '''
         if new_schedule is not None:
             self.set_last_schedule_end_time(next_query_time)
             self.all_schedules.append((new_schedule, (next_query_time, self.end_time)))

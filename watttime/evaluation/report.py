@@ -48,7 +48,7 @@ def round_time(dt: datetime, minutes: int = 5) -> datetime:
     return dt.replace(minute=(dt.minute // minutes) * minutes, second=0, microsecond=0)
 
 
-def get_random_overlapping_period(dfs, max_period="365D", resample_freq="1H"):
+def get_random_overlapping_period(dfs, max_period="365D", resample_freq="1H", first_week_of_month_only=True):
     """
     Find a random overlapping time period between multiple DataFrames' datetime indices,
     maximizing the period up to `max_period`.
@@ -56,6 +56,9 @@ def get_random_overlapping_period(dfs, max_period="365D", resample_freq="1H"):
     Args:
         dfs (list of pd.DataFrame): List of DataFrames with datetime indices.
         max_period (str): Maximum time period as a string (e.g., '7D' for 7 days).
+        resample_freq (str): Frequency for resampling the datetime range.
+        first_week_of_month_only (bool): If True, filters the results to only include
+                                         the first full week (Monday-Sunday) of every month.
 
     Returns:
         pd.DatetimeIndex: List of overlapping datetimes within the defined time period.
@@ -77,13 +80,22 @@ def get_random_overlapping_period(dfs, max_period="365D", resample_freq="1H"):
         overlap_range = pd.date_range(
             start=start_overlap, end=end_overlap, freq=resample_freq
         )
-
-    # Otherwise, return the first overlap range that satisfies the max_period
     else:
         overlap_range = pd.date_range(
             start=start_overlap, end=start_overlap + max_timedelta, freq=resample_freq
         )
-
+    
+    # Filter to only include the first full week (Monday-Sunday) of each month if specified
+    if first_week_of_month_only:
+        overlap_df = pd.DataFrame({'date': overlap_range})
+        overlap_df['year_month'] = overlap_df['date'].dt.to_period('M')
+        overlap_df['weekday'] = overlap_df['date'].dt.weekday
+        
+        first_monday = overlap_df.groupby('year_month')['date'].transform(lambda x: x[x.dt.weekday == 0].min())
+        first_sunday = first_monday + pd.Timedelta(days=6)
+        
+        overlap_range = overlap_df.loc[(overlap_df['date'] >= first_monday) & (overlap_df['date'] <= first_sunday), 'date']
+    
     return overlap_range
 
 
@@ -120,6 +132,7 @@ def plot_sample_moers(
                     name=model_job.model_date,
                     line=dict(width=2),
                     showlegend=True,
+                    connectgaps=False
                 )
             )
 
@@ -721,6 +734,7 @@ def plot_sample_fuelmix(
                         mode="none",  # Hide lines to emphasize the filled area
                         name=fuel,
                         fillcolor=fuel_cp[fuel],
+                        connectgaps=False
                     ),
                     row=model_ix,
                     col=1,
@@ -1223,6 +1237,16 @@ def generate_report(
         "forecast",
     ],  # no fuel_mix by default
 ):
+    
+    if isinstance(region_list, str):
+        region_list = [region_list]
+
+    if isinstance(model_date_list, str):
+        model_date_list = [model_date_list]
+    
+    region_list = sorted(region_list)
+    model_date_list = sorted(model_date_list)
+    
     filename = (
         f"{signal_type}_{'&'.join(region_list)}_{'&'.join(model_date_list)}_model_stats"
     )

@@ -15,7 +15,7 @@ from pytz import UTC
 
 
 class WattTimeBase:
-    url_base = "https://api.watttime.org"
+    url_base = os.getenv("WATTTIME_API_URL", "https://api.watttime.org")
 
     def __init__(
         self,

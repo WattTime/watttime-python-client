@@ -23,6 +23,7 @@ class WattTimeBase:
         password: Optional[str] = None,
         multithreaded: bool = False,
         rate_limit: int = 10,
+        worker_count: int = min(10, (os.cpu_count() or 1) * 2),
     ):
         """
         Initializes a new instance of the class.
@@ -40,6 +41,7 @@ class WattTimeBase:
         self.multithreaded = multithreaded
         self.rate_limit = rate_limit
         self._last_request_times = []
+        self.worker_count = worker_count
 
         if self.multithreaded:
             self._rate_limit_lock = (
@@ -190,7 +192,7 @@ class WattTimeBase:
         """
         Makes a single API request while respecting the rate limit.
         """
-        
+
         # should already be logged in -- keeping incase long running chunked request surpasses
         # token timeout
         if not self._is_token_valid() or not self.headers:
@@ -259,7 +261,7 @@ class WattTimeBase:
         This class is suited for making a series of requests in a for loop, with
         varying `param_chunks`.
         """
-        
+
         # first try to login before beginning multithreading
         if not self._is_token_valid() or not self.headers:
             self._login()
@@ -269,9 +271,7 @@ class WattTimeBase:
 
         responses = []
         if self.multithreaded:
-            with ThreadPoolExecutor(
-                max_workers=min(10, (os.cpu_count() or 1) * 2)
-            ) as executor:
+            with ThreadPoolExecutor(max_workers=self.worker_count) as executor:
                 futures = {
                     executor.submit(
                         self._make_rate_limited_request, url, params

@@ -276,7 +276,7 @@ class TestWattTimeHistoricalMultiThreaded(unittest.TestCase):
     def tearDown(self):
         self.historical.session.close()
 
-    @pytest.mark.skip("TODO - flaky")
+    # @pytest.mark.skip("TODO - flaky")
     def test_get_historical_jsons_3_months_multithreaded(self):
         start = "2022-01-01 00:00Z"
         end = "2022-03-31 00:00Z"

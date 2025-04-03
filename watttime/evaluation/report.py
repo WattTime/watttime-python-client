@@ -48,7 +48,7 @@ def round_time(dt: datetime, minutes: int = 5) -> datetime:
     return dt.replace(minute=(dt.minute // minutes) * minutes, second=0, microsecond=0)
 
 
-def get_random_overlapping_period(dfs, max_period="365D", resample_freq="1H", first_week_of_month_only=True):
+def get_random_overlapping_period(dfs, max_period="365D", resample_freq="1H", first_week_of_month_only=False):
     """
     Find a random overlapping time period between multiple DataFrames' datetime indices,
     maximizing the period up to `max_period`.

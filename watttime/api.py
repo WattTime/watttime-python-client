@@ -222,7 +222,7 @@ class WattTimeBase:
             "org": organization,
         }
 
-        rsp = self.session.post(url, json=params, timeout=20)
+        rsp = self.session.post(url, json=params, timeout=(10, 60))
         rsp.raise_for_status()
         LOG.info(
             f"Successfully registered {os.getenv('WATTTIME_USER')}, please check {email} for a verification email"

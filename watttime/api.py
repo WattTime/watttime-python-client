@@ -23,6 +23,7 @@ class WattTimeBase:
         password: Optional[str] = None,
         multithreaded: bool = False,
         rate_limit: int = 10,
+        worker_count: int = min(10, (os.cpu_count() or 1) * 2),
     ):
         """
         Initializes a new instance of the class.
@@ -31,8 +32,17 @@ class WattTimeBase:
             username (Optional[str]): The username to use for authentication. If not provided, the value will be retrieved from the environment variable "WATTTIME_USER".
             password (Optional[str]): The password to use for authentication. If not provided, the value will be retrieved from the environment variable "WATTTIME_PASSWORD".
         """
-        self.username = username or os.getenv("WATTTIME_USER")
-        self.password = password or os.getenv("WATTTIME_PASSWORD")
+
+        # This only applies to the current session, is not stored persistently
+        if username and not os.getenv("WATTTIME_USER"):
+            os.environ["WATTTIME_USER"] = username
+        if password and not os.getenv("WATTTIME_PASSWORD"):
+            os.environ["WATTTIME_PASSWORD"] = password
+
+        # Accessing attributes will raise exception if variables are not set
+        _ = self.password
+        _ = self.username
+
         self.token = None
         self.headers = None
         self.token_valid_until = None
@@ -40,6 +50,7 @@ class WattTimeBase:
         self.multithreaded = multithreaded
         self.rate_limit = rate_limit
         self._last_request_times = []
+        self.worker_count = worker_count
 
         if self.multithreaded:
             self._rate_limit_lock = (
@@ -48,6 +59,28 @@ class WattTimeBase:
             self._rate_limit_condition = threading.Condition(self._rate_limit_lock)
 
         self.session = requests.Session()
+
+    @property
+    def password(self):
+        password = os.getenv("WATTTIME_PASSWORD")
+        if not password:
+            raise ValueError(
+                "WATTTIME_PASSWORD env variable is not set."
+                + "Please set this variable, or pass in a password upon initialization,"
+                + "which will store it as a variable only for the current session"
+            )
+        return password
+
+    @property
+    def username(self):
+        username = os.getenv("WATTTIME_USER")
+        if not username:
+            raise ValueError(
+                "WATTTIME_USER env variable is not set."
+                + "Please set this variable, or pass in a username upon initialization,"
+                + "which will store it as a variable only for the current session"
+            )
+        return username
 
     def _login(self):
         """
@@ -61,7 +94,7 @@ class WattTimeBase:
         rsp = self.session.get(
             url,
             auth=requests.auth.HTTPBasicAuth(self.username, self.password),
-            timeout=20,
+            timeout=(10, 60),
         )
         rsp.raise_for_status()
         self.token = rsp.json().get("token", None)
@@ -149,7 +182,7 @@ class WattTimeBase:
             "org": organization,
         }
 
-        rsp = self.session.post(url, json=params, timeout=20)
+        rsp = self.session.post(url, json=params, timeout=(10, 60))
         rsp.raise_for_status()
         print(
             f"Successfully registered {self.username}, please check {email} for a verification email"
@@ -190,6 +223,9 @@ class WattTimeBase:
         """
         Makes a single API request while respecting the rate limit.
         """
+
+        # should already be logged in -- keeping incase long running chunked request surpasses
+        # token timeout
         if not self._is_token_valid() or not self.headers:
             self._login()
 
@@ -257,14 +293,16 @@ class WattTimeBase:
         varying `param_chunks`.
         """
 
+        # first try to login before beginning multithreading
+        if not self._is_token_valid() or not self.headers:
+            self._login()
+
         if isinstance(param_chunks, dict):
             param_chunks = [param_chunks]
 
         responses = []
         if self.multithreaded:
-            with ThreadPoolExecutor(
-                max_workers=min(10, (os.cpu_count() or 1) * 2)
-            ) as executor:
+            with ThreadPoolExecutor(max_workers=self.worker_count) as executor:
                 futures = {
                     executor.submit(
                         self._make_rate_limited_request, url, params
@@ -467,13 +505,16 @@ class WattTimeForecast(WattTimeBase):
         Returns:
             pd.DataFrame: A pandas DataFrame containing the parsed historical forecast data.
         """
-        out = pd.DataFrame()
-        for json in json_list:
-            for entry in json.get("data", []):
-                _df = pd.json_normalize(entry, record_path=["forecast"])
-                _df = _df.assign(generated_at=pd.to_datetime(entry["generated_at"]))
-                out = pd.concat([out, _df], ignore_index=True)
-        return out
+        data = []
+        for j in json_list:
+            for gen_at in j["data"]:
+                for point_time in gen_at["forecast"]:
+                    point_time["generated_at"] = gen_at["generated_at"]
+                    data.append(point_time)
+        df = pd.DataFrame.from_records(data)
+        df["point_time"] = pd.to_datetime(df["point_time"])
+        df["generated_at"] = pd.to_datetime(df["generated_at"])
+        return df
 
     def get_forecast_json(
         self,

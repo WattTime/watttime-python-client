@@ -263,8 +263,8 @@ class TestWattTimeHistoricalMultiThreaded(unittest.TestCase):
         self.historical.session.close()
 
     def test_get_historical_jsons_3_months_multithreaded(self):
-        start = "2022-01-01 00:00Z"
-        end = "2022-03-31 00:00Z"
+        start = "2024-01-01 00:00Z"
+        end = "2024-03-31 00:00Z"
         jsons = self.historical.get_historical_jsons(start, end, REGION)
 
         self.assertIsInstance(jsons, list)

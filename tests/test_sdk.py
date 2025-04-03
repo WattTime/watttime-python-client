@@ -256,7 +256,7 @@ class TestWattTimeHistorical(unittest.TestCase):
 class TestWattTimeHistoricalMultiThreaded(unittest.TestCase):
 
     def setUp(self):
-        self.historical = WattTimeHistorical(multithreaded=True, rate_limit=5)
+        self.historical = WattTimeHistorical(multithreaded=True, rate_limit=1)
 
     def tearDown(self):
         self.historical.session.close()

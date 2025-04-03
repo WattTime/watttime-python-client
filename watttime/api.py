@@ -31,6 +31,10 @@ class WattTimeBase:
         Parameters:
             username (Optional[str]): The username to use for authentication. If not provided, the value will be retrieved from the environment variable "WATTTIME_USER".
             password (Optional[str]): The password to use for authentication. If not provided, the value will be retrieved from the environment variable "WATTTIME_PASSWORD".
+            multithreaded (bool): Whether to use multithreading for requests. Default is False.
+            rate_limit (int): The maximum number of requests to make per second. Default is 10 as this algins well with WattTime's API rate limiting policy.
+            worker_count (int): The number of worker threads to use for multithreading. Default is min(10, (os.cpu_count() or 1) * 2).
+
         """
         self.username = username or os.getenv("WATTTIME_USER")
         self.password = password or os.getenv("WATTTIME_PASSWORD")

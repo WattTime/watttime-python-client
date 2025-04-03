@@ -79,7 +79,7 @@ class WattTimeBase:
                 + "which will store it as a variable only for the current session"
             )
         return username
-      
+
     def _login(self):
         """
         Login to the WattTime API, which provides a JWT valid for 30 minutes
@@ -235,7 +235,7 @@ class WattTimeBase:
             self._apply_rate_limit(ts)
 
         try:
-            rsp = self.session.get(url, headers=self.headers, params=params)
+            rsp = self.session.get(url, headers=self.headers, params=params, timeout=60)
             rsp.raise_for_status()
             j = rsp.json()
         except requests.exceptions.RequestException as e:

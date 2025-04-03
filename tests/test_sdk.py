@@ -145,7 +145,7 @@ class TestWattTimeBase(unittest.TestCase):
 
 class TestWattTimeHistorical(unittest.TestCase):
     def setUp(self):
-        self.historical = WattTimeHistorical(rate_limit=5)
+        self.historical = WattTimeHistorical(rate_limit=1)
 
     def tearDown(self):
         self.historical.session.close()
@@ -256,7 +256,7 @@ class TestWattTimeHistorical(unittest.TestCase):
 class TestWattTimeHistoricalMultiThreaded(unittest.TestCase):
     def setUp(self):
         self.historical = WattTimeHistorical(
-            multithreaded=True, rate_limit=5, worker_count=2
+            multithreaded=True, rate_limit=1, worker_count=2
         )
 
     def tearDown(self):
@@ -336,7 +336,7 @@ class TestWattTimeMyAccess(unittest.TestCase):
 
 class TestWattTimeForecast(unittest.TestCase):
     def setUp(self):
-        self.forecast = WattTimeForecast(rate_limit=5)
+        self.forecast = WattTimeForecast(rate_limit=1)
 
     def tearDown(self):
         self.forecast.session.close()
@@ -437,7 +437,7 @@ class TestWattTimeForecast(unittest.TestCase):
 
 class TestWattTimeForecastMultithreaded(unittest.TestCase):
     def setUp(self):
-        self.forecast = WattTimeForecast(multithreaded=True, rate_limit=5)
+        self.forecast = WattTimeForecast(multithreaded=True, rate_limit=1)
 
     def tearDown(self):
         self.forecast.session.close()

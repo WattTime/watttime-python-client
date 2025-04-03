@@ -716,7 +716,7 @@ class WattTimeMarginalFuelMix(WattTimeBase):
         chunks = self._get_chunks(start, end, chunk_size=timedelta(days=30))
 
         # No model will default to the most recent model version available
-        if model is not None:
+        if model:
             params["model"] = model
 
         param_chunks = [{**params, "start": c[0], "end": c[1]} for c in chunks]

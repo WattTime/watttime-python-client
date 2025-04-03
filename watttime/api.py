@@ -3,8 +3,8 @@ import time
 import threading
 import time
 import logging
-from datetime import date, datetime, timedelta, time as dt_time
 from collections import defaultdict
+from datetime import date, datetime, timedelta, time as dt_time
 from functools import cache
 from pathlib import Path
 from typing import Any, Dict, List, Literal, Optional, Tuple, Union
@@ -218,18 +218,16 @@ class WattTimeBase:
             self._apply_rate_limit(ts)
 
         try:
-            LOG.debug(f"Making API Request: {url} | Params: {params}")
-            rsp = self.session.get(url, headers=self.headers, params=params)
+            rsp = self.session.get(url, headers=self.headers, params=params, timeout=60)
             rsp.raise_for_status()
             j = rsp.json()
-            LOG.debug(f"...Request took: {round(time.time() - ts, 2)} seconds")
         except requests.exceptions.RequestException as e:
             raise RuntimeError(
                 f"API Request Failed: {e}\nURL: {url}\nParams: {params}"
             ) from e
 
         if j.get("meta", {}).get("warnings"):
-            LOG.warning("Warnings Returned: %s | Response: %s", params, j["meta"])
+            print("Warnings Returned: %s | Response: %s", params, j["meta"])
 
         self._last_request_meta = j.get("meta", {})
 
@@ -278,7 +276,9 @@ class WattTimeBase:
 
         responses = []
         if self.multithreaded:
-            with ThreadPoolExecutor(max_workers=10) as executor:
+            with ThreadPoolExecutor(
+                max_workers=min(10, (os.cpu_count() or 1) * 2)
+            ) as executor:
                 futures = {
                     executor.submit(
                         self._make_rate_limited_request, url, params

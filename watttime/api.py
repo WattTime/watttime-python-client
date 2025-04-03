@@ -190,6 +190,9 @@ class WattTimeBase:
         """
         Makes a single API request while respecting the rate limit.
         """
+        
+        # should already be logged in -- keeping incase long running chunked request surpasses
+        # token timeout
         if not self._is_token_valid() or not self.headers:
             self._login()
 
@@ -256,6 +259,10 @@ class WattTimeBase:
         This class is suited for making a series of requests in a for loop, with
         varying `param_chunks`.
         """
+        
+        # first try to login before beginning multithreading
+        if not self._is_token_valid() or not self.headers:
+            self._login()
 
         if isinstance(param_chunks, dict):
             param_chunks = [param_chunks]

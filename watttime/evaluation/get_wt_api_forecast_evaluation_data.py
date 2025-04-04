@@ -68,7 +68,7 @@ class AnalysisDataHandler:
         multithreaded=True
     )
     wt_fuel_mix: Optional[api.WattTimeMarginalFuelMix] = api.WattTimeMarginalFuelMix(
-        multithreaded=False
+        multithreaded=False, rate_limit=1
     )
 
     def __post_init__(self):

@@ -6,7 +6,7 @@ from datetime import datetime, timedelta, timezone
 from dateutil.parser import parse
 from operator import attrgetter
 from pathlib import Path
-from typing import List, Optional, Union, Literal, Dict
+from typing import List, Optional, Union, Literal, Dict, Tuple
 from zoneinfo import ZoneInfo
 
 import numpy as np
@@ -1226,7 +1226,7 @@ PLOTS = {
 
 
 def generate_report(
-    region_list: List[str],
+    region_list: Union[Tuple[str, List[str]], List[str]],
     model_date_list: List[str],
     signal_type: str,
     eval_start: datetime,
@@ -1239,7 +1239,13 @@ def generate_report(
 ):
     
     if isinstance(region_list, str):
+        region_title = region_list
         region_list = [region_list]
+    elif isinstance(region_list, tuple):
+        region_title = region_list[0]
+        region_list = region_list[1]
+    else:
+        region_title = '&'.join(region_list)
 
     if isinstance(model_date_list, str):
         model_date_list = [model_date_list]
@@ -1248,7 +1254,7 @@ def generate_report(
     model_date_list = sorted(model_date_list)
     
     filename = (
-        f"{signal_type}_{'&'.join(region_list)}_{'&'.join(model_date_list)}_model_stats"
+        f"{signal_type}_{region_title}_{'&'.join(model_date_list)}_model_stats"
     )
 
     # run notebook

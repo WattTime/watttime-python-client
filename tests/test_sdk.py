@@ -145,7 +145,7 @@ class TestWattTimeBase(unittest.TestCase):
 
 class TestWattTimeHistorical(unittest.TestCase):
     def setUp(self):
-        self.historical = WattTimeHistorical(rate_limit=5)
+        self.historical = WattTimeHistorical(rate_limit=1)
 
     def tearDown(self):
         self.historical.session.close()
@@ -254,17 +254,17 @@ class TestWattTimeHistorical(unittest.TestCase):
 
 
 class TestWattTimeHistoricalMultiThreaded(unittest.TestCase):
-
     def setUp(self):
-        self.historical = WattTimeHistorical(multithreaded=True, rate_limit=5)
+        self.historical = WattTimeHistorical(
+            multithreaded=True, rate_limit=1, worker_count=2
+        )
 
     def tearDown(self):
         self.historical.session.close()
 
-    @pytest.mark.skip("TODO - flaky")
     def test_get_historical_jsons_3_months_multithreaded(self):
-        start = "2022-01-01 00:00Z"
-        end = "2022-03-31 00:00Z"
+        start = "2024-01-01 00:00Z"
+        end = "2024-03-31 00:00Z"
         jsons = self.historical.get_historical_jsons(start, end, REGION)
 
         self.assertIsInstance(jsons, list)
@@ -335,7 +335,7 @@ class TestWattTimeMyAccess(unittest.TestCase):
 
 class TestWattTimeForecast(unittest.TestCase):
     def setUp(self):
-        self.forecast = WattTimeForecast(rate_limit=5)
+        self.forecast = WattTimeForecast(rate_limit=1, multithreaded=False)
 
     def tearDown(self):
         self.forecast.session.close()
@@ -435,9 +435,10 @@ class TestWattTimeForecast(unittest.TestCase):
 
 
 class TestWattTimeForecastMultithreaded(unittest.TestCase):
-
     def setUp(self):
-        self.forecast = WattTimeForecast(multithreaded=True, rate_limit=5)
+        self.forecast = WattTimeForecast(
+            multithreaded=True, rate_limit=1, worker_count=2
+        )
 
     def tearDown(self):
         self.forecast.session.close()

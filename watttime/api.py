@@ -16,7 +16,7 @@ from pytz import UTC
 
 
 class WattTimeBase:
-    url_base = "https://api.watttime.org"
+    url_base = os.getenv("WATTTIME_API_URL", "https://api.watttime.org")
 
     def __init__(
         self,
@@ -24,6 +24,7 @@ class WattTimeBase:
         password: Optional[str] = None,
         multithreaded: bool = False,
         rate_limit: int = 10,
+        worker_count: int = min(10, (os.cpu_count() or 1) * 2),
     ):
         """
         Initializes a new instance of the class.
@@ -31,6 +32,10 @@ class WattTimeBase:
         Parameters:
             username (Optional[str]): The username to use for authentication. If not provided, the value will be retrieved from the environment variable "WATTTIME_USER".
             password (Optional[str]): The password to use for authentication. If not provided, the value will be retrieved from the environment variable "WATTTIME_PASSWORD".
+            multithreaded (bool): Whether to use multithreading for requests. Default is False.
+            rate_limit (int): The maximum number of requests to make per second. Default is 10 as this algins well with WattTime's API rate limiting policy.
+            worker_count (int): The number of worker threads to use for multithreading. Default is min(10, (os.cpu_count() or 1) * 2).
+
         """
         self.username = username or os.getenv("WATTTIME_USER")
         self.password = password or os.getenv("WATTTIME_PASSWORD")
@@ -41,12 +46,15 @@ class WattTimeBase:
         self.multithreaded = multithreaded
         self.rate_limit = rate_limit
         self._last_request_times = []
+        self.worker_count = worker_count
 
         if self.multithreaded:
             self._rate_limit_lock = (
                 threading.Lock()
             )  # prevent multiple threads from modifying _last_request_times simultaneously
             self._rate_limit_condition = threading.Condition(self._rate_limit_lock)
+
+        self.session = requests.Session()
 
     def _login(self):
         """
@@ -57,10 +65,10 @@ class WattTimeBase:
         """
 
         url = f"{self.url_base}/login"
-        rsp = requests.get(
+        rsp = self.session.get(
             url,
             auth=requests.auth.HTTPBasicAuth(self.username, self.password),
-            timeout=20,
+            timeout=(10, 60),
         )
         rsp.raise_for_status()
         self.token = rsp.json().get("token", None)
@@ -148,7 +156,7 @@ class WattTimeBase:
             "org": organization,
         }
 
-        rsp = requests.post(url, json=params, timeout=20)
+        rsp = self.session.post(url, json=params, timeout=(10, 60))
         rsp.raise_for_status()
         print(
             f"Successfully registered {self.username}, please check {email} for a verification email"
@@ -189,6 +197,9 @@ class WattTimeBase:
         """
         Makes a single API request while respecting the rate limit.
         """
+
+        # should already be logged in -- keeping incase long running chunked request surpasses
+        # token timeout
         if not self._is_token_valid() or not self.headers:
             self._login()
 
@@ -203,7 +214,7 @@ class WattTimeBase:
             self._apply_rate_limit(ts)
 
         try:
-            rsp = requests.get(url, headers=self.headers, params=params)
+            rsp = self.session.get(url, headers=self.headers, params=params, timeout=60)
             rsp.raise_for_status()
             j = rsp.json()
         except requests.exceptions.RequestException as e:
@@ -256,12 +267,16 @@ class WattTimeBase:
         varying `param_chunks`.
         """
 
+        # first try to login before beginning multithreading
+        if not self._is_token_valid() or not self.headers:
+            self._login()
+
         if isinstance(param_chunks, dict):
             param_chunks = [param_chunks]
 
         responses = []
         if self.multithreaded:
-            with ThreadPoolExecutor(max_workers=os.cpu_count() * 5) as executor:
+            with ThreadPoolExecutor(max_workers=self.worker_count) as executor:
                 futures = {
                     executor.submit(
                         self._make_rate_limited_request, url, params

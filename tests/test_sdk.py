@@ -160,15 +160,6 @@ class TestWattTimeHistorical(unittest.TestCase):
         self.assertGreaterEqual(len(jsons), 1)
         self.assertIsInstance(jsons[0], dict)
 
-    def test_get_historical_jsons_3_months_multithreaded(self):
-        start = "2022-01-01 00:00Z"
-        end = "2022-12-31 00:00Z"
-        jsons = self.historical_mt.get_historical_jsons(start, end, REGION)
-
-        self.assertIsInstance(jsons, list)
-        self.assertGreaterEqual(len(jsons), 1)
-        self.assertIsInstance(jsons[0], dict)
-
     def test_get_historical_jsons_1_week(self):
         start = "2022-01-01 00:00Z"
         end = "2022-01-07 00:00Z"

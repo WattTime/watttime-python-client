@@ -6,7 +6,7 @@ from typing import Any, Literal, Optional, Union
 import pandas as pd
 from dateutil.parser import parse
 from pytz import UTC, timezone
-from optimizer.alg import optCharger, moer
+from watttime_optimizer.alg import optCharger, moer
 from itertools import accumulate
 import bisect
 
@@ -81,7 +81,7 @@ class WattTimeOptimizer(WattTimeForecast):
             Uncertainty in usage time, in minutes.
         charge_per_interval : Optional[list], default=None
             Either a list of length-2 tuples representing minimium and maximum (inclusive) charging minutes per interval,
-            or a list of ints representing both the min and max.
+            or a list of ints representing both the min and max. [180] OR [(180,180)]
         use_all_intervals : Optional[bool], default=False
             If true, use all intervals provided by charge_per_interval; if false, can use the first few intervals and skip the rest.
         constraints : Optional[dict], default=None
@@ -409,7 +409,7 @@ class WattTimeOptimizer(WattTimeForecast):
         # Recalculate these values approximately, based on the new "usage" column
         # Note: This is approximate since it assumes that
         # the charging emissions over time of the unrounded values are similar to the rounded values
-        result_df["emissions_co2e_lb"] = (
+        result_df["emissions_co2_lb"] = (
             model.get_charging_emissions_over_time()
             * result_df["usage"]
             / self.OPT_INTERVAL

@@ -28,7 +28,7 @@ Click any of the thumbnails below to see the notebook that generated it.
 5. Dishwasher: needs to run over two usage intervals of lengths 80 min and 40 min. They must complete in that order. Contiguous (multiple periods, fixed length)
 6. Compressor: needs to run 120 minutes over the next 12 hours; each cycle needs to be at least 20 minutes long, and any number of contiguous intervals (from one to six) is okay. Contiguous (multiple periods, variable length)
 
-**Naive Smart Device Charging [EV or pluggable batter-powered device]**
+**Naive Smart Device Charging [EV or pluggable battery-powered device]**
 
 ```py
 from datetime import datetime, timedelta
@@ -105,27 +105,39 @@ print(usage_plan.sum())
 ```
 
 **Variable Charging Curve - EV**
-  * Sophisticated - total charge window 12 hours long, 75% charged by hour 8.
+I know the model of my vehicle and want to match device characteristics. If we have a 10 kWh battery which initially charges at 20kW, the charge rate then linearly decreases to 10kW as the battery is 50%
+charged, and then remains at 10kW for the rest of the charging. This is the charging curve.
 
 ```py
 from datetime import datetime, timedelta
 import pandas as pd
 from pytz import UTC
 from optimizer import WattTimeOptimizer
+from watttime_optimizer.battery import Battery
 import os
 
 username = os.getenv("WATTTIME_USER")
 password = os.getenv("WATTTIME_PASSWORD")
 wt_opt = WattTimeOptimizer(username, password)
 
-# 12 hour charge window (720/60 = 12)
-# Minute 480 is time context when the constraint, i.e. 75% charge, must be satisfied
-# 75% of 240 (required charge expressed in minutes) is 180
-
 now = datetime.now(UTC)
 window_start = now
 window_end = now + timedelta(minutes=720)
-variable_usage_power = ''
+
+battery = Battery(
+    initial_soc=0.0,
+    charging_curve=pd.DataFrame(
+        columns=["SoC", "kW"],
+        data=[
+            [0.0, 20.0],
+            [0.5, 10.0],
+            [1.0, 10.0],
+        ]
+    ),
+    capacity_kWh=10.0,
+)
+
+variable_usage_power = battery.get_usage_power_kw_df()
 
 usage_plan = wt_opt.get_optimal_usage_plan(
     region="CAISO_NORTH",
@@ -133,7 +145,6 @@ usage_plan = wt_opt.get_optimal_usage_plan(
     usage_window_end=window_end,
     usage_time_required_minutes=240,
     usage_power_kw=variable_usage_power,
-    constraints=constraints,
     optimization_method="auto",
 )
 
@@ -141,7 +152,6 @@ print(usage_plan.head())
 print(usage_plan["usage"].tolist())
 print(usage_plan.sum())
 ```
-
 
 * **Data Center Workload 1**:  
   * (single period, fixed length) - charging schedule to be composed of contiguous interval(s) of fixed length

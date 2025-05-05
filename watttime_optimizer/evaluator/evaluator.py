@@ -1,6 +1,7 @@
-from watttime.api import WattTimeOptimizer, WattTimeForecast, WattTimeHistorical, WattTimeRecalculator
+from watttime.api import WattTimeForecast, WattTimeHistorical
+from watttime_optimizer.api_opt import WattTimeOptimizer, WattTimeRecalculator
 import pandas as pd
-from watttime.evaluator.utils import convert_to_utc, get_timezone_from_dict
+from watttime_optimizer.evaluator.utils import convert_to_utc, get_timezone_from_dict
 import numpy as np
 from typing import Optional
 from datetime import timedelta
@@ -87,11 +88,11 @@ class ImpactEvaluator:
         """
         Calculate total CO2 emissions in pounds
         Args:
-            x: Input dictionary containing 'emissions_co2e_lb' key
+            x: Input dictionary containing 'emissions_co2_lb' key
         Returns:
             Sum of CO2 emissions
         """
-        return self.obj["emissions_co2e_lb"].sum()
+        return self.obj["emissions_co2_lb"].sum()
     
     def get_baseline_emissions(self,region:str):
         """
@@ -204,7 +205,7 @@ class OptChargeEvaluator(WattTimeOptimizer):
         )
         
         # Validate emissions data
-        if schedule["emissions_co2e_lb"].sum() == 0.0:
+        if schedule["emissions_co2_lb"].sum() == 0.0:
             self._log_zero_emissions_warning(
                 usage_power_kw,
                 time_needed,

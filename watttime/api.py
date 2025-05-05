@@ -649,6 +649,7 @@ class WattTimeOptimizer(WattTimeForecast):
             return dt.tzinfo is not None and dt.tzinfo.utcoffset(dt) is not None
 
         def minutes_to_units(x, floor=False):
+            '''Converts minutes to forecase intervals. Rounds UP by default.'''
             if x:
                 if floor:
                     return int(x // self.OPT_INTERVAL)
@@ -810,7 +811,6 @@ class WattTimeOptimizer(WattTimeForecast):
                     converted_charge_per_interval.append(
                         (interval_start_units, interval_end_units)
                     )
-            # print("Charge per interval:", converted_charge_per_interval)
         else:
             converted_charge_per_interval = None
         model.fit(
@@ -1003,6 +1003,7 @@ class WattTimeRecalculator:
         start_time: datetime,
         end_time: datetime,
         total_time_required: int,
+        contiguous = False,
         charge_per_interval: Optional[list] = None
     ) -> None:
         """Initialize the Recalculator with an initial schedule.
@@ -1014,19 +1015,41 @@ class WattTimeRecalculator:
             total_time_required (int): Total charging time needed in minutes
             charge_per_interval (list): List of charging durations per interval
         """
+        self.OPT_INTERVAL = 5      
         self.all_schedules = [(initial_schedule, (start_time, end_time))]
         self.end_time=end_time
         self.total_time_required = total_time_required
         self.charge_per_interval = charge_per_interval
-        self.is_contiguous = charge_per_interval is not None
+        self.is_contiguous = contiguous
         self.sleep_delay = False
         self.contiguity_values_dict = {
                     "delay_usage_window_start": None,
                     "delay_in_minutes": None,
                     "delay_in_intervals": None,
                     "remaining_time_required": None,
+                    "remaining_units_required":None,
                     "num_segments_complete": None
                 }
+        
+        self.total_available_units = self.minutes_to_units(
+            int(int((self.end_time - start_time).total_seconds()) / 60)
+        )
+        
+    def is_tz_aware(dt):
+        return dt.tzinfo is not None and dt.tzinfo.utcoffset(dt) is not None
+    
+    def minutes_to_units(self, x, floor=False):
+        '''Converts minutes to forecase intervals. Rounds UP by default.'''
+        if x:
+            if floor:
+                return int(x // self.OPT_INTERVAL)
+            else:
+                return int(math.ceil(x / self.OPT_INTERVAL))
+        return x
+
+    def get_remaining_units_required(self,next_query_time):
+        _minutes = self.get_remaining_time_required(next_query_time)
+        return self.minutes_to_units(_minutes)
 
     def get_remaining_time_required(self, next_query_time: datetime):
         """Calculate remaining charging time needed at a given query time.
@@ -1041,8 +1064,9 @@ class WattTimeRecalculator:
             return self.total_time_required
 
         combined_schedule = self.get_combined_schedule()
-
-        usage_in_minutes = combined_schedule.loc[:(next_query_time - timedelta(minutes=5))]["usage"].sum()
+        t = next_query_time - timedelta(minutes=5)
+        
+        usage_in_minutes = combined_schedule.loc[:t]["usage"].sum()
         
         return self.total_time_required - usage_in_minutes
     
@@ -1075,95 +1099,64 @@ class WattTimeRecalculator:
             new_schedule: New charging schedule to add
         """
 
-        '''
-
-        if new_schedule is None:
+        def _protocol_no_new_schedule(next_new_schedule_start_time):
+            '''
+            1. Confirm that charging is not in progress and sleep delay is not required
+            '''
             if self.is_contiguous is True:
-                # check to see if optimizer scheduling a charging window within the first charging block
-                self.sleep_delay = self.check_if_contiguity_sleep_required(
-                    self.all_schedules[0][0], 
-                    next_new_schedule_start_time
-                )
-        else:
-            self.set_last_schedule_end_time(next_query_time)
-            self.all_schedules.append((new_schedule, (next_query_time, self.end_time)))
-            # wait to check sleep delay until after new schedule is added
-            if self.is_contiguous is True:
-                self.sleep_delay = self.check_if_contiguity_sleep_required(
-                    new_schedule, 
-                    next_new_schedule_start_time
-                )
-        if self.sleep_delay:
-            self._handle_sleep_delay(next_new_schedule_start_time)
-        else:
-            self._update_contiguity_values(next_query_time)
+                self.sleep_delay = self.check_if_contiguity_sleep_required(self.all_schedules[0][0], next_new_schedule_start_time)
+            else:
+                pass
 
-    def _handle_sleep_delay(self, next_new_schedule_start_time):
-        """Handle sleep delay calculations and updates."""
-        schedule = self.get_combined_schedule()
-        zero_usage = schedule.loc[next_new_schedule_start_time:]['usage'] == 0
-        delay_time = (
-            self.end_time if zero_usage[zero_usage].empty 
-            else zero_usage[zero_usage].index.min()
-        )
-        
-        self.contiguity_values_dict = {
-            "delay_usage_window_start": delay_time,
-            "delay_in_minutes": len(zero_usage[~zero_usage]) * 5,
-            "delay_in_intervals": len(zero_usage[~zero_usage]),
-            "remaining_time_required": self.get_remaining_time_required(delay_time),
-            "num_segments_complete": self.number_segments_complete(
-                next_query_time=delay_time
-            )
-        }
-
-    def _update_contiguity_values(self, next_query_time):
-        """Update contiguity values without sleep delay."""
-        self.contiguity_values_dict = {
-            "delay_usage_window_start": None,
-            "delay_in_minutes": None,
-            "delay_in_intervals": None,
-            "remaining_time_required": self.get_remaining_time_required(next_query_time),
-            "num_segments_complete": self.number_segments_complete(
-                next_query_time=next_query_time
-            )
-        }
-
-        '''
-        if new_schedule is not None:
+        def _protocol_new_schedule(new_schedule, next_query_time, next_new_schedule_start_time):
+            '''
+            1. Modify previous schedule to end at "next_query_time"
+            2. Append new schedule to record of existing schedules
+            3. Confirm that charging is not in progress and sleep delay is not required
+            '''
             self.set_last_schedule_end_time(next_query_time)
             self.all_schedules.append((new_schedule, (next_query_time, self.end_time)))
             if self.is_contiguous is True:
                 self.sleep_delay = self.check_if_contiguity_sleep_required(new_schedule, next_new_schedule_start_time)
-        else:
-            if self.is_contiguous is True:
-                self.sleep_delay = self.check_if_contiguity_sleep_required(self.all_schedules[0][0], next_new_schedule_start_time)
-        if self.is_contiguous is True:
-            if self.sleep_delay is True:
-                s = self.get_combined_schedule().loc[next_new_schedule_start_time:]['usage'] == 0
-                delay_time = self.end_time if s[s == True].empty == True else s[s == True].index.min()
-                self.contiguity_values_dict = {
-                    "delay_usage_window_start": delay_time,
-                    "delay_in_minutes": len(s[s == False]) * 5,
-                    "delay_in_intervals": len(s[s == False]),
-                    "remaining_time_required": self.get_remaining_time_required(delay_time)
-                    }
-                self.contiguity_values_dict["num_segments_complete"] = self.number_segments_complete(next_query_time=self.contiguity_values_dict["delay_usage_window_start"])
-            else:
-                self.contiguity_values_dict = {
-                    "delay_usage_window_start": None,
-                    "delay_in_minutes": None,
-                    "delay_in_intervals": None,
-                    "remaining_time_required": self.get_remaining_time_required(next_query_time),
-                    "num_segments_complete": self.number_segments_complete(next_query_time=next_query_time)
+
+        def _protocol_sleep_delay(next_new_schedule_start_time):
+            print('sleep protocol activated...')
+            assert next_new_schedule_start_time is not None, "Sleep delay next new time is None"
+            s = self.get_combined_schedule().loc[next_new_schedule_start_time:]['usage'] == 0
+            delay_time = self.end_time if s[s == True].empty == True else s[s == True].index.min()
+            self.contiguity_values_dict = {
+                "delay_usage_window_start": delay_time,
+                "delay_in_minutes": len(s[s == False]) * 5,
+                "delay_in_intervals": len(s[s == False]),
+                "remaining_units_required": self.get_remaining_units_required(delay_time),
+                "remaining_time_required": self.get_remaining_time_required(delay_time)
                 }
+            
+            self.contiguity_values_dict["num_segments_complete"] = self.number_segments_complete(next_query_time=self.contiguity_values_dict["delay_usage_window_start"])
+
+        if new_schedule is None:
+            _protocol_no_new_schedule(next_new_schedule_start_time)
+        else:
+            _protocol_new_schedule(new_schedule, next_query_time, next_new_schedule_start_time)
+       
+        if self.sleep_delay is True:
+            _protocol_sleep_delay(next_new_schedule_start_time)
+        else:
+            self.contiguity_values_dict = {
+                "delay_usage_window_start": None,
+                "delay_in_minutes": None,
+                "delay_in_intervals": None,
+                "remaining_units_required": self.get_remaining_units_required(next_query_time),
+                "remaining_time_required": self.get_remaining_time_required(next_query_time),
+                "num_segments_complete": self.number_segments_complete(next_query_time=next_query_time)
+            }
 
     def get_combined_schedule(self, end_time: datetime = None) -> pd.DataFrame:
         """Combine all schedules into a single DataFrame.
 
         Args:
             end_time (datetime, optional): Optional cutoff time for the combined schedule
-
+        
         Returns:
             pd.DataFrame: Combined schedule of all charging segments
         """
@@ -1188,7 +1181,7 @@ class WattTimeRecalculator:
         Returns:
             bool: True if charging needs to be paused
         """
-        return bool(usage_plan.loc[next_query_time - timedelta(minutes=5)]['usage'] > 0)
+        return bool(usage_plan.loc[(next_query_time - timedelta(minutes=5))]['usage'] > 0)
     
     def number_segments_complete(self, next_query_time: datetime = None):
         """Calculate number of completed charging segments.
@@ -1199,13 +1192,16 @@ class WattTimeRecalculator:
         Returns:
             int: Number of completed charging segments
         """
-        combined_schedule = self.get_combined_schedule()
-        completed_schedule = combined_schedule.loc[:next_query_time]
-        charging_indicator = completed_schedule["usage"].astype(bool).sum()
-        return bisect.bisect_right(
-            list(accumulate(self.charge_per_interval)), 
-            (charging_indicator * 5)
-            )
+        if self.is_contiguous is True:
+            combined_schedule = self.get_combined_schedule()
+            completed_schedule = combined_schedule.loc[:next_query_time]
+            charging_indicator = completed_schedule["usage"].astype(bool).sum()
+            return bisect.bisect_right(
+                list(accumulate(self.charge_per_interval)), 
+                (charging_indicator * 5)
+                )
+        else:
+            return None
   
 class RequerySimulator:
     def __init__(self, 
@@ -1257,22 +1253,22 @@ class RequerySimulator:
         # if I don't then I store the state of my recalculator as is
         
         for i, new_window_start in enumerate(self.requery_dates[1:], 1):
-            print(i)
             new_time_required = recalculator.get_remaining_time_required(new_window_start)
-            next_plan = self.wt_opt.get_optimal_usage_plan(
-                region=self.region,
-                usage_window_start=new_window_start,
-                usage_window_end=self.window_end,
-                usage_time_required_minutes=new_time_required,
-                usage_power_kw=self.usage_power_kw,
-                charge_per_interval=self.charge_per_interval,
-                optimization_method="simple",
-                moer_data_override=self.moers_list[i][["point_time","value"]]
-            )
-            recalculator.update_charging_schedule(
-                new_schedule=next_plan,
-                next_query_time=new_window_start,
-                next_new_schedule_start_time = None
-            )
-            
-        return recalculator
+            if new_time_required > 0.0:
+                next_plan = self.wt_opt.get_optimal_usage_plan(
+                    region=self.region,
+                    usage_window_start=new_window_start,
+                    usage_window_end=self.window_end,
+                    usage_time_required_minutes=new_time_required,
+                    usage_power_kw=self.usage_power_kw,
+                    charge_per_interval=self.charge_per_interval,
+                    optimization_method="simple",
+                    moer_data_override=self.moers_list[i][["point_time","value"]]
+                )
+                recalculator.update_charging_schedule(
+                    new_schedule=next_plan,
+                    next_query_time=new_window_start,
+                    next_new_schedule_start_time = None
+                )
+            else:
+                return recalculator

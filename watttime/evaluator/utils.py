@@ -1,11 +1,6 @@
 import math
 from datetime import datetime
 import pytz
-import pandas as pd
-
-import glob
-import os
-
 
 
 TZ_DICTIONARY = {
@@ -100,6 +95,7 @@ TZ_DICTIONARY = {
     "WACM": "America/Denver",
     "WALC": "America/Phoenix",
     "WAUW": "America/Denver",
+    "NL": "Europe/Amsterdam"
 }
 
 def sanitize_time_needed(x,y):

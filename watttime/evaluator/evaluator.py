@@ -157,7 +157,7 @@ class OptChargeEvaluator(WattTimeOptimizer):
         region:str = 'CAISO_NORTH',
         optimization_method: str = "auto",
         constraints: Optional[dict] = None,
-        charge_per_interval: list = [],
+        charge_per_interval: Optional[list] = None,
         tz_convert: bool = False,
         verbose:bool=False
     ) -> pd.DataFrame:
@@ -227,6 +227,9 @@ class OptChargeEvaluator(WattTimeOptimizer):
             total_usage
         )
 class RecalculationOptChargeEvaluator(OptChargeEvaluator):
+    '''
+    TODO add notes on compatibility.
+    '''
 
     def next_query_time(self,time,interval):
         return time + timedelta(minutes=interval)
@@ -241,11 +244,13 @@ class RecalculationOptChargeEvaluator(OptChargeEvaluator):
         region:str = 'CAISO_NORTH',
         optimization_method: str = "auto",
         constraints: Optional[dict] = None,
-        charge_per_interval: list = [],
+        charge_per_interval: Optional[list] = None,
         tz_convert: bool = False,
-        verbose:bool=False
+        verbose:bool=False,
+        contiguous:bool=False
     ):
         if tz_convert is True:
+            print('tz converting...')
             usage_window_start = self.tz_conversion(usage_window_start,region)
             usage_window_end = self.tz_conversion(usage_window_end, region)
 
@@ -267,22 +272,25 @@ class RecalculationOptChargeEvaluator(OptChargeEvaluator):
             start_time=usage_window_start,
             end_time=usage_window_end,
             total_time_required=time_needed,
-            charge_per_interval=charge_per_interval
+            charge_per_interval=charge_per_interval,
+            contiguous=contiguous
         )
 
+        recalculator.update_charging_schedule(
+                next_query_time=usage_window_start, 
+                next_new_schedule_start_time=self.next_query_time(usage_window_start, interval)
+            )
+        
+        optimization_outcomes = recalculator.contiguity_values_dict
         start_time = self.next_query_time(usage_window_start, interval)
-        usage_time_required_minutes = recalculator.get_remaining_time_required(start_time)
-        # print(usage_time_required_minutes)
-
-        # automation minion
-        while usage_time_required_minutes >= 5:
+        while optimization_outcomes["remaining_units_required"] >= recalculator.total_available_units:
             new_usage_plan = self.get_optimal_usage_plan(
                 region = region,
                 usage_window_start=start_time,
                 usage_window_end=usage_window_end,
-                usage_time_required_minutes=usage_time_required_minutes,
+                usage_time_required_minutes=optimization_outcomes["remaining_time_required"],
                 usage_power_kw=usage_power_kw,
-                charge_per_interval=charge_per_interval,
+                charge_per_interval=[int(optimization_outcomes["remaining_time_required"])] if recalculator.is_contiguous else None,
                 optimization_method=optimization_method,
                 moer_data_override=self.moer_data_override(start_time,usage_window_end,region),
                 verbose=verbose
@@ -291,11 +299,10 @@ class RecalculationOptChargeEvaluator(OptChargeEvaluator):
             recalculator.update_charging_schedule(
                 new_schedule = new_usage_plan, 
                 next_query_time=start_time,
-                next_new_schedule_start_time = None
+                next_new_schedule_start_time = self.next_query_time(start_time,interval)
             )
 
+            optimization_outcomes = recalculator.contiguity_values_dict
             start_time = self.next_query_time(start_time,interval)
-            usage_time_required_minutes = recalculator.get_remaining_time_required(start_time)
-            #print(usage_time_required_minutes)
-        
-        return recalculator.get_combined_schedule()
+
+        return recalculator

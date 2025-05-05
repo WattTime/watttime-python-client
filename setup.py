@@ -6,7 +6,7 @@ setup(
     long_description=open('README.md').read(),
     long_description_content_type="text/markdown",
     version="v1.2.1",
-    packages=["watttime"],
+    packages=["watttime","optimizer"],
     python_requires=">=3.8",
     install_requires=["requests", "pandas>1.0.0", "python-dateutil"],
 )

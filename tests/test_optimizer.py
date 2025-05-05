@@ -3,7 +3,7 @@ from datetime import datetime, timedelta
 import unittest
 import pandas as pd
 from pytz import UTC
-from watttime.api import WattTimeOptimizer
+from optimizer import WattTimeOptimizer
 
 REGION = "CAISO_NORTH"
 

@@ -34,7 +34,7 @@ Click any of the thumbnails below to see the notebook that generated it.
 from datetime import datetime, timedelta
 import pandas as pd
 from pytz import UTC
-from optimizer import WattTimeOptimizer
+from watttime_optimizer import WattTimeOptimizer
 import os
 
 username = os.getenv("WATTTIME_USER")
@@ -67,7 +67,7 @@ print(usage_plan.sum())
 from datetime import datetime, timedelta
 import pandas as pd
 from pytz import UTC
-from optimizer import WattTimeOptimizer
+from watttime_optimizer import WattTimeOptimizer
 import os
 
 username = os.getenv("WATTTIME_USER")
@@ -112,7 +112,7 @@ charged, and then remains at 10kW for the rest of the charging. This is the char
 from datetime import datetime, timedelta
 import pandas as pd
 from pytz import UTC
-from optimizer import WattTimeOptimizer
+from watttime_optimizer import WattTimeOptimizer
 from watttime_optimizer.battery import Battery
 import os
 
@@ -154,7 +154,7 @@ print(usage_plan.sum())
 ```
 
 * **Data Center Workload 1**:  
-  * (single period, fixed length) - charging schedule to be composed of contiguous interval(s) of fixed length
+  * (single segment, fixed length) - charging schedule to be composed of a single contiguous, i.e. "block" segment of fixed length
 		
 ```py
 ## AI model training - estimated runtime is 2 hours and it needs to complete within 12 hours
@@ -162,7 +162,7 @@ print(usage_plan.sum())
 from datetime import datetime, timedelta
 import pandas as pd
 from pytz import UTC
-from optimizer import WattTimeOptimizer
+from watttime_optimizer import WattTimeOptimizer
 import os
 
 username = os.getenv("WATTTIME_USER")
@@ -194,7 +194,7 @@ print(usage_plan.sum())
 ```
 
 **Data Center Workload 2**: 
-  * (multiple periods, fixed length) - runs over two usage intervals of lengths 80 min and 40 min. The order of the intervals is immutable.
+  * (multiple segments, fixed length) - runs over two usage periods of lengths 80 min and 40 min. The order of the segments is immutable.
 
 ```py
 ## there are two cycles of length 80 min and 40 min each, and they must be completed in that order. 
@@ -202,7 +202,7 @@ print(usage_plan.sum())
 from datetime import datetime, timedelta
 import pandas as pd
 from pytz import UTC
-from optimizer import WattTimeOptimizer
+from watttime_optimizer import WattTimeOptimizer
 import os
 
 username = os.getenv("WATTTIME_USER")

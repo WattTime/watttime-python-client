@@ -151,7 +151,7 @@ class TestWattTimeOptimizer(unittest.TestCase):
             optimization_method="sophisticated",
         )
         print("Using DP Plan w/ fixed power rate and charging uncertainty")
-        print(usage_plan["emissions_co2e_lb"].sum())
+        print(usage_plan["emissions_co2_lb"].sum())
 
         # Check time required
         self.assertAlmostEqual(usage_plan["usage"].sum(), 240)
@@ -179,7 +179,7 @@ class TestWattTimeOptimizer(unittest.TestCase):
             optimization_method="auto",
         )
         print("Using DP Plan w/ variable power rate")
-        print(usage_plan["emissions_co2e_lb"].sum())
+        print(usage_plan["emissions_co2_lb"].sum())
 
         # Check time required
         self.assertAlmostEqual(usage_plan["usage"].sum(), 320)

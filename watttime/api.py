@@ -10,8 +10,6 @@ import pandas as pd
 import requests
 from dateutil.parser import parse
 from pytz import UTC, timezone
-from itertools import accumulate
-import bisect
 
 
 class WattTimeBase:
@@ -570,73 +568,3 @@ class WattTimeMaps(WattTimeBase):
         rsp = requests.get(url, headers=headers, params=params)
         rsp.raise_for_status()
         return rsp.json()
-
-
-    def __init__(self, 
-                 moers_list,
-                 requery_dates,
-                 region="CAISO_NORTH",
-                 window_start=datetime(2025, 1, 1, hour=21, second=1, tzinfo=UTC),
-                 window_end=datetime(2025, 1, 2, hour=8, second=1, tzinfo=UTC),
-                 usage_time_required_minutes=240,
-                 usage_power_kw=2,
-                 charge_per_segment=None):
-        self.moers_list = moers_list
-        self.requery_dates = requery_dates
-        self.region = region
-        self.window_start = window_start
-        self.window_end = window_end
-        self.usage_time_required_minutes = usage_time_required_minutes
-        self.usage_power_kw = usage_power_kw
-        self.charge_per_segment = charge_per_segment
-        
-        self.username = os.getenv("WATTTIME_USER")
-        self.password = os.getenv("WATTTIME_PASSWORD")
-        self.wt_opt = WattTimeOptimizer(self.username, self.password)
-        
-    def _get_initial_plan(self):
-        return self.wt_opt.get_optimal_usage_plan(
-            region=self.region,
-            usage_window_start=self.window_start,
-            usage_window_end=self.window_end,
-            usage_time_required_minutes=self.usage_time_required_minutes,
-            usage_power_kw=self.usage_power_kw,
-            charge_per_segment=self.charge_per_segment,
-            optimization_method="simple",
-            moer_data_override=self.moers_list[0][["point_time","value"]]
-        )
-    
-    def simulate(self):
-        initial_plan = self._get_initial_plan()
-        recalculator = WattTimeRecalculator(
-            initial_schedule=initial_plan,
-            start_time=self.window_start,
-            end_time=self.window_end,
-            total_time_required=self.usage_time_required_minutes,
-            charge_per_segment=self.charge_per_segment
-        )
-
-        # check to see the status of my segments to know if I should requery at all
-        # if I do need to requery, then I need time required + segments remaining
-        # if I don't then I store the state of my recalculator as is
-        
-        for i, new_window_start in enumerate(self.requery_dates[1:], 1):
-            new_time_required = recalculator.get_remaining_time_required(new_window_start)
-            if new_time_required > 0.0:
-                next_plan = self.wt_opt.get_optimal_usage_plan(
-                    region=self.region,
-                    usage_window_start=new_window_start,
-                    usage_window_end=self.window_end,
-                    usage_time_required_minutes=new_time_required,
-                    usage_power_kw=self.usage_power_kw,
-                    charge_per_segment=self.charge_per_segment,
-                    optimization_method="simple",
-                    moer_data_override=self.moers_list[i][["point_time","value"]]
-                )
-                recalculator.update_charging_schedule(
-                    new_schedule=next_plan,
-                    next_query_time=new_window_start,
-                    next_new_schedule_start_time = None
-                )
-            else:
-                return recalculator

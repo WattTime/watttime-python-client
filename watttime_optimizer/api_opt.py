@@ -194,7 +194,6 @@ class WattTimeOptimizer(WattTimeForecast):
         forecast_df = forecast_df.set_index("point_time")
         forecast_df.index = pd.to_datetime(forecast_df.index)
 
-        # relevant_forecast_df = forecast_df[usage_window_start:usage_window_end]
         relevant_forecast_df = forecast_df[forecast_df.index >= usage_window_start]
         relevant_forecast_df = relevant_forecast_df[
             relevant_forecast_df.index < usage_window_end
@@ -213,11 +212,12 @@ class WattTimeOptimizer(WattTimeForecast):
         if optimization_method in ("sophisticated", "auto"):
             # Give a buffer time equal to the uncertainty
             buffer_time = usage_time_uncertainty_minutes
-            buffer_periods = minutes_to_units(buffer_time) if buffer_time else 0
-            buffer_enforce_time = max(
-                total_charge_units, len(moer_values) - buffer_periods
-            )
-            constraints.update({buffer_enforce_time: (total_charge_units, None)})
+            if buffer_time > 0:
+                buffer_periods = minutes_to_units(buffer_time) if buffer_time else 0
+                buffer_enforce_time = max(
+                    total_charge_units, len(moer_values) - buffer_periods
+                )
+                constraints.update({buffer_enforce_time: (total_charge_units, None)})
         else:
             assert (
                 usage_time_uncertainty_minutes == 0

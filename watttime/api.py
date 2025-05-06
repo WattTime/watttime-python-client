@@ -580,7 +580,7 @@ class WattTimeMaps(WattTimeBase):
                  window_end=datetime(2025, 1, 2, hour=8, second=1, tzinfo=UTC),
                  usage_time_required_minutes=240,
                  usage_power_kw=2,
-                 charge_per_interval=None):
+                 charge_per_segment=None):
         self.moers_list = moers_list
         self.requery_dates = requery_dates
         self.region = region
@@ -588,7 +588,7 @@ class WattTimeMaps(WattTimeBase):
         self.window_end = window_end
         self.usage_time_required_minutes = usage_time_required_minutes
         self.usage_power_kw = usage_power_kw
-        self.charge_per_interval = charge_per_interval
+        self.charge_per_segment = charge_per_segment
         
         self.username = os.getenv("WATTTIME_USER")
         self.password = os.getenv("WATTTIME_PASSWORD")
@@ -601,7 +601,7 @@ class WattTimeMaps(WattTimeBase):
             usage_window_end=self.window_end,
             usage_time_required_minutes=self.usage_time_required_minutes,
             usage_power_kw=self.usage_power_kw,
-            charge_per_interval=self.charge_per_interval,
+            charge_per_segment=self.charge_per_segment,
             optimization_method="simple",
             moer_data_override=self.moers_list[0][["point_time","value"]]
         )
@@ -613,7 +613,7 @@ class WattTimeMaps(WattTimeBase):
             start_time=self.window_start,
             end_time=self.window_end,
             total_time_required=self.usage_time_required_minutes,
-            charge_per_interval=self.charge_per_interval
+            charge_per_segment=self.charge_per_segment
         )
 
         # check to see the status of my segments to know if I should requery at all
@@ -629,7 +629,7 @@ class WattTimeMaps(WattTimeBase):
                     usage_window_end=self.window_end,
                     usage_time_required_minutes=new_time_required,
                     usage_power_kw=self.usage_power_kw,
-                    charge_per_interval=self.charge_per_interval,
+                    charge_per_segment=self.charge_per_segment,
                     optimization_method="simple",
                     moer_data_override=self.moers_list[i][["point_time","value"]]
                 )

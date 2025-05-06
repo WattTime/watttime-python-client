@@ -31,7 +31,7 @@ def analysis_loop_requery(region, input_dict, interval,username,password):
             "optimization_method": "auto", 
             "verbose":False,
             "interval":interval,
-            "charge_per_interval":None}
+            "charge_per_segment":None}
             )
         df = roce.fit_recalculator(**value)
         m, b = np.polyfit(np.arange(len(df.pred_moer.values)),df.pred_moer.values, 1)

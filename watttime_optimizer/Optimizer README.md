@@ -176,14 +176,14 @@ window_end = now + timedelta(minutes=720)
 usage_power_kw = 12.0
 region = "CAISO_NORTH"
 
-# by passing a single interval of 120 minutes to charge_per_interval, the Optimizer will know to fit call the fixed contigous modeling function.
+# by passing a single interval of 120 minutes to charge_per_segment, the Optimizer will know to fit call the fixed contigous modeling function.
 usage_plan = wt_opt.get_optimal_usage_plan(
     region=region,
     usage_window_start=window_start,
     usage_window_end=window_end,
     usage_time_required_minutes=120,
     usage_power_kw=12,
-    charge_per_interval=[120],
+    charge_per_segment=[120],
     optimization_method="auto",
     verbose = False
 )
@@ -214,14 +214,14 @@ now = datetime.now(UTC)
 window_start = now
 window_end = now + timedelta(minutes=720)
 
-# Pass two values to charge_per_interval instead of one.
+# Pass two values to charge_per_segment instead of one.
 usage_plan = wt_opt.get_optimal_usage_plan(
     region="CAISO_NORTH",
     usage_window_start=window_start,
     usage_window_end=window_end,
     usage_time_required_minutes=120, # 80 + 40
     usage_power_kw=12,
-    charge_per_interval=[80,40],
+    charge_per_segment=[80,40],
     optimization_method="auto",
 )
 

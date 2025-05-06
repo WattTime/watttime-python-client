@@ -45,8 +45,8 @@ class WattTimeOptimizer(WattTimeForecast):
         usage_power_kw: Optional[Union[int, float, pd.DataFrame]] = None,
         energy_required_kwh: Optional[Union[int, float]] = None,
         usage_time_uncertainty_minutes: Optional[Union[int, float]] = 0,
-        charge_per_interval: Optional[list] = None,
-        use_all_intervals: bool = True,
+        charge_per_segment: Optional[list] = None,
+        use_all_segments: bool = True,
         constraints: Optional[dict] = None,
         optimization_method: Optional[
             Literal["baseline", "simple", "sophisticated", "auto"]
@@ -79,11 +79,11 @@ class WattTimeOptimizer(WattTimeForecast):
             Energy required in kwh
         usage_time_uncertainty_minutes : Optional[Union[int, float]], default=0
             Uncertainty in usage time, in minutes.
-        charge_per_interval : Optional[list], default=None
+        charge_per_segment : Optional[list], default=None
             Either a list of length-2 tuples representing minimium and maximum (inclusive) charging minutes per interval,
             or a list of ints representing both the min and max. [180] OR [(180,180)]
-        use_all_intervals : Optional[bool], default=False
-            If true, use all intervals provided by charge_per_interval; if false, can use the first few intervals and skip the rest.
+        use_all_segments : Optional[bool], default=False
+            If true, use all intervals provided by charge_per_segment; if false, can use the first few intervals and skip the rest.
         constraints : Optional[dict], default=None
             A dictionary containing contraints on how much usage must be used before the given time point
         optimization_method : Optional[Literal["baseline", "simple", "sophisticated", "auto"]], default="baseline"
@@ -261,32 +261,32 @@ class WattTimeOptimizer(WattTimeForecast):
                 )
                 return value
 
-        if charge_per_interval:
-            # Handle the charge_per_interval input by converting it from minutes to units, rounding up
-            converted_charge_per_interval = []
-            for c in charge_per_interval:
+        if charge_per_segment:
+            # Handle the charge_per_segment input by converting it from minutes to units, rounding up
+            converted_charge_per_segment = []
+            for c in charge_per_segment:
                 if isinstance(c, int):
-                    converted_charge_per_interval.append(minutes_to_units(c))
+                    converted_charge_per_segment.append(minutes_to_units(c))
                 else:
                     assert (
                         len(c) == 2
-                    ), "Length of tuples in charge_per_interval is not 2"
+                    ), "Length of tuples in charge_per_segment is not 2"
                     interval_start_units = minutes_to_units(c[0]) if c[0] else 0
                     interval_end_units = (
                         minutes_to_units(c[1]) if c[1] else self.MAX_INT
                     )
-                    converted_charge_per_interval.append(
+                    converted_charge_per_segment.append(
                         (interval_start_units, interval_end_units)
                     )
         else:
-            converted_charge_per_interval = None
+            converted_charge_per_segment = None
         model.fit(
             total_charge=total_charge_units,
             total_time=len(moer_values),
             moer=m,
             constraints=constraints,
-            charge_per_interval=converted_charge_per_interval,
-            use_all_intervals=use_all_intervals,
+            charge_per_segment=converted_charge_per_segment,
+            use_all_segments=use_all_segments,
             emission_multiplier_fn=emission_multiplier_fn,
             optimization_method=optimization_method,
         )
@@ -297,7 +297,7 @@ class WattTimeOptimizer(WattTimeForecast):
             result_df,
             model,
             usage_time_required_minutes,
-            charge_per_interval,
+            charge_per_segment,
         )
 
         return result_df
@@ -308,33 +308,33 @@ class WattTimeOptimizer(WattTimeForecast):
         result_df,
         model,
         usage_time_required_minutes,
-        charge_per_interval,
+        charge_per_segment,
     ):
-        # Make a copy of charge_per_interval if necessary
-        if charge_per_interval is not None:
-            charge_per_interval = charge_per_interval[::]
-            for i in range(len(charge_per_interval)):
-                if type(charge_per_interval[i]) == int:
-                    charge_per_interval[i] = (
-                        charge_per_interval[i],
-                        charge_per_interval[i],
+        # Make a copy of charge_per_segment if necessary
+        if charge_per_segment is not None:
+            charge_per_segment = charge_per_segment[::]
+            for i in range(len(charge_per_segment)):
+                if type(charge_per_segment[i]) == int:
+                    charge_per_segment[i] = (
+                        charge_per_segment[i],
+                        charge_per_segment[i],
                     )
-                assert len(charge_per_interval[i]) == 2
+                assert len(charge_per_segment[i]) == 2
                 processed_start = (
-                    charge_per_interval[i][0]
-                    if charge_per_interval[i][0] is not None
+                    charge_per_segment[i][0]
+                    if charge_per_segment[i][0] is not None
                     else 0
                 )
                 processed_end = (
-                    charge_per_interval[i][1]
-                    if charge_per_interval[i][1] is not None
+                    charge_per_segment[i][1]
+                    if charge_per_segment[i][1] is not None
                     else self.MAX_INT
                 )
 
-                charge_per_interval[i] = (processed_start, processed_end)
+                charge_per_segment[i] = (processed_start, processed_end)
 
-        if not charge_per_interval:
-            # Handle case without charge_per_interval constraints
+        if not charge_per_segment:
+            # Handle case without charge_per_segment constraints
             total_usage_intervals = sum(optimizer_result)
             current_usage_intervals = 0
             usage_list = []
@@ -353,7 +353,7 @@ class WattTimeOptimizer(WattTimeForecast):
                     )
             result_df["usage"] = usage_list
         else:
-            # Process charge_per_interval constraints
+            # Process charge_per_segment constraints
             result_df["usage"] = [
                 x * float(self.OPT_INTERVAL) for x in optimizer_result
             ]
@@ -374,19 +374,19 @@ class WattTimeOptimizer(WattTimeForecast):
                 ), "interval_id not found in interval_ids"
                 sections.append(get_min_max_indices(interval_ids, interval_id))
 
-            # Adjust sections to satisfy charge_per_interval constraints
+            # Adjust sections to satisfy charge_per_segment constraints
             for i, (start, end) in enumerate(sections):
                 section_usage = usage[start : end + 1]
                 total_minutes = section_usage.sum()
 
                 # Get the constraints for this section
-                if isinstance(charge_per_interval[i], int):
+                if isinstance(charge_per_segment[i], int):
                     min_minutes, max_minutes = (
-                        charge_per_interval[i],
-                        charge_per_interval[i],
+                        charge_per_segment[i],
+                        charge_per_segment[i],
                     )
                 else:
-                    min_minutes, max_minutes = charge_per_interval[i]
+                    min_minutes, max_minutes = charge_per_segment[i]
 
                 # Adjust the section to fit the constraints
                 if total_minutes < min_minutes:
@@ -431,7 +431,7 @@ class WattTimeRecalculator:
         all_schedules (list): List of tuples containing (schedule, time_context) pairs
         total_time_required (int): Total charging time needed in minutes
         end_time (datetime): Final deadline for the charging schedule
-        charge_per_interval (list): List of charging durations per interval
+        charge_per_segment (list): List of charging durations per interval
         is_contiguous (bool): Flag indicating if charging must be contiguous
         sleep_delay(bool): Flag indicating if next query time must be delayed
         contiguity_values_dict (dict): Dictionary storing contiguity-related values
@@ -444,7 +444,7 @@ class WattTimeRecalculator:
         end_time: datetime,
         total_time_required: int,
         contiguous=False,
-        charge_per_interval: Optional[list] = None,
+        charge_per_segment: Optional[list] = None,
     ) -> None:
         """Initialize the Recalculator with an initial schedule.
 
@@ -453,13 +453,13 @@ class WattTimeRecalculator:
             start_time (datetime): Start time for the schedule
             end_time (datetime): End time for the schedule
             total_time_required (int): Total charging time needed in minutes
-            charge_per_interval (list): List of charging durations per interval
+            charge_per_segment (list): List of charging durations per interval
         """
         self.OPT_INTERVAL = 5
         self.all_schedules = [(initial_schedule, (start_time, end_time))]
         self.end_time = end_time
         self.total_time_required = total_time_required
-        self.charge_per_interval = charge_per_interval
+        self.charge_per_segment = charge_per_segment
         self.is_contiguous = contiguous
         self.sleep_delay = False
         self.contiguity_values_dict = {
@@ -670,7 +670,7 @@ class WattTimeRecalculator:
             completed_schedule = combined_schedule.loc[:next_query_time]
             charging_indicator = completed_schedule["usage"].astype(bool).sum()
             return bisect.bisect_right(
-                list(accumulate(self.charge_per_interval)), (charging_indicator * 5)
+                list(accumulate(self.charge_per_segment)), (charging_indicator * 5)
             )
         else:
             return None
@@ -686,7 +686,7 @@ class RequerySimulator:
         window_end=datetime(2025, 1, 2, hour=8, second=1, tzinfo=UTC),
         usage_time_required_minutes=240,
         usage_power_kw=2,
-        charge_per_interval=None,
+        charge_per_segment=None,
     ):
         self.moers_list = moers_list
         self.requery_dates = requery_dates
@@ -695,7 +695,7 @@ class RequerySimulator:
         self.window_end = window_end
         self.usage_time_required_minutes = usage_time_required_minutes
         self.usage_power_kw = usage_power_kw
-        self.charge_per_interval = charge_per_interval
+        self.charge_per_segment = charge_per_segment
 
         self.username = os.getenv("WATTTIME_USER")
         self.password = os.getenv("WATTTIME_PASSWORD")
@@ -708,7 +708,7 @@ class RequerySimulator:
             usage_window_end=self.window_end,
             usage_time_required_minutes=self.usage_time_required_minutes,
             usage_power_kw=self.usage_power_kw,
-            charge_per_interval=self.charge_per_interval,
+            charge_per_segment=self.charge_per_segment,
             optimization_method="simple",
             moer_data_override=self.moers_list[0][["point_time", "value"]],
         )
@@ -720,7 +720,7 @@ class RequerySimulator:
             start_time=self.window_start,
             end_time=self.window_end,
             total_time_required=self.usage_time_required_minutes,
-            charge_per_interval=self.charge_per_interval,
+            charge_per_segment=self.charge_per_segment,
         )
 
         # check to see the status of my segments to know if I should requery at all
@@ -738,7 +738,7 @@ class RequerySimulator:
                     usage_window_end=self.window_end,
                     usage_time_required_minutes=new_time_required,
                     usage_power_kw=self.usage_power_kw,
-                    charge_per_interval=self.charge_per_interval,
+                    charge_per_segment=self.charge_per_segment,
                     optimization_method="simple",
                     moer_data_override=self.moers_list[i][["point_time", "value"]],
                 )

@@ -1,6 +1,5 @@
-from typing import List, Any, Optional
+from typing import List, Any
 from datetime import datetime, timedelta, date
-import pytz
 import pandas as pd
 import random
 import numpy as np
@@ -163,7 +162,7 @@ class SessionsGenerator:
         user_df["initial_charge"] = user_df.apply(
             lambda _: random.uniform(self.minimum_battery_starting_capacity, 0.8), axis=1
         )
-        user_df["usage_time_required_in_minutes"] = user_df["initial_charge"].apply(
+        user_df["time_needed"] = user_df["initial_charge"].apply(
             lambda x: total_capacity
             * (self.max_percent_capacity - x)
             / power_output_max_rate
@@ -172,7 +171,7 @@ class SessionsGenerator:
 
         # What time will the battery reach max capacity
         user_df["expected_baseline_charge_complete_timestamp"] = user_df["usage_window_start"] + pd.to_timedelta(
-            user_df["usage_time_required_in_minutes"], unit="m"
+            user_df["time_needed"], unit="m"
         )
         user_df["window_length_in_minutes"] = (
             user_df.usage_window_end - user_df.usage_window_start

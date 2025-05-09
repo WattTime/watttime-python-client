@@ -1,6 +1,7 @@
-from watttime.api import WattTimeOptimizer, WattTimeForecast, WattTimeHistorical, WattTimeRecalculator
+from watttime.api import WattTimeForecast, WattTimeHistorical
+from watttime_optimizer.api_opt import WattTimeOptimizer, WattTimeRecalculator
 import pandas as pd
-from watttime.evaluator.utils import convert_to_utc, get_timezone_from_dict
+from watttime_optimizer.evaluator.utils import convert_to_utc, get_timezone_from_dict
 import numpy as np
 from typing import Optional
 from datetime import timedelta
@@ -87,11 +88,11 @@ class ImpactEvaluator:
         """
         Calculate total CO2 emissions in pounds
         Args:
-            x: Input dictionary containing 'emissions_co2e_lb' key
+            x: Input dictionary containing 'emissions_co2_lb' key
         Returns:
             Sum of CO2 emissions
         """
-        return self.obj["emissions_co2e_lb"].sum()
+        return self.obj["emissions_co2_lb"].sum()
     
     def get_baseline_emissions(self,region:str):
         """
@@ -110,6 +111,9 @@ class ImpactEvaluator:
             'forecast': self.get_forecast_emissions(),
             'actual':self.get_actual_emissions(region)
         }
+    
+    def plot_predicated_moer(self):
+        self.obj["pred_moer"].plot()
     
     def get_timeseries_stats(self,df: pd.DataFrame, col:str = "pred_moer"):
         ''' Dispersion, slope, and intercept of the moer forecast'''
@@ -157,7 +161,7 @@ class OptChargeEvaluator(WattTimeOptimizer):
         region:str = 'CAISO_NORTH',
         optimization_method: str = "auto",
         constraints: Optional[dict] = None,
-        charge_per_interval: Optional[list] = None,
+        charge_per_segment: Optional[list] = None,
         tz_convert: bool = False,
         verbose:bool=False
     ) -> pd.DataFrame:
@@ -176,7 +180,7 @@ class OptChargeEvaluator(WattTimeOptimizer):
             MOER forecast data
         optimization_method : str, optional
             Optimization method (default: "auto")
-        charge_per_interval : list, optional
+        charge_per_segment : list, optional
             List of charging constraints per interval
             
         Returns:
@@ -198,13 +202,13 @@ class OptChargeEvaluator(WattTimeOptimizer):
             usage_power_kw=usage_power_kw,
             optimization_method=optimization_method,
             moer_data_override=self.moer_data_override(start_time = usage_window_start, end_time = usage_window_end, region=region),
-            charge_per_interval=charge_per_interval,
+            charge_per_segment=charge_per_segment,
             constraints=constraints,
             verbose=verbose
         )
         
         # Validate emissions data
-        if schedule["emissions_co2e_lb"].sum() == 0.0:
+        if schedule["emissions_co2_lb"].sum() == 0.0:
             self._log_zero_emissions_warning(
                 usage_power_kw,
                 time_needed,
@@ -244,7 +248,7 @@ class RecalculationOptChargeEvaluator(OptChargeEvaluator):
         region:str = 'CAISO_NORTH',
         optimization_method: str = "auto",
         constraints: Optional[dict] = None,
-        charge_per_interval: Optional[list] = None,
+        charge_per_segment: Optional[list] = None,
         tz_convert: bool = False,
         verbose:bool=False,
         contiguous:bool=False
@@ -260,7 +264,7 @@ class RecalculationOptChargeEvaluator(OptChargeEvaluator):
             usage_window_end=usage_window_end,
             time_needed=time_needed,
             usage_power_kw=usage_power_kw,
-            charge_per_interval=charge_per_interval,
+            charge_per_segment=charge_per_segment,
             optimization_method=optimization_method,
             constraints=constraints,
             verbose=verbose,
@@ -272,7 +276,7 @@ class RecalculationOptChargeEvaluator(OptChargeEvaluator):
             start_time=usage_window_start,
             end_time=usage_window_end,
             total_time_required=time_needed,
-            charge_per_interval=charge_per_interval,
+            charge_per_segment=charge_per_segment,
             contiguous=contiguous
         )
 
@@ -290,7 +294,7 @@ class RecalculationOptChargeEvaluator(OptChargeEvaluator):
                 usage_window_end=usage_window_end,
                 usage_time_required_minutes=optimization_outcomes["remaining_time_required"],
                 usage_power_kw=usage_power_kw,
-                charge_per_interval=[int(optimization_outcomes["remaining_time_required"])] if recalculator.is_contiguous else None,
+                charge_per_segment=[int(optimization_outcomes["remaining_time_required"])] if recalculator.is_contiguous else None,
                 optimization_method=optimization_method,
                 moer_data_override=self.moer_data_override(start_time,usage_window_end,region),
                 verbose=verbose

@@ -3,7 +3,7 @@ from datetime import datetime, timedelta
 import unittest
 import pandas as pd
 from pytz import UTC
-from watttime.api import WattTimeOptimizer
+from watttime_optimizer import WattTimeOptimizer
 
 REGION = "CAISO_NORTH"
 
@@ -151,7 +151,7 @@ class TestWattTimeOptimizer(unittest.TestCase):
             optimization_method="sophisticated",
         )
         print("Using DP Plan w/ fixed power rate and charging uncertainty")
-        print(usage_plan["emissions_co2e_lb"].sum())
+        print(usage_plan["emissions_co2_lb"].sum())
 
         # Check time required
         self.assertAlmostEqual(usage_plan["usage"].sum(), 240)
@@ -179,7 +179,7 @@ class TestWattTimeOptimizer(unittest.TestCase):
             optimization_method="auto",
         )
         print("Using DP Plan w/ variable power rate")
-        print(usage_plan["emissions_co2e_lb"].sum())
+        print(usage_plan["emissions_co2_lb"].sum())
 
         # Check time required
         self.assertAlmostEqual(usage_plan["usage"].sum(), 320)
@@ -263,19 +263,19 @@ class TestWattTimeOptimizer(unittest.TestCase):
             usage_plan["energy_usage_mwh"].sum() * 1000, 180 * 5 / 60
         )
 
-    def test_dp_two_intervals_unbounded(self):
-        """Test auto mode with two intervals."""
+    def test_dp_two_segments_unbounded(self):
+        """Test auto mode with two segments."""
         usage_plan = self.wt_opt.get_optimal_usage_plan(
             region=self.region,
             usage_window_start=self.window_start_test,
             usage_window_end=self.window_end_test,
             usage_time_required_minutes=160,
             usage_power_kw=self.usage_power_kw,
-            charge_per_interval=[(0, 999999), (0, 999999)],
+            charge_per_segment=[(0, 999999), (0, 999999)],
             optimization_method="auto",
         )
         print(
-            "Using auto mode with two unbounded intervals\n",
+            "Using auto mode with two unbounded segments\n",
             pretty_format_usage(usage_plan),
         )
         print(usage_plan.sum())
@@ -293,19 +293,19 @@ class TestWattTimeOptimizer(unittest.TestCase):
         # Check number of components
         self.assertLessEqual(len(get_contiguity_info(usage_plan)), 2)
 
-    def test_dp_two_intervals_flexible_length(self):
-        """Test auto mode with two variable length intervals."""
+    def test_dp_two_segments_flexible_length(self):
+        """Test auto mode with two variable length segments."""
         usage_plan = self.wt_opt.get_optimal_usage_plan(
             region=self.region,
             usage_window_start=self.window_start_test,
             usage_window_end=self.window_end_test,
             usage_time_required_minutes=160,
             usage_power_kw=self.usage_power_kw,
-            charge_per_interval=[(60, 100), (60, 100)],
+            charge_per_segment=[(60, 100), (60, 100)],
             optimization_method="auto",
         )
         print(
-            "Using auto mode with two flexible intervals\n",
+            "Using auto mode with two flexible segments\n",
             pretty_format_usage(usage_plan),
         )
         print(usage_plan.sum())
@@ -335,19 +335,19 @@ class TestWattTimeOptimizer(unittest.TestCase):
             # Check combined component length
             self.assertAlmostEqual(contiguity_info[0]["sum"], 160)
 
-    def test_dp_two_intervals_one_sided_length(self):
-        """Test auto mode with two variable length intervals."""
+    def test_dp_two_segments_one_sided_length(self):
+        """Test auto mode with two variable length segments."""
         usage_plan = self.wt_opt.get_optimal_usage_plan(
             region=self.region,
             usage_window_start=self.window_start_test,
             usage_window_end=self.window_end_test,
             usage_time_required_minutes=160,
             usage_power_kw=self.usage_power_kw,
-            charge_per_interval=[(30, None), (30, None), (30, None), (30, None)],
+            charge_per_segment=[(30, None), (30, None), (30, None), (30, None)],
             optimization_method="auto",
         )
         print(
-            "Using auto mode with one-sided intervals\n",
+            "Using auto mode with one-sided segments\n",
             pretty_format_usage(usage_plan),
         )
         print(usage_plan.sum())
@@ -370,20 +370,20 @@ class TestWattTimeOptimizer(unittest.TestCase):
             # Check component length
             self.assertGreaterEqual(contiguity_info[i]["sum"], 30)
 
-    def test_dp_two_intervals_one_sided_length_use_all_false(self):
-        """Test auto mode with two variable length intervals."""
+    def test_dp_two_segments_one_sided_length_use_all_false(self):
+        """Test auto mode with two variable length segments."""
         usage_plan = self.wt_opt.get_optimal_usage_plan(
             region=self.region,
             usage_window_start=self.window_start_test,
             usage_window_end=self.window_end_test,
             usage_time_required_minutes=160,
             usage_power_kw=self.usage_power_kw,
-            charge_per_interval=[(40, None), (40, None), (40, None), (40, None)],
-            use_all_intervals=False,
+            charge_per_segment=[(40, None), (40, None), (40, None), (40, None)],
+            use_all_segments=False,
             optimization_method="auto",
         )
         print(
-            "Using auto mode with one-sided intervals\n",
+            "Using auto mode with one-sided segments\n",
             pretty_format_usage(usage_plan),
         )
         print(usage_plan.sum())
@@ -406,19 +406,19 @@ class TestWattTimeOptimizer(unittest.TestCase):
             # Check component length
             self.assertGreaterEqual(contiguity_info[i]["sum"], 40)
 
-    def test_dp_two_intervals_exact_input_a(self):
-        """Test auto mode with two intervals."""
+    def test_dp_two_segments_exact_input_a(self):
+        """Test auto mode with two segments."""
         usage_plan = self.wt_opt.get_optimal_usage_plan(
             region=self.region,
             usage_window_start=self.window_start_test,
             usage_window_end=self.window_end_test,
             usage_time_required_minutes=160,
             usage_power_kw=self.usage_power_kw,
-            charge_per_interval=[(60, 60), (100, 100)],
+            charge_per_segment=[(60, 60), (100, 100)],
             optimization_method="auto",
         )
         print(
-            "Using auto mode with two exact intervals\n",
+            "Using auto mode with two exact segments\n",
             pretty_format_usage(usage_plan),
         )
         print(usage_plan.sum())
@@ -446,18 +446,18 @@ class TestWattTimeOptimizer(unittest.TestCase):
             # Check combined component length
             self.assertAlmostEqual(contiguity_info[0]["sum"], 160)
 
-    def test_dp_two_intervals_exact_input_b(self):
-        """Test auto mode with two intervals."""
+    def test_dp_two_segments_exact_input_b(self):
+        """Test auto mode with two segments."""
         usage_plan = self.wt_opt.get_optimal_usage_plan(
             region=self.region,
             usage_window_start=self.window_start_test,
             usage_window_end=self.window_end_test,
             usage_time_required_minutes=160,
             usage_power_kw=self.usage_power_kw,
-            charge_per_interval=[60, 100],
+            charge_per_segment=[60, 100],
             optimization_method="auto",
         )
-        print("Using auto mode, but with two intervals")
+        print("Using auto mode, but with two segments")
         print(pretty_format_usage(usage_plan))
         print(usage_plan.sum())
 
@@ -484,19 +484,19 @@ class TestWattTimeOptimizer(unittest.TestCase):
             # Check combined component length
             self.assertAlmostEqual(contiguity_info[0]["sum"], 160)
 
-    def test_dp_two_intervals_exact_unround(self):
-        """Test auto mode with two intervals, specified via list of tuple."""
+    def test_dp_two_segments_exact_unround(self):
+        """Test auto mode with two segments, specified via list of tuple."""
         usage_plan = self.wt_opt.get_optimal_usage_plan(
             region=self.region,
             usage_window_start=self.window_start_test,
             usage_window_end=self.window_end_test,
             usage_time_required_minutes=160,
             usage_power_kw=self.usage_power_kw,
-            charge_per_interval=[(67, 67), (93, 93)],
+            charge_per_segment=[(67, 67), (93, 93)],
             optimization_method="auto",
         )
         print(
-            "Using auto mode with two exact unround intervals\n",
+            "Using auto mode with two exact unround segments\n",
             pretty_format_usage(usage_plan),
         )
         print(usage_plan.sum())
@@ -524,19 +524,19 @@ class TestWattTimeOptimizer(unittest.TestCase):
             # Check combined component length
             self.assertAlmostEqual(contiguity_info[0]["sum"], 160)
 
-    def test_dp_two_intervals_exact_unround_alternate_input(self):
-        """Test auto mode with two intervals, specified via list of ints."""
+    def test_dp_two_segments_exact_unround_alternate_input(self):
+        """Test auto mode with two segments, specified via list of ints."""
         usage_plan = self.wt_opt.get_optimal_usage_plan(
             region=self.region,
             usage_window_start=self.window_start_test,
             usage_window_end=self.window_end_test,
             usage_time_required_minutes=160,
             usage_power_kw=self.usage_power_kw,
-            charge_per_interval=[67, 93],
+            charge_per_segment=[67, 93],
             optimization_method="auto",
         )
         print(
-            "Using auto mode with two exact unround intervals\n",
+            "Using auto mode with two exact unround segments\n",
             pretty_format_usage(usage_plan),
         )
         print(usage_plan.sum())
@@ -564,18 +564,18 @@ class TestWattTimeOptimizer(unittest.TestCase):
             # Check combined component length
             self.assertAlmostEqual(contiguity_info[0]["sum"], 160)
 
-    def test_dp_two_intervals_exact_inconsistent_b(self):
-        """Test auto mode with one interval that is inconsistent with usage_time_required."""
+    def test_dp_two_segments_exact_inconsistent_b(self):
+        """Test auto mode with one segment that is inconsistent with usage_time_required."""
         usage_plan = self.wt_opt.get_optimal_usage_plan(
             region=self.region,
             usage_window_start=self.window_start_test,
             usage_window_end=self.window_end_test,
             usage_time_required_minutes=160,
             usage_power_kw=self.usage_power_kw,
-            charge_per_interval=[(65, 65)],
+            charge_per_segment=[(65, 65)],
             optimization_method="auto",
         )
-        print("Using auto mode, but with two intervals")
+        print("Using auto mode, but with two segments")
         print(pretty_format_usage(usage_plan))
         print(usage_plan.sum())
 

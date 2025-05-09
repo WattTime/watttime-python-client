@@ -1,23 +1,29 @@
+# About the Optimizer Module Project
+
+WattTime provides electricity grid-related data globally, data users to employ real-time, evidence-based emissions reduction strategies. These data, served programmatically via API, support technology-backed strategies that minimize carbon emissions and human health impacts. In particular, the Marginal Operating Emissions Rate (MOER) can be used to make decisions to avoid emissions via time- or place-based optimizations, and to calculate the reductions achieved by project-level interventions in accordance with GHG Protocol Scope 4.
+
+The MOER data signal represents the emissions rate of the electricity generator(s) that dispatch energy in direct response to changes in load on the grid. Energy generation sources meet different energy demands throughout the day, and the WattTime forecast anticipates the order in which the generators dispatch energy based on anticipated changes in demand. 
+
 # Using the Optimizer Class
-`WattTime.Optimizer` produces a power consumption schedule that minimizes carbon emissions subject to user and device constraints.
 
-The `WattTime.Optimizer` class requires 4 things:
+`WattTimeOptimizer` produces a power usage schedule that minimizes carbon emissions subject to user and device constraints.
 
-- Watttime’s forecast of marginal emissions
-- device capacity and energy needs
+The `WattTimeOptimizer` class requires 4 things:
+
+- Watttime’s forecast of marginal emissions (MOER)
+- device capacity and energy needs 
 - region
 - window start
 - window end
 
-
 | optimization\_method | ASAP | Charging curve | Time constraint | Contiguous |
 | :---- | :---- | :---- | :---- | :---- |
+| auto | No | Chooses the fastest algorithm that can still process all inputs |  |  |
 | baseline | Yes | Constant | No | No |
 | simple | No | Constant | No | No |
 | sophisticated | No | Variable | Yes | No |
-| contiguous | No | Variable | Yes | Intervals at fixed lengths |
-| Variable contiguous | No | Variable | Yes | Intervals at variable lengths |
-| auto | No | Chooses the fastest algorithm that can still process all inputs |  |  |
+| contiguous | No | Variable | Yes | Segments at fixed lengths |
+| Variable contiguous | No | Variable | Yes | Segments at variable lengths |
 
 Click any of the thumbnails below to see the notebook that generated it.
 

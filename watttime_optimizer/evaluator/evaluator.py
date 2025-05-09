@@ -112,6 +112,9 @@ class ImpactEvaluator:
             'actual':self.get_actual_emissions(region)
         }
     
+    def plot_predicated_moer(self):
+        self.obj["pred_moer"].plot()
+    
     def get_timeseries_stats(self,df: pd.DataFrame, col:str = "pred_moer"):
         ''' Dispersion, slope, and intercept of the moer forecast'''
         m, b = np.polyfit(np.arange(len(df[col].values)),df[col].values, 1)

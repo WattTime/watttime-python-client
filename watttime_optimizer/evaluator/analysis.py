@@ -33,7 +33,7 @@ def analysis_loop_requery(region, input_dict, interval,username,password):
             "interval":interval,
             "charge_per_segment":None}
             )
-        df = roce.fit_recalculator(**value)
+        df = roce.fit_recalculator(**value).get_combined_schedule()
         m, b = np.polyfit(np.arange(len(df.pred_moer.values)),df.pred_moer.values, 1)
         stddev = df.pred_moer.std()
         r = ImpactEvaluator(username,password,df).get_all_emissions_values(region=region)

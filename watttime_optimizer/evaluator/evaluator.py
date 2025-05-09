@@ -82,7 +82,7 @@ class ImpactEvaluator:
         moer = self.get_historical_actual_data(region)['value'].values
         energy_usage_mwh = self.get_energy_usage()
         
-        return np.multiply(moer, energy_usage_mwh).sum()
+        return np.multiply(moer, energy_usage_mwh)
     
     def get_forecast_emissions(self):
         """
@@ -92,28 +92,37 @@ class ImpactEvaluator:
         Returns:
             Sum of CO2 emissions
         """
-        return self.obj["emissions_co2_lb"].sum()
+        return self.obj["emissions_co2_lb"]
     
     def get_baseline_emissions(self,region:str):
         """
         Calculate total CO2 emissions in pounds.
         Assumes device did not follow an optimized schedule.
         """
-        e = self.get_energy_usage()
-        e = e[e>0]
-        moer = self.get_historical_actual_data(region)['value'][:len(e)].values
+        energy_usage_mwh = self.get_energy_usage()
+        N = len(energy_usage_mwh[energy_usage_mwh<=0])
+        moer = self.get_historical_actual_data(region)['value'].values
 
-        return np.multiply(moer, e).sum()
+        return np.multiply(moer, np.pad(energy_usage_mwh[energy_usage_mwh>0], (0, N), 'constant'))
+    
+    def get_all_emissions_metrics(self,region:str):
+        return {
+            'baseline': self.get_baseline_emissions(region).sum(),
+            'forecast': self.get_forecast_emissions().sum(),
+            'actual':self.get_actual_emissions(region).sum()
+        }
     
     def get_all_emissions_values(self,region:str):
-        return {
-            'baseline': self.get_baseline_emissions(region),
-            'forecast': self.get_forecast_emissions(),
-            'actual':self.get_actual_emissions(region)
-        }
+        df = pd.DataFrame(self.get_forecast_emissions(), columns=["forecast"])
+        df["baseline"] = self.get_baseline_emissions(region)
+        df["actual"] = self.get_actual_emissions(region)
+        return df
     
     def plot_predicated_moer(self):
         self.obj["pred_moer"].plot()
+    
+    def plot_usage_schedule(self):
+        self.obj['usage'].plot()
     
     def get_timeseries_stats(self,df: pd.DataFrame, col:str = "pred_moer"):
         ''' Dispersion, slope, and intercept of the moer forecast'''

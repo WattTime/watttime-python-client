@@ -11,6 +11,7 @@ from watttime import (
     WattTimeMyAccess,
     WattTimeForecast,
     WattTimeMaps,
+    WattTimeMarginalFuelMix,
 )
 from pathlib import Path
 import pytest
@@ -162,9 +163,6 @@ class TestWattTimeHistorical(unittest.TestCase):
     def tearDown(self):
         self.historical.session.close()
 
-    def tearDown(self):
-        self.historical.session.close()
-
     def test_get_historical_jsons_3_months(self):
         start = "2022-01-01 00:00Z"
         end = "2022-03-31 00:00Z"
@@ -277,10 +275,9 @@ class TestWattTimeHistoricalMultiThreaded(unittest.TestCase):
     def tearDown(self):
         self.historical.session.close()
 
-    # @pytest.mark.skip("TODO - flaky")
     def test_get_historical_jsons_3_months_multithreaded(self):
-        start = "2022-01-01 00:00Z"
-        end = "2022-03-31 00:00Z"
+        start = "2024-01-01 00:00Z"
+        end = "2024-03-31 00:00Z"
         jsons = self.historical.get_historical_jsons(start, end, REGION)
 
         self.assertIsInstance(jsons, list)
@@ -299,35 +296,39 @@ class TestWattTimeMyAccess(unittest.TestCase):
         json = self.access.get_access_json()
         self.assertIsInstance(json, dict)
         self.assertIn("signal_types", json)
-        self.assertIn("regions", json["signal_types"][0])
-        self.assertIn("signal_type", json["signal_types"][0])
-        self.assertIn("region", json["signal_types"][0]["regions"][0])
-        self.assertIn("region_full_name", json["signal_types"][0]["regions"][0])
-        self.assertIn("parent", json["signal_types"][0]["regions"][0])
-        self.assertIn(
-            "data_point_period_seconds", json["signal_types"][0]["regions"][0]
-        )
-        self.assertIn("endpoints", json["signal_types"][0]["regions"][0])
-        self.assertIn("endpoint", json["signal_types"][0]["regions"][0]["endpoints"][0])
-        self.assertIn("models", json["signal_types"][0]["regions"][0]["endpoints"][0])
-        self.assertIn(
-            "model", json["signal_types"][0]["regions"][0]["endpoints"][0]["models"][0]
-        )
-        self.assertIn(
-            "data_start",
-            json["signal_types"][0]["regions"][0]["endpoints"][0]["models"][0],
-        )
-        self.assertIn(
-            "train_start",
-            json["signal_types"][0]["regions"][0]["endpoints"][0]["models"][0],
-        )
-        self.assertIn(
-            "train_end",
-            json["signal_types"][0]["regions"][0]["endpoints"][0]["models"][0],
-        )
-        self.assertIn(
-            "type", json["signal_types"][0]["regions"][0]["endpoints"][0]["models"][0]
-        )
+        
+        st_dict = {j['signal_type']: j for j in json['signal_types']}
+        for signal_type in ['co2_aoer', 'co2_moer', 'health_damage', 'marginal_fuel_mix']:
+            st_object = st_dict[signal_type]
+            self.assertIn("regions", st_object)
+            self.assertIn("signal_type", st_object)
+            self.assertIn("region", st_object["regions"][0])
+            self.assertIn("region_full_name", st_object["regions"][0])
+            self.assertIn("parent", st_object["regions"][0])
+            self.assertIn(
+                "data_point_period_seconds", st_object["regions"][0]
+            )
+            self.assertIn("endpoints", st_object["regions"][0])
+            self.assertIn("endpoint", st_object["regions"][0]["endpoints"][0])
+            self.assertIn("models", st_object["regions"][0]["endpoints"][0])
+            self.assertIn(
+                "model", st_object["regions"][0]["endpoints"][0]["models"][0]
+            )
+            self.assertIn(
+                "data_start",
+                st_object["regions"][0]["endpoints"][0]["models"][0],
+            )
+            self.assertIn(
+                "train_start",
+                st_object["regions"][0]["endpoints"][0]["models"][0],
+            )
+            self.assertIn(
+                "train_end",
+                st_object["regions"][0]["endpoints"][0]["models"][0],
+            )
+            self.assertIn(
+                "type", st_object["regions"][0]["endpoints"][0]["models"][0]
+            )
 
     def test_access_pandas(self):
         df = self.access.get_access_pandas()
@@ -351,7 +352,7 @@ class TestWattTimeMyAccess(unittest.TestCase):
 
 class TestWattTimeForecast(unittest.TestCase):
     def setUp(self):
-        self.forecast = WattTimeForecast(rate_limit=1)
+        self.forecast = WattTimeForecast(rate_limit=1, multithreaded=False)
 
     def tearDown(self):
         self.forecast.session.close()
@@ -452,7 +453,9 @@ class TestWattTimeForecast(unittest.TestCase):
 
 class TestWattTimeForecastMultithreaded(unittest.TestCase):
     def setUp(self):
-        self.forecast = WattTimeForecast(multithreaded=True, rate_limit=1)
+        self.forecast = WattTimeForecast(
+            multithreaded=True, rate_limit=1, worker_count=2
+        )
 
     def tearDown(self):
         self.forecast.session.close()
@@ -532,6 +535,58 @@ class TestWattTimeMaps(unittest.TestCase):
             assert (
                 set(maps_regions) - set(access_regions) == set()
             ), f"Extra regions in geojson for {signal_type}: {set(maps_regions) - set(access_regions)}"
+
+
+class TestWattTimeMarginalFuelMix(unittest.TestCase):
+    def setUp(self):
+        self.fuel_mix = WattTimeMarginalFuelMix()
+
+    def test_fuel_mix_jsons(self):
+        start = "2024-01-01 00:00Z"
+        end = "2024-01-07 00:00Z"
+        fm = self.fuel_mix.get_fuel_mix_jsons(start=start, end=end, region=REGION)
+
+        self.assertIsInstance(fm, list)
+        self.assertIsInstance(fm[0], dict)
+        self.assertIn("data", fm[0])
+        self.assertIn("meta", fm[0])
+        self.assertIsInstance(fm[0]["data"], list)
+        self.assertIsInstance(fm[0]["data"][0], dict)
+        self.assertIn("point_time", fm[0]["data"][0])
+        self.assertIn("values", fm[0]["data"][0])
+        self.assertIsInstance(fm[0]["data"][0]["values"], list)
+        self.assertIsInstance(fm[0]["data"][0]["values"][0], dict)
+        self.assertIn("fuel_type", fm[0]["data"][0]["values"][0])
+        self.assertIn("value", fm[0]["data"][0]["values"][0])
+        self.assertGreaterEqual(len(fm[0]["data"]), 12 * 24 * 5)
+        self.assertIn("warnings", fm[0]["meta"])
+        self.assertIn("model", fm[0]["meta"])
+        self.assertEqual("marginal_fuel_mix", fm[0]["meta"]["signal_type"])
+        self.assertEqual("proportion", fm[0]["meta"]["units"])
+        self.assertEqual(REGION, fm[0]["meta"]["region"])
+
+    def test_fuel_mix_pandas(self):
+        start = "2024-01-01 00:00Z"
+        end = "2024-01-07 00:00Z"
+        df = self.fuel_mix.get_fuel_mix_pandas(start=start, end=end, region=REGION)
+        self.assertIsInstance(df, pd.DataFrame)
+        self.assertGreaterEqual(len(df), 12 * 24 * 5)
+        self.assertIn("gas", df.columns)
+        self.assertEqual("point_time", df.index.name)
+        assert df.index.is_monotonic_increasing
+        assert all(df.sum(axis="columns") == 1.0)
+        
+    @patch.object(WattTimeMarginalFuelMix, "_fetch_data", side_effect=RuntimeError("403 Client Error: Forbidden"))
+    def test_get_fuel_mix_jsons_handles_403(self, mock_fetch_data):
+        start = "2024-01-01 00:00Z"
+        end = "2024-01-07 00:00Z"
+
+        result = self.fuel_mix.get_fuel_mix_jsons(start=start, end=end, region=REGION)
+
+        self.assertEqual(result, [])
+        mock_fetch_data.assert_called_once()
+        # TODO: test for logging here once we use log rather than print in api.py
+        
 
 
 if __name__ == "__main__":

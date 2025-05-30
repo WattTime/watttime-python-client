@@ -3,6 +3,7 @@ import time
 import threading
 import time
 from datetime import date, datetime, timedelta, time as dt_time
+from collections import defaultdict
 from functools import cache
 from pathlib import Path
 from typing import Any, Dict, List, Literal, Optional, Tuple, Union
@@ -15,7 +16,7 @@ from pytz import UTC
 
 
 class WattTimeBase:
-    url_base = "https://api.watttime.org"
+    url_base = os.getenv("WATTTIME_API_URL", "https://api.watttime.org")
 
     def __init__(
         self,
@@ -31,6 +32,10 @@ class WattTimeBase:
         Parameters:
             username (Optional[str]): The username to use for authentication. If not provided, the value will be retrieved from the environment variable "WATTTIME_USER".
             password (Optional[str]): The password to use for authentication. If not provided, the value will be retrieved from the environment variable "WATTTIME_PASSWORD".
+            multithreaded (bool): Whether to use multithreading for requests. Default is False.
+            rate_limit (int): The maximum number of requests to make per second. Default is 10 as this algins well with WattTime's API rate limiting policy.
+            worker_count (int): The number of worker threads to use for multithreading. Default is min(10, (os.cpu_count() or 1) * 2).
+
         """
 
         # This only applies to the current session, is not stored persistently
@@ -735,3 +740,63 @@ class WattTimeMaps(WattTimeBase):
         url = "{}/v3/maps".format(self.url_base)
         params = {"signal_type": signal_type}
         return self._make_rate_limited_request(url, params)
+
+
+class WattTimeMarginalFuelMix(WattTimeBase):
+
+    def get_fuel_mix_jsons(
+        self,
+        start: Union[str, datetime],
+        end: Union[str, datetime],
+        region: str,
+        signal_type: Optional[Literal["marginal_fuel_mix"]] = "marginal_fuel_mix",
+        model: Optional[Union[str, date]] = None,
+    ) -> List[Dict[str, Any]]:
+        if not self._is_token_valid():
+            self._login()
+        url = f"{self.url_base}/v3/fuel-mix"
+        responses = []
+        params = {
+            "region": region,
+            "signal_type": signal_type,
+        }
+
+        start, end = self._parse_dates(start, end)
+        chunks = self._get_chunks(start, end, chunk_size=timedelta(days=30))
+
+        # No model will default to the most recent model version available
+        if model:
+            params["model"] = model
+
+        param_chunks = [{**params, "start": c[0], "end": c[1]} for c in chunks]
+
+        try:
+            responses = self._fetch_data(url, param_chunks)
+        except RuntimeError as e:
+            if "403 Client Error: Forbidden" in str(e):
+                print(
+                    f"The /v3/fuel-mix endpoint is a beta endpoint that provides *marginal* fuel mix data. This endpoint is not currently available to all users, please reach out to WattTime if you believe accessing marginal fuel mix data could be impactful for your usecase!"
+                )
+                return []
+            raise
+        return responses
+
+    def get_fuel_mix_pandas(
+        self,
+        start: Union[str, datetime],
+        end: Union[str, datetime],
+        region: str,
+        signal_type: Optional[Literal["marginal_fuel_mix"]] = "marginal_fuel_mix",
+        model: Optional[Union[str, date]] = None,
+    ) -> pd.DataFrame:
+        json_list = self.get_fuel_mix_jsons(start, end, region, signal_type, model)
+        out = defaultdict(dict)
+        for json in json_list:
+            for entry in json["data"]:
+                for by_fuel in entry["values"]:
+                    out[by_fuel["fuel_type"]][entry["point_time"]] = by_fuel["value"]
+
+        df = pd.DataFrame.from_dict(out).fillna(0).sort_index()
+        df.index = pd.to_datetime(df.index)
+        df.index.name = "point_time"
+        return df

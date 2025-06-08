@@ -6,6 +6,27 @@ import numpy as np
 import tqdm
 
 
+def plot_predicated_moer(df):
+    df.pred_moer.plot(
+        title = "Predicted MOER",
+        ylabel="co2/lb",
+        xlabel="Time of Day"
+    )
+
+def plot_charging_units(df):
+    df.usage.plot(
+        title = "Scheduled Units of Charge",
+        xlabel="Time of Day",
+        ylabel="Minutes"
+        )
+
+def plot_scheduled_moer(df):
+    df.emissions_co2_lb.plot(
+        title = "MOER - Forecasted Usage",
+        xlabel="Time of Day",
+        ylabel="co2/lb"
+        )
+
 # 4 seconds per row, mostly API call
 def analysis_loop(region, input_dict,username,password):
     oce = OptChargeEvaluator(username=username,password=password)

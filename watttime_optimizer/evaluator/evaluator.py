@@ -5,6 +5,7 @@ from watttime_optimizer.evaluator.utils import convert_to_utc, get_timezone_from
 import numpy as np
 from typing import Optional
 from datetime import timedelta
+import matplotlib.pyplot as plt
 
 class ImpactEvaluator:
     def __init__(self, username:str, password:str, obj: pd.DataFrame, region:Optional[str] = 'CAISO_NORTH'):
@@ -50,7 +51,24 @@ class ImpactEvaluator:
             end=session_end_time,
             region=region,
         )
+    
+    def get_historical_forecast_data(self):
+        """
+        Retrieve historical actual data for a specific plug-in time, horizon, and region.
 
+        Parameters:
+        -----------
+        region : str
+            The region for which to retrieve the actuals data.
+        
+        Returns:
+        --------
+        pd.DataFrame
+            A DataFrame containing historical actuals data.
+        """
+
+        return self.obj["pred_moer"]
+    
     def get_charging_schedule(self):
         """
         Extract and flatten usage values from input data
@@ -113,7 +131,7 @@ class ImpactEvaluator:
         }
     
     def get_all_emissions_values(self,region:str):
-        df = pd.DataFrame(self.get_forecast_emissions(), columns=["forecast"])
+        df = pd.DataFrame(self.get_forecast_emissions()).rename({"emissions_co2_lb":"forecast"},axis=1)
         df["baseline"] = self.get_baseline_emissions(region)
         df["actual"] = self.get_actual_emissions(region)
         return df
@@ -135,6 +153,39 @@ class ImpactEvaluator:
             'stddev':stddev,
             'mean': mean
         }
+
+    def plot_impact(self, region:str):
+        act = self.get_historical_actual_data(region=region).set_index("point_time")
+        df = self.get_all_emissions_values(region=region)
+
+        x = df.index
+        y0 = (df['actual'] > 0).astype(int).values
+        y1 = (df['baseline'] > 0).astype(int).values
+        y2 = act.value.values
+
+        # Create the main plot
+        fig, ax1 = plt.subplots()
+        
+        # Plot the first data set
+        ax1.plot(x, y1, 'b-', alpha=.2, label="ASAP Schedule")
+        ax1.plot(x,y0,'g-',alpha=.2, label="Optimized Schedule")
+        ax1.set_xlabel('Time')
+        ax1.set_ylabel('Usage Fraction (5 minute interval)', color='blue')
+        ax1.tick_params('y', colors='b')
+        ax1.fill_between(x,y0,0, where=y0>0,color='green', alpha=.2)
+        ax1.fill_between(x,y1,0, where=y1>0,color='blue', alpha=.2)
+
+        # Create the second y-axis
+        ax2 = ax1.twinx()
+
+        # Plot the second data set
+        ax2.plot(x, y2, 'r-')
+        ax2.set_ylabel('Actual Historic MOER (co2/lb)', color='r')
+        ax2.tick_params('y', colors='r')
+
+        # Display the plot
+        ax1.legend(loc = "best", bbox_to_anchor=(0.5, 0., 0.5, 0.5))
+        plt.show()
 
 
 class OptChargeEvaluator(WattTimeOptimizer):

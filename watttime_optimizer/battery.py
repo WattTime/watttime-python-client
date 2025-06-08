@@ -62,10 +62,9 @@ class Battery:
                 result.append((int(secs_elapsed / 60 - 5), pd.Series(kW_by_second).mean()))
                 kW_by_second = []
 
-        return pd.DataFrame(columns=["time", "power_kw"], data=result)
-    
+        return pd.DataFrame(columns=["time", "power_kw"], data=result)   
 
-CARS = {
+CARS_L3 = {
     # pulled data from https://www.fastnedcharging.com/en/brands-overview
     # this is a subset of the cars 
     "audi": [ # 71kWh, https://www.fastnedcharging.com/en/brands-overview/audi

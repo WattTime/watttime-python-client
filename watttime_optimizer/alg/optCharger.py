@@ -1,4 +1,5 @@
 # optCharger.py
+import warnings
 import numpy as np
 from .moer import Moer
 
@@ -19,12 +20,13 @@ class OptCharger:
         Initializes the OptCharger object with the given parameters.
     """
 
-    def __init__(self):
+    def __init__(self, verbose):
         """
         Initializes the OptCharger object.
         """
         self.__optimal_charging_emission = None
         self.__optimal_charging_schedule = None
+        self.__verbose = verbose
 
     def __collect_results(self, moer: Moer):
         """
@@ -75,6 +77,10 @@ class OptCharger:
         self.__optimal_charging_emission = (
             self.__optimal_charging_emissions_over_time.sum()
         )
+
+    def verbose_on(self, statement:str):
+        if self.__verbose:
+            print(statement)
 
     @staticmethod
     def __sanitize_emission_multiplier(emission_multiplier_fn, total_charge):
@@ -146,7 +152,7 @@ class OptCharger:
 
         Calls __collect_results to process the results.
         """
-        print("== Baseline fit! ==")
+        self.verbose_on("== Baseline fit! ==")
         schedule = [1] * min(total_charge, total_time) + [0] * max(
             0, total_time - total_charge
         )
@@ -172,7 +178,7 @@ class OptCharger:
 
         Calls __collect_results to process the results.
         """
-        print("== Simple fit! ==")
+        self.verbose_on("== Simple fit! ==")
         sorted_times = np.argsort(moer.get_emission_interval(0, total_time, 1))
 
         charge_to_do = total_charge
@@ -219,7 +225,7 @@ class OptCharger:
         Exception
             If no valid solution is found.
         """
-        print("== Sophisticated fit! ==")
+        self.verbose_on("== Sophisticated fit! ==")
         # This is a matrix with size = number of charge states x number of actions {not charging = 0, charging = 1}
         max_util = np.full((total_charge + 1), np.nan)
         max_util[0] = 0.0
@@ -235,9 +241,7 @@ class OptCharger:
                 )
             else:
                 min_charge, max_charge = 0, total_charge
-            # print("=== Time step", t, "===")
             new_max_util = np.full(max_util.shape, np.nan)
-            # print("min_charge, max_charge =",min_charge,max_charge)
             for c in range(min_charge, max_charge + 1):
                 ## not charging
                 init_val = True
@@ -280,7 +284,7 @@ class OptCharger:
         total_time: int,
         moer: Moer,
         emission_multiplier_fn,
-        charge_per_interval: list = [],
+        charge_per_segment: list = [],
         constraints: dict = {},
     ):
         """
@@ -300,7 +304,7 @@ class OptCharger:
             An object representing Marginal Operating Emissions Rate.
         emission_multiplier_fn : callable
             A function that calculates emission multipliers.
-        charge_per_interval : list of int
+        charge_per_segment : list of int
             The exact charging amount per interval.
         constraints : dict, optional
             A dictionary of charging constraints for specific time steps. Constraints are one-indexed: t:(a,b) means that after t minutes, we have to have charged for between a and b minutes inclusive, so that 1<=t<=total_time
@@ -316,21 +320,20 @@ class OptCharger:
         -----
         This is the __diagonal_fit() algorithm with further constraint on contiguous charging intervals and their respective length
         """
-        print("== Fixed contiguous fit! ==")
-        # print("Charge per interval constraints:", charge_per_interval)
-        total_interval = len(charge_per_interval)
+        self.verbose_on("== Fixed contiguous fit! ==")
+        total_interval = len(charge_per_segment)
         # This is a matrix with size = number of time states x number of intervals charged so far
         max_util = np.full((total_time + 1, total_interval + 1), np.nan)
         max_util[0, 0] = 0.0
         path_history = np.full((total_time, total_interval + 1), False, dtype=bool)
         cum_charge = [0]
-        for c in charge_per_interval:
+        for c in charge_per_segment:
             cum_charge.append(cum_charge[-1] + c)
 
         charge_array_cache = [
             emission_multiplier_fn(x, x + 1) for x in range(0, total_charge + 1)
         ]
-        print("Cumulative charge", cum_charge)
+        # ("Cumulative charge", cum_charge)
         for t in range(1, total_time + 1):
             if t in constraints:
                 min_charge, max_charge = constraints[t]
@@ -351,8 +354,8 @@ class OptCharger:
                     max_util[t, k] = max_util[t - 1, k]
                     init_val = False
                 ## charging
-                if (k > 0) and (charge_per_interval[k - 1] <= t):
-                    dc = charge_per_interval[k - 1]
+                if (k > 0) and (charge_per_segment[k - 1] <= t):
+                    dc = charge_per_segment[k - 1]
                     if not np.isnan(
                         max_util[t - dc, k - 1]
                     ) and OptCharger.__check_constraint(
@@ -386,7 +389,7 @@ class OptCharger:
                 t_curr -= 1
             else:
                 ## charge
-                dc = charge_per_interval[curr_state - 1]
+                dc = charge_per_segment[curr_state - 1]
                 t_curr -= dc
                 curr_state -= 1
                 if dc > 0:
@@ -403,8 +406,8 @@ class OptCharger:
         total_time: int,
         moer: Moer,
         emission_multiplier_fn,
-        charge_per_interval: list = [],
-        use_all_intervals: bool = True,
+        charge_per_segment: list = [],
+        use_all_segments: bool = True,
         constraints: dict = {},
     ):
         """
@@ -424,10 +427,10 @@ class OptCharger:
             An object representing Marginal Operating Emissions Rate.
         emission_multiplier_fn : callable
             A function that calculates emission multipliers.
-        charge_per_interval : list of (int, int)
+        charge_per_segment : list of (int, int)
             The minimium and maximum (inclusive) charging amount per interval.
-        use_all_intervals : bool
-            If true, use all intervals provided by charge_per_interval; if false, can use the first few intervals and skip the rest.
+        use_all_segments : bool
+            If true, use all intervals provided by charge_per_segment; if false, can use the first few intervals and skip the rest.
         constraints : dict, optional
             A dictionary of charging constraints for specific time steps. Constraints are one-indexed: t:(a,b) means that after t minutes, we have to have charged for between a and b minutes inclusive, so that 1<=t<=total_time
 
@@ -442,8 +445,8 @@ class OptCharger:
         -----
         This is the __diagonal_fit() algorithm with further constraint on contiguous charging intervals and their respective length
         """
-        print("== Variable contiguous fit! ==")
-        total_interval = len(charge_per_interval)
+        self.verbose_on("== Variable contiguous fit! ==")
+        total_interval = len(charge_per_segment)
         # This is a matrix with size = number of time states x number of charge states x number of intervals charged so far
         max_util = np.full(
             (total_time + 1, total_charge + 1, total_interval + 1), np.nan
@@ -480,8 +483,8 @@ class OptCharger:
                     ## charging
                     if k > 0:
                         for dc in range(
-                            charge_per_interval[k - 1][0],
-                            min(charge_per_interval[k - 1][1], t, c) + 1,
+                            charge_per_segment[k - 1][0],
+                            min(charge_per_segment[k - 1][1], t, c) + 1,
                         ):
                             if not np.isnan(
                                 max_util[t - dc, c - dc, k - 1]
@@ -502,7 +505,7 @@ class OptCharger:
             total_interval,
             max_util[total_time, total_charge, total_interval],
         )
-        if not use_all_intervals:
+        if not use_all_segments:
             for k in range(0, total_interval):
                 if np.isnan(max_util[total_time, total_charge, optimal_interval]) or (
                     not np.isnan(max_util[total_time, total_charge, k])
@@ -544,8 +547,8 @@ class OptCharger:
         total_charge: int,
         total_time: int,
         moer: Moer,
-        charge_per_interval=None,
-        use_all_intervals: bool = True,
+        charge_per_segment=None,
+        use_all_segments: bool = True,
         constraints: dict = {},
         emission_multiplier_fn=None,
         optimization_method: str = "auto",
@@ -565,10 +568,10 @@ class OptCharger:
             The total time available for charging.
         moer : Moer
             An object representing Marginal Operating Emissions Rate.
-        charge_per_interval : list of int or (int,int), optional
+        charge_per_segment : list of int or (int,int), optional
             The minimium and maximum (inclusive) charging amount per interval. If int instead of tuple, interpret as both min and max.
-        use_all_intervals : bool
-            If true, use all intervals provided by charge_per_interval; if false, can use the first few intervals and skip the rest. This can only be false if charge_per_interval is provided as a range.
+        use_all_segments : bool
+            If true, use all intervals provided by charge_per_segment; if false, can use the first few intervals and skip the rest. This can only be false if charge_per_segment is provided as a range.
         constraints : dict, optional
             A dictionary of charging constraints for specific time steps.
         emission_multiplier_fn : callable, optional
@@ -592,7 +595,7 @@ class OptCharger:
         assert optimization_method in ["baseline", "simple", "sophisticated", "auto"]
 
         if emission_multiplier_fn is None:
-            print(
+            warnings.warn(
                 "Warning: No emission_multiplier_fn given. Assuming that device uses constant 1kW of power"
             )
             emission_multiplier_fn = lambda sc, ec: 1.0
@@ -617,16 +620,16 @@ class OptCharger:
             self.__greedy_fit(total_charge, total_time, moer)
         elif (
             not constraints
-            and not charge_per_interval
+            and not charge_per_segment
             and constant_emission_multiplier
             and optimization_method == "auto"
         ) or (optimization_method == "simple"):
             if not constant_emission_multiplier:
-                print(
+                warnings.warn(
                     "Warning: Emissions function is non-constant. Using the simple algorithm is suboptimal."
                 )
             self.__simple_fit(total_charge, total_time, moer)
-        elif not charge_per_interval:
+        elif not charge_per_segment:
             self.__diagonal_fit(
                 total_charge,
                 total_time,
@@ -648,7 +651,7 @@ class OptCharger:
                     return c[0], c, True
                 return None, c, False
 
-            for c in charge_per_interval:
+            for c in charge_per_segment:
                 if use_fixed_alg:
                     sc, tc, use_fixed_alg = convert_input(c)
                     single_cpi.append(sc)
@@ -657,7 +660,7 @@ class OptCharger:
                     tuple_cpi.append(convert_input(c)[1])
             if use_fixed_alg:
                 assert (
-                    use_all_intervals
+                    use_all_segments
                 ), "Must use all intervals when interval lengths are fixed!"
                 self.__contiguous_fit(
                     total_charge,
@@ -678,7 +681,7 @@ class OptCharger:
                         emission_multiplier_fn, total_charge
                     ),
                     tuple_cpi,
-                    use_all_intervals,
+                    use_all_segments,
                     constraints,
                 )
 
@@ -711,7 +714,7 @@ class OptCharger:
         Returns list of the interval ids for each interval. Has a value of -1 for non-charging intervals.
         Intervals are labeled starting from 0 to n-1 when there are n intervals
 
-        Only defined when charge_per_interval variable is given to some fit function
+        Only defined when charge_per_segment variable is given to some fit function
         """
         return self.__interval_ids
 

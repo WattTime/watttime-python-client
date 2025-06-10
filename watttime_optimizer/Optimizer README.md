@@ -30,8 +30,8 @@ Click any of the thumbnails below to see the notebook that generated it.
 1. Naive Smart device charging: needs 30 minutes to reach full charge, expected plug out time within the next 4 hours. Simple use case.
 2. Requery: update usage plan every 20 minutes using new forecast for the next 4 hours. Simple use case with recalculation
 3. Partial charging guarantee: charge 75% by 8am. User constraint
-4. Data center workloads:  estimated runtime is 2 hours and it needs to complete by 12pm Contiguous (single period, fixed length)
-5. Dishwasher: needs to run over two usage intervals of lengths 80 min and 40 min. They must complete in that order. Contiguous (multiple periods, fixed length)
+4. Data center workloads 1:  estimated runtime is 2 hours and it needs to complete by 12pm Contiguous (single period, fixed length)
+5. Data center workload 2: needs to run over two usage intervals of lengths 80 min and 40 min. They must complete in that order. Contiguous (multiple periods, fixed length)
 6. Compressor: needs to run 120 minutes over the next 12 hours; each cycle needs to be at least 20 minutes long, and any number of contiguous intervals (from one to six) is okay. Contiguous (multiple periods, variable length)
 
 **Naive Smart Device Charging [EV or pluggable battery-powered device]**

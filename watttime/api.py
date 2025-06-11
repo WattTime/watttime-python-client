@@ -479,12 +479,13 @@ class WattTimeForecast(WattTimeBase):
         Returns:
             pd.DataFrame: A pandas DataFrame containing the parsed historical forecast data.
         """
-        out = pd.DataFrame()
+        out = [pd.DataFrame()]
         for json in json_list:
             for entry in json.get("data", []):
                 _df = pd.json_normalize(entry, record_path=["forecast"])
                 _df = _df.assign(generated_at=pd.to_datetime(entry["generated_at"]))
-                out = pd.concat([out, _df], ignore_index=True)
+                out += _df
+        out = pd.concat([out, _df], ignore_index=True)
         return out
 
     def get_forecast_json(

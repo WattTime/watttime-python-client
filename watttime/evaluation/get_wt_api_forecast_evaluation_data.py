@@ -21,13 +21,13 @@ from watttime import api
 class AnalysisDataHandler:
     """
     This dataclass performs ETL on WattTime signals including
-    co2_moer, co2_health_damages, curtailment, and more. Data is also loaded
+    co2_moer, co2_health_damages and more. Data is also loaded
     for forecasts of these underlying signals.
 
     Args:
         region (str): A single BA abbreviation
         model_date (str | None): A string representing a released model, if None, will default to latest provided through API
-        signal_type (str): Such as `co2_moer`, `co2_aoer`, `co2_health_damages`, or `curtailment`
+        signal_type (str): Such as `co2_moer`, `co2_aoer`, `co2_health_damages`
         eval_start (str or datetime): The starting point of the analysis to begin pulling signal data.
         eval_end (str or datetime): The ending point of the analysis to stop pulling signal data.
         forecast_sample_size (float or int): A float will represent a sample of days

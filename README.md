@@ -144,3 +144,7 @@ wt.region_from_loc(
 # get shape files for all regions of a signal type
 wt.get_maps_json('co2_moer')
 ```
+
+# Optimizer Package
+
+Insert link to Optimizer README.md and add a brief description of functionality

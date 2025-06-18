@@ -36,7 +36,7 @@ def analysis_loop(region, input_dict,username,password):
         df = oce.get_schedule_and_cost_api(**value)
         m, b = np.polyfit(np.arange(len(df.pred_moer.values)),df.pred_moer.values, 1)
         stddev = df.pred_moer.std()
-        r = ImpactEvaluator(username,password,df).get_all_emissions_values(region=region)
+        r = ImpactEvaluator(username,password,df).get_all_emissions_metrics(region=region)
         r.update({'m':m,'b':b,'stddev':stddev})
         results.update({key:r})
     return results
@@ -57,7 +57,7 @@ def analysis_loop_requery(region, input_dict, interval,username,password):
         df = roce.fit_recalculator(**value).get_combined_schedule()
         m, b = np.polyfit(np.arange(len(df.pred_moer.values)),df.pred_moer.values, 1)
         stddev = df.pred_moer.std()
-        r = ImpactEvaluator(username,password,df).get_all_emissions_values(region=region)
+        r = ImpactEvaluator(username,password,df).get_all_emissions_metrics(region=region)
         r.update({'m':m,'b':b,'stddev':stddev})
         results.update({key:r})
     return results

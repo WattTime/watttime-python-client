@@ -64,6 +64,7 @@ class Battery:
 
         return pd.DataFrame(columns=["time", "power_kw"], data=result)   
 
+
 CARS_L3 = {
     # pulled data from https://www.fastnedcharging.com/en/brands-overview
     # this is a subset of the cars 

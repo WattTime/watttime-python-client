@@ -67,23 +67,21 @@ def analysis_loop_requery_contiguous(region, input_dict, interval,username,passw
     roce = RecalculationOptChargeEvaluator(username,password)
     results = {}
     for key,value in tqdm.tqdm(input_dict.items()):
-        try:
-            value.update(
-                {'region':region,
-                'tz_convert':True,
-                "optimization_method": "auto", 
-                "verbose":False,
-                "interval":interval,
-                "contiguous":True
-                }
-                )
-            df = roce.fit_recalculator(**value).get_combined_schedule()
-            m, b = np.polyfit(np.arange(len(df.pred_moer.values)),df.pred_moer.values, 1)
-            stddev = df.pred_moer.std()
-            r = ImpactEvaluator(username,password,df).get_all_emissions_values(region=region)
-            r.update({'m':m,'b':b,'stddev':stddev})
-            results.update({key:r})
-        except:
-            print('error')
-            pass
+        charge_per_segment = [int(value["time_needed"])]
+        value.update(
+            {'region':region,
+            'tz_convert':True,
+            "optimization_method": "auto", 
+            "verbose":False,
+            "interval":interval,
+            "contiguous":True,
+            "charge_per_segment":charge_per_segment
+            }
+            )
+        df = roce.fit_recalculator(**value).get_combined_schedule()
+        m, b = np.polyfit(np.arange(len(df.pred_moer.values)),df.pred_moer.values, 1)
+        stddev = df.pred_moer.std()
+        r = ImpactEvaluator(username,password,df).get_all_emissions_metrics(region=region)
+        r.update({'m':m,'b':b,'stddev':stddev})
+        results.update({key:r})
     return results

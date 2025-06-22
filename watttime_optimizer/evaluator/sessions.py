@@ -163,10 +163,10 @@ class SessionsGenerator:
             lambda _: random.uniform(self.minimum_battery_starting_capacity, 0.8), axis=1
         )
         user_df["time_needed"] = user_df["initial_charge"].apply(
-            lambda x: total_capacity
+            lambda x: int(total_capacity
             * (self.max_percent_capacity - x)
             / power_output_max_rate
-            * 60
+            * 60)
         )
 
         # What time will the battery reach max capacity

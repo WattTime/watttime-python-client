@@ -1,17 +1,17 @@
 # About the Optimizer Module Project
 
-WattTime provides electricity grid-related data globally, data users to employ real-time, evidence-based emissions reduction strategies. These data, served programmatically via API, support technology-backed strategies that minimize carbon emissions and human health impacts. In particular, the Marginal Operating Emissions Rate (MOER) can be used to make decisions to avoid emissions via time- or place-based optimizations, and to calculate the reductions achieved by project-level interventions in accordance with GHG Protocol Scope 4.
+WattTime data users use WattTime electricity grid-related data for real-time, evidence-based emissions reduction strategies. These data, served programmatically via API, support automation strategies that minimize carbon emissions and human health impacts. In particular, the Marginal Operating Emissions Rate (MOER) can be used to avoid emissions via time- or place-based optimizations, and to calculate the reductions achieved by project-level interventions in accordance with GHG Protocol Scope 4.
 
-The MOER data signal represents the emissions rate of the electricity generator(s) that dispatch energy in direct response to changes in load on the grid. Energy generation sources meet different energy demands throughout the day, and the WattTime forecast anticipates the order in which the generators dispatch energy based on anticipated changes in demand. 
+Energy generation sources meet different energy demands throughout the day, and the WattTime forecast anticipates the order in which the generators dispatch energy based on anticipated changes in demand. So, the MOER data signal represents the emissions rate of the electricity generator(s) that dispatch energy in direct response to changes in load on the grid.
 
 # Using the Optimizer Class
 
-`WattTimeOptimizer` produces a power usage schedule that minimizes carbon emissions subject to user and device constraints.
+`WattTimeOptimizer` produces a proposed power usage schedule that minimizes carbon emissions subject to user and device constraints.
 
 The `WattTimeOptimizer` class requires 4 things:
 
 - Watttime’s forecast of marginal emissions (MOER)
-- device capacity and energy needs 
+- device capacity and energy needs
 - region
 - window start
 - window end
@@ -27,7 +27,7 @@ The `WattTimeOptimizer` class requires 4 things:
 
 Click any of the thumbnails below to see the notebook that generated it.
 
-1. Naive Smart device charging: needs 30 minutes to reach full charge, expected plug out time within the next 4 hours. Simple use case.
+1.![Naive Smart device charging](https://github.com/jbadsdata/watttime-python-client/edit/optimizer/watttime_optimizer/Optimizer%20README.md#:~:text=ev.-,ipynb,-ev_variable_charge.ipynb))]: needs 30 minutes to reach full charge, expected plug out time within the next 4 hours. Simple use case.
 2. Requery: update usage plan every 20 minutes using new forecast for the next 4 hours. Simple use case with recalculation
 3. Partial charging guarantee: charge 75% by 8am. User constraint
 4. Data center workloads 1:  estimated runtime is 2 hours and it needs to complete by 12pm Contiguous (single period, fixed length)

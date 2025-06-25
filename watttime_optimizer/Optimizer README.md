@@ -1,4 +1,4 @@
-# About the Optimizer Module Project
+# About the Optimizer Module
 
 WattTime data users use WattTime electricity grid-related data for real-time, evidence-based emissions reduction strategies. These data, served programmatically via API, support automation strategies that minimize carbon emissions and human health impacts. In particular, the Marginal Operating Emissions Rate (MOER) can be used to avoid emissions via time- or place-based optimizations, and to calculate the reductions achieved by project-level interventions in accordance with GHG Protocol Scope 4.
 
@@ -16,6 +16,27 @@ The `WattTimeOptimizer` class requires 4 things:
 - window start
 - window end
 
+# Synthetic Data Module
+- To simulate the optimizer's potential impact, we tested it on synthetic user data, an incredibly useful approach when device-level data is not yet available or too sensitive to share.
+- Working with synthetic data, we can replicate device scope 2 emissions avoidance potential with and without an automated marginal emissions reduction solution.
+
+The `SessionsGenerator` class creates a unique synthetic dataset by drawing from distributions generated based on these inital inputs:
+
+  - Maximum power output rate: power rating of equipment
+  - Maximum percent capacity: highest level of charge achieved by battery
+  - Power output efficiency: power loss
+  - Minimum batter starting capacity: lowest starting percent charged
+  - Minimum usage window start time: session can start as early as 8am
+  - Maximum usage window start time: session can start as late as 9pm
+
+Here is an example of how to generate synthetic data and test optimization strategies on historic observations. [synthetic data notebook](https://github.com/jbadsdata/watttime-python-client/edit/optimizer/watttime_optimizer/Optimizer%20README.md#:~:text=ev_variable_charge.ipynb-,synthetic_data,-.ipynb)
+
+![Example Image](https://github.com/jbadsdata/watttime-python-client/blob/optimizer/watttime_optimizer/notebooks/evaluation_plot.png)
+
+
+## Optimization Strategies, Example Code, Notebooks
+
+### Model Parameters
 | optimization\_method | ASAP | Charging curve | Time constraint | Contiguous |
 | :---- | :---- | :---- | :---- | :---- |
 | auto | No | Chooses the fastest algorithm that can still process all inputs |  |  |
@@ -25,16 +46,11 @@ The `WattTimeOptimizer` class requires 4 things:
 | contiguous | No | Variable | Yes | Segments at fixed lengths |
 | Variable contiguous | No | Variable | Yes | Segments at variable lengths |
 
-Click any of the thumbnails below to see the notebook that generated it.
+**1. Naive Smart Device Charging [EV L2 or pluggable battery-powered device]**
 
-1.![Naive Smart device charging](https://github.com/jbadsdata/watttime-python-client/edit/optimizer/watttime_optimizer/Optimizer%20README.md#:~:text=ev.-,ipynb,-ev_variable_charge.ipynb))]: needs 30 minutes to reach full charge, expected plug out time within the next 4 hours. Simple use case.
-2. Requery: update usage plan every 20 minutes using new forecast for the next 4 hours. Simple use case with recalculation
-3. Partial charging guarantee: charge 75% by 8am. User constraint
-4. Data center workloads 1:  estimated runtime is 2 hours and it needs to complete by 12pm Contiguous (single period, fixed length)
-5. Data center workload 2: needs to run over two usage intervals of lengths 80 min and 40 min. They must complete in that order. Contiguous (multiple periods, fixed length)
-6. Compressor: needs to run 120 minutes over the next 12 hours; each cycle needs to be at least 20 minutes long, and any number of contiguous intervals (from one to six) is okay. Contiguous (multiple periods, variable length)
+[Naive Smart device notebook example](https://github.com/jbadsdata/watttime-python-client/edit/optimizer/watttime_optimizer/Optimizer%20README.md#:~:text=ev.-,ipynb,-ev_variable_charge.ipynb)
 
-**Naive Smart Device Charging [EV or pluggable battery-powered device]**
+L2 charging needs 30 minutes total time to reach full charge, expected plug out time within the next 4 hours. Simple use case.
 
 ```py
 from datetime import datetime, timedelta
@@ -66,7 +82,7 @@ print(usage_plan["usage"].tolist())
 print(usage_plan.sum())
 ```
 
-**Partial Charging Guarantee - Introducing Constraints**
+**2.Partial Charging Guarantee - Introducing Constraints**
   * Sophisticated - total charge window 12 hours long, 75% charged by hour 8.
 
 ```py
@@ -110,9 +126,13 @@ print(usage_plan["usage"].tolist())
 print(usage_plan.sum())
 ```
 
-**Variable Charging Curve - EV**
-I know the model of my vehicle and want to match device characteristics. If we have a 10 kWh battery which initially charges at 20kW, the charge rate then linearly decreases to 10kW as the battery is 50%
-charged, and then remains at 10kW for the rest of the charging. This is the charging curve.
+**3.Variable Charging Curve (L3) - EV**
+
+[Example usage notebook](https://github.com/jbadsdata/watttime-python-client/edit/optimizer/watttime_optimizer/Optimizer%20README.md#:~:text=ev.ipynb-,ev_variable_charge,-.ipynb)
+
+[Battery class](https://github.com/jbadsdata/watttime-python-client/edit/optimizer/watttime_optimizer/Optimizer%20README.md#:~:text=battery-,.,-py)
+
+I know the model of my vehicle and want to match device characteristics. If we have a 10 kWh battery which initially charges at 20kW, the charge rate then linearly decreases to 10kW as the battery is 50% charged, and then remains at 10kW for the rest of the charging. This is the charging curve.
 
 ```py
 from datetime import datetime, timedelta
@@ -159,8 +179,10 @@ print(usage_plan["usage"].tolist())
 print(usage_plan.sum())
 ```
 
-* **Data Center Workload 1**:  
+* **4.Data Center Workload 1**:  
   * (single segment, fixed length) - charging schedule to be composed of a single contiguous, i.e. "block" segment of fixed length
+ 
+[example notebook](https://github.com/jbadsdata/watttime-python-client/edit/optimizer/watttime_optimizer/Optimizer%20README.md#:~:text=datacenter_workloads)
 		
 ```py
 ## AI model training - estimated runtime is 2 hours and it needs to complete within 12 hours
@@ -199,7 +221,7 @@ print(usage_plan["usage"].tolist())
 print(usage_plan.sum())
 ```
 
-**Data Center Workload 2**: 
+**5.Data Center Workload 2**: 
   * (multiple segments, fixed length) - runs over two usage periods of lengths 80 min and 40 min. The order of the segments is immutable.
 
 ```py

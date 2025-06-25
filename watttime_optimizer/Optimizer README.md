@@ -4,6 +4,8 @@ WattTime data users use WattTime electricity grid-related data for real-time, ev
 
 Energy generation sources meet different energy demands throughout the day, and the WattTime forecast anticipates the order in which the generators dispatch energy based on anticipated changes in demand. So, the MOER data signal represents the emissions rate of the electricity generator(s) that dispatch energy in direct response to changes in load on the grid.
 
+![CO2 Avoided](https://github.com/jbadsdata/watttime-python-client/blob/optimizer/watttime_optimizer/notebooks/cumulative_avoided_emissions.png)
+
 # Using the Optimizer Class
 
 `WattTimeOptimizer` produces a proposed power usage schedule that minimizes carbon emissions subject to user and device constraints.

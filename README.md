@@ -147,4 +147,12 @@ wt.get_maps_json('co2_moer')
 
 # Optimizer Package
 
-Insert link to Optimizer README.md and add a brief description of functionality
+[Optimizer Read Me](https://github.com/jbadsdata/watttime-python-client/blob/5780c09e1a7aaae0bc9746cd0004c64c263ead1f/watttime_optimizer/Optimizer%20README.md)
+
+WattTime data users use WattTime electricity grid-related data for real-time, evidence-based emissions reduction strategies.
+
+The `WattTimeOptimizer` is an experimental feature  designed to support the rapid development of automated emissions reduction (“AER”) software applications. It produces a proposed power usage schedule that minimizes carbon emissions subject to user and device constraints.
+
+The feature has four basic requirements: Watttime’s forecast of marginal emissions (MOER) for a particular region, device capacity and energy needs, project usage window start time and projected window end time. The underlying algorithms are simple enough to serve as a base for set of predefined use cases, outlined in the Optimizer Read Me, and mature enough to extend to encompass the requirements of more complex machinery.
+
+

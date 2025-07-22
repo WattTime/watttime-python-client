@@ -41,7 +41,7 @@ Here is an example of how to generate synthetic data and test optimization strat
 ### Model Parameters
 | optimization\_method | ASAP | Charging curve | Time constraint | Contiguous |
 | :---- | :---- | :---- | :---- | :---- |
-| auto | No | Chooses the fastest algorithm that can still process all inputs |  |  |
+| auto | No | auto | No | Chooses appropriate algorithm based on input complexity: simple for basic cases, sophisticated for constraints/variable power, contiguous for segmented charging |  |  |
 | baseline | Yes | Constant | No | No |
 | simple | No | Constant | No | No |
 | sophisticated | No | Variable | Yes | No |

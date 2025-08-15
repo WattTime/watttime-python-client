@@ -8,6 +8,7 @@ from operator import attrgetter
 from pathlib import Path
 from typing import List, Optional, Union, Literal, Dict, Tuple
 from zoneinfo import ZoneInfo
+import inspect
 
 import numpy as np
 import pandas as pd
@@ -114,7 +115,8 @@ def plot_sample_moers(
 
     figs = {}
     times = get_random_overlapping_period(
-        [j.moers for j in factory.data_handlers], max_sample_period
+        [j.moers for j in factory.data_handlers], max_sample_period,
+        first_week_of_month_only=True
     )
     for region_abbrev, region_models in factory.data_handlers_by_region_dict.items():
 
@@ -703,7 +705,8 @@ def plot_sample_fuelmix(
 
     figs = {}
     times = get_random_overlapping_period(
-        [j.fuel_mix for j in factory.data_handlers], max_sample_period
+        [j.fuel_mix for j in factory.data_handlers], max_sample_period,
+        first_week_of_month_only=True
     )
     for region_abbrev, region_models in factory.data_handlers_by_region_dict.items():
 
@@ -1077,7 +1080,7 @@ def plot_bland_altman(
             delta=merged_moers.max(axis="columns") - merged_moers.min(axis="columns"),
             mean=merged_moers.mean(axis="columns"),
         )
-        merged_moers = merged_moers.sample(n_samples)
+        merged_moers = merged_moers.sample(min(n_samples, len(merged_moers)))
 
         fig = go.Figure()
 
@@ -1200,6 +1203,12 @@ def parse_report_command_line_args(sys_args):
         choices=["signal", "fuel_mix", "forecast"],
         help="Steps to run. Default is ['signal', 'fuel_mix', 'forecast'].",
     )
+    
+    parser.add_argument(
+        "-fw", "--first_week_of_month_only",
+        action="store_true",
+        help="If set, only sample the first week of each month for fuel mix plots."
+    )
 
     args = parser.parse_args(sys_args)
 
@@ -1236,6 +1245,7 @@ def generate_report(
         "signal",
         "forecast",
     ],  # no fuel_mix by default
+    first_week_of_month_only: bool = False,
 ):
     
     if isinstance(region_list, str):
@@ -1269,10 +1279,16 @@ def generate_report(
         signal_types=signal_type,
     )
 
+    kwargs = {
+        "first_week_of_month_only": first_week_of_month_only,
+    }
+    
     plotly_html = {}
     for step in steps:
         for plot_func in PLOTS[step]:
-            _plot = plot_func(factory)
+            _func_params = inspect.signature(plot_func).parameters
+            _kwargs = {k: v for k, v in kwargs.items() if k in _func_params}
+            _plot = plot_func(factory, **_kwargs)
 
             if _plot is None:
                 continue
@@ -1331,4 +1347,5 @@ if __name__ == "__main__":
         eval_end=cli_args.end,
         output_dir=Path(cli_args.output_dir),
         steps=cli_args.steps,
+        first_week_of_month_only=cli_args.first_week_of_month_only,
     )

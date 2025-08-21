@@ -49,7 +49,9 @@ def round_time(dt: datetime, minutes: int = 5) -> datetime:
     return dt.replace(minute=(dt.minute // minutes) * minutes, second=0, microsecond=0)
 
 
-def get_random_overlapping_period(dfs, max_period="365D", resample_freq="1H", first_week_of_month_only=False):
+def get_random_overlapping_period(
+    dfs, max_period="365D", resample_freq="1h", first_week_of_month_only=False
+):
     """
     Find a random overlapping time period between multiple DataFrames' datetime indices,
     maximizing the period up to `max_period`.
@@ -85,18 +87,23 @@ def get_random_overlapping_period(dfs, max_period="365D", resample_freq="1H", fi
         overlap_range = pd.date_range(
             start=start_overlap, end=start_overlap + max_timedelta, freq=resample_freq
         )
-    
+
     # Filter to only include the first full week (Monday-Sunday) of each month if specified
     if first_week_of_month_only:
-        overlap_df = pd.DataFrame({'date': overlap_range})
-        overlap_df['year_month'] = overlap_df['date'].dt.to_period('M')
-        overlap_df['weekday'] = overlap_df['date'].dt.weekday
-        
-        first_monday = overlap_df.groupby('year_month')['date'].transform(lambda x: x[x.dt.weekday == 0].min())
+        overlap_df = pd.DataFrame({"date": overlap_range})
+        overlap_df["year_month"] = overlap_df["date"].dt.to_period("M")
+        overlap_df["weekday"] = overlap_df["date"].dt.weekday
+
+        first_monday = overlap_df.groupby("year_month")["date"].transform(
+            lambda x: x[x.dt.weekday == 0].min()
+        )
         first_sunday = first_monday + pd.Timedelta(days=6)
-        
-        overlap_range = overlap_df.loc[(overlap_df['date'] >= first_monday) & (overlap_df['date'] <= first_sunday), 'date']
-    
+
+        overlap_range = overlap_df.loc[
+            (overlap_df["date"] >= first_monday) & (overlap_df["date"] <= first_sunday),
+            "date",
+        ]
+
     return overlap_range
 
 
@@ -115,8 +122,9 @@ def plot_sample_moers(
 
     figs = {}
     times = get_random_overlapping_period(
-        [j.moers for j in factory.data_handlers], max_sample_period,
-        first_week_of_month_only=True
+        [j.moers for j in factory.data_handlers],
+        max_sample_period,
+        first_week_of_month_only=True,
     )
     for region_abbrev, region_models in factory.data_handlers_by_region_dict.items():
 
@@ -134,7 +142,7 @@ def plot_sample_moers(
                     name=model_job.model_date,
                     line=dict(width=2),
                     showlegend=True,
-                    connectgaps=False
+                    connectgaps=False,
                 )
             )
 
@@ -324,17 +332,18 @@ def simulate_charge(df: pd.DataFrame, sort_col: str, charge_mins: int):
         if include_generated_at:
             charge_periods = []
             _charge_needed = charge_needed
-            for g in w_df.groupby("generated_at"):
-                generated_at, g_df = g
+            generated_at_groups = list(w_df.groupby("generated_at"))
+            total_groups = len(generated_at_groups)
 
-                # how many forecasted points are below the current value?
+            for processed_count, (generated_at, g_df) in enumerate(generated_at_groups):
                 n_below_now = (g_df[sort_col] <= g_df.iloc[0][sort_col]).sum()
-                should_charge_now = n_below_now <= _charge_needed
+                remaining_generated_at = total_groups - processed_count
+                should_charge_now = (n_below_now <= _charge_needed) or (
+                    remaining_generated_at <= _charge_needed
+                )
 
                 if should_charge_now:
-                    charge_periods.append(
-                        (generated_at, generated_at)
-                    )  # point_time and generated_at must be equal
+                    charge_periods.append((generated_at, generated_at))
                     _charge_needed -= 1
 
                 if _charge_needed == 0:
@@ -348,10 +357,11 @@ def simulate_charge(df: pd.DataFrame, sort_col: str, charge_mins: int):
 
     assert (
         df["charge_status"].sum() <= (len(df["window_start"].unique())) * charge_needed
-    )
+    ), "Charge status is too high, check the logic for simulate_charge"
     assert df["charge_status"].sum() >= (
         len(df["window_start"].unique()) * 0.97 * charge_needed
-    )
+    ), "Charge status is too low, check the logic for simulate_charge"
+    
     return df["charge_status"]
 
 
@@ -473,7 +483,7 @@ def calc_rank_compare_metrics(
 
 
 def plot_norm_mae(
-    factory: DataHandlerFactory, horizons_hr=[1, 6, 12, 18, 24]
+    factory: DataHandlerFactory, horizons_hr=[1, 6, 12, 18, 24, 72]
 ) -> Dict[str, go.Figure]:
     """
     Create a Plotly bar chart for rank correlation by horizon with one subplot per region (abbrev).
@@ -525,7 +535,7 @@ def plot_norm_mae(
 
 
 def plot_rank_corr(
-    factory: DataHandlerFactory, horizons_hr=[1, 6, 12, 18, 24]
+    factory: DataHandlerFactory, horizons_hr=[1, 6, 12, 18, 24, 72]
 ) -> Dict[str, go.Figure]:
     """
     Create a Plotly line plot for rank correlation by horizon with one subplot per region (abbrev).
@@ -705,8 +715,9 @@ def plot_sample_fuelmix(
 
     figs = {}
     times = get_random_overlapping_period(
-        [j.fuel_mix for j in factory.data_handlers], max_sample_period,
-        first_week_of_month_only=True
+        [j.fuel_mix for j in factory.data_handlers],
+        max_sample_period,
+        first_week_of_month_only=True,
     )
     for region_abbrev, region_models in factory.data_handlers_by_region_dict.items():
 
@@ -737,7 +748,7 @@ def plot_sample_fuelmix(
                         mode="none",  # Hide lines to emphasize the filled area
                         name=fuel,
                         fillcolor=fuel_cp[fuel],
-                        connectgaps=False
+                        connectgaps=False,
                     ),
                     row=model_ix,
                     col=1,
@@ -773,89 +784,91 @@ def calc_max_potential(
     truth_col="signal_value",
     load_kw=1000,
 ):
-    """Predict the maximum potential CO2 Savings, without any forecast to estimate the upper limit of impact from a given signal value."""
-
+    """Predict the maximum potential CO2 Savings, without any forecast to estimate the upper limit of impact from a given signal value.
+    This version is resilient to partial windows (e.g. where the data does not fully cover the expected number of 5-min intervals).
+    """
     df = in_df.copy()
 
+    needed_rows = charge_mins // 5
+    load_factor = load_kw / 1000
+
     if window_starts:
-        # Extract unique dates and create window ranges
-        unique_dates = set(df.index.date)
+        unique_dates = df.index.get_level_values("point_time").normalize().unique()
         window_ranges = []
+        window_ranges_extend = window_ranges.extend
+
         for date in unique_dates:
-            for start_time in window_starts:
-                start = pd.Timestamp(f"{date} {start_time}")
-                end = start + pd.Timedelta(minutes=window_mins)
-                window_ranges.append((start, end))
+            window_ranges_extend(
+                [
+                    (
+                        pd.Timestamp.combine(
+                            date.date(), pd.to_datetime(start_time).time()
+                        ),
+                        pd.Timestamp.combine(
+                            date.date(), pd.to_datetime(start_time).time()
+                        )
+                        + pd.Timedelta(minutes=window_mins),
+                    )
+                    for start_time in window_starts
+                ]
+            )
 
-        # Convert to DataFrame
         window_df = pd.DataFrame(window_ranges, columns=["window_start", "window_end"])
-        window_df = window_df.sort_values("window_start")
+        window_df.sort_values("window_start", inplace=True)
+
         tz = df.index.get_level_values("point_time")[0].tz
-        window_df = window_df.assign(
-            window_start=pd.to_datetime(
-                window_df["window_start"], errors="coerce"
-            ).dt.tz_localize(tz),
-            window_end=pd.to_datetime(
-                window_df["window_end"], errors="coerce"
-            ).dt.tz_localize(tz),
-        )
-        window_df = window_df.dropna(subset=["window_start"])
+        if tz:
+            window_df["window_start"] = window_df["window_start"].dt.tz_localize(tz)
+            window_df["window_end"] = window_df["window_end"].dt.tz_localize(tz)
 
-        # Ensure df is sorted by "point_time" before merging
-        df = df.sort_index(level="point_time")
-
-        # Use merge_asof to efficiently assign windows
+        df_reset = df.reset_index().sort_values("point_time")
         df = pd.merge_asof(
-            df.reset_index().sort_values("point_time"),
+            df_reset,
             window_df,
             left_on="point_time",
             right_on="window_start",
             direction="backward",
         ).set_index(df.index.names)
-
     else:
-        # Assign each row to a rolling window of `window_mins` based on `generated_at`
-        df["window_start"] = df.index.get_level_values("point_time").floor(
-            f"{window_mins}min", ambiguous=False
+        # local -> utc -> floor to nearest window -> local to avoid dst issues
+        point_times = df.index.get_level_values("point_time")
+        df["window_start"] = (
+            point_times.tz_convert("UTC")
+            .floor(f"{window_mins}min")
+            .tz_convert(point_times.tz)  # <-- use .tz, not .dt.tz
         )
-        df["window_end"] = df["window_start"] + pd.Timedelta(f"{window_mins} min")
+        df["window_end"] = df["window_start"] + pd.Timedelta(minutes=window_mins)
 
-    # Filter out rows that do not fall within the valid window
+    # Combined filtering operations
     df = df.dropna(subset=["window_start"])
-    df = df.loc[
-        (df.index.get_level_values("point_time") < df["window_end"])
-        & (df.index.get_level_values("point_time") >= df["window_start"])
-    ]
+    point_times = df.index.get_level_values("point_time")
+    time_mask = (point_times >= df["window_start"]) & (point_times < df["window_end"])
+    df = df.loc[time_mask]
 
-    df = df.assign(charge_status=simulate_charge(df, truth_col, charge_mins))
-    df = df.assign(
-        charge_emissions=df[truth_col] * df["charge_status"] * (load_kw / 1000)
-    )
+    window_counts = df.groupby("window_start")[truth_col].transform("count")
+    df = df[window_counts >= needed_rows]
 
-    # baseline: immediate charging rather than AER
-    df = df.assign(sequential_rank=df.groupby("window_start").cumcount())
-    df = df.assign(baseline_charge_status=df["sequential_rank"] < charge_mins // 5)
-    df = df.assign(
-        baseline_charge_emissions=df[truth_col]
-        * df["baseline_charge_status"]
-        * (load_kw / 1000)
-    )
+    if df.empty:
+        return {"potential": 0.0}
+
+    df["charge_status"] = simulate_charge(df, truth_col, charge_mins)
+
+    truth_values = df[truth_col]
+    charge_emissions = truth_values * df["charge_status"] * load_factor
+
+    df["sequential_rank"] = df.groupby("window_start").cumcount()
+    baseline_charge_status = df["sequential_rank"] < needed_rows
+    baseline_charge_emissions = truth_values * baseline_charge_status * load_factor
+
+    y_best_total = charge_emissions.sum()
+    y_baseline_total = baseline_charge_emissions.sum()
 
     assert (
-        df["baseline_charge_status"].sum()
-        >= (len(df["window_start"].unique()) - 1) * charge_mins // 5
-    )
-    assert (
-        df["baseline_charge_status"].sum()
-        <= (len(df["window_start"].unique())) * charge_mins // 5
-    )
+        y_best_total <= y_baseline_total
+    ), f"Best case ({y_best_total}) should not be worse than baseline ({y_baseline_total})"
 
-    y_best_total = df["charge_emissions"].sum()
-    y_baseline_total = df["baseline_charge_emissions"].sum()
-
-    assert y_best_total <= y_baseline_total
-
-    potential = (y_baseline_total - y_best_total) / len(set(df.index.date))
+    num_unique_dates = df.index.get_level_values("point_time").normalize().nunique()
+    potential = (y_baseline_total - y_best_total) / num_unique_dates
 
     return {"potential": round(potential, 1)}
 
@@ -1203,11 +1216,12 @@ def parse_report_command_line_args(sys_args):
         choices=["signal", "fuel_mix", "forecast"],
         help="Steps to run. Default is ['signal', 'fuel_mix', 'forecast'].",
     )
-    
+
     parser.add_argument(
-        "-fw", "--first_week_of_month_only",
+        "-fw",
+        "--first_week_of_month_only",
         action="store_true",
-        help="If set, only sample the first week of each month for fuel mix plots."
+        help="If set, only sample the first week of each month for fuel mix plots.",
     )
 
     args = parser.parse_args(sys_args)
@@ -1247,7 +1261,7 @@ def generate_report(
     ],  # no fuel_mix by default
     first_week_of_month_only: bool = False,
 ):
-    
+
     if isinstance(region_list, str):
         region_title = region_list
         region_list = [region_list]
@@ -1255,17 +1269,15 @@ def generate_report(
         region_title = region_list[0]
         region_list = region_list[1]
     else:
-        region_title = '&'.join(region_list)
+        region_title = "&".join(region_list)
 
     if isinstance(model_date_list, str):
         model_date_list = [model_date_list]
-    
+
     region_list = sorted(region_list)
     model_date_list = sorted(model_date_list)
-    
-    filename = (
-        f"{signal_type}_{region_title}_{'&'.join(model_date_list)}_model_stats"
-    )
+
+    filename = f"{signal_type}_{region_title}_{'&'.join(model_date_list)}_model_stats"
 
     # run notebook
     output_path = output_dir / f"{filename}.html"
@@ -1282,7 +1294,7 @@ def generate_report(
     kwargs = {
         "first_week_of_month_only": first_week_of_month_only,
     }
-    
+
     plotly_html = {}
     for step in steps:
         for plot_func in PLOTS[step]:

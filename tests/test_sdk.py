@@ -293,35 +293,39 @@ class TestWattTimeMyAccess(unittest.TestCase):
         json = self.access.get_access_json()
         self.assertIsInstance(json, dict)
         self.assertIn("signal_types", json)
-        self.assertIn("regions", json["signal_types"][0])
-        self.assertIn("signal_type", json["signal_types"][0])
-        self.assertIn("region", json["signal_types"][0]["regions"][0])
-        self.assertIn("region_full_name", json["signal_types"][0]["regions"][0])
-        self.assertIn("parent", json["signal_types"][0]["regions"][0])
-        self.assertIn(
-            "data_point_period_seconds", json["signal_types"][0]["regions"][0]
-        )
-        self.assertIn("endpoints", json["signal_types"][0]["regions"][0])
-        self.assertIn("endpoint", json["signal_types"][0]["regions"][0]["endpoints"][0])
-        self.assertIn("models", json["signal_types"][0]["regions"][0]["endpoints"][0])
-        self.assertIn(
-            "model", json["signal_types"][0]["regions"][0]["endpoints"][0]["models"][0]
-        )
-        self.assertIn(
-            "data_start",
-            json["signal_types"][0]["regions"][0]["endpoints"][0]["models"][0],
-        )
-        self.assertIn(
-            "train_start",
-            json["signal_types"][0]["regions"][0]["endpoints"][0]["models"][0],
-        )
-        self.assertIn(
-            "train_end",
-            json["signal_types"][0]["regions"][0]["endpoints"][0]["models"][0],
-        )
-        self.assertIn(
-            "type", json["signal_types"][0]["regions"][0]["endpoints"][0]["models"][0]
-        )
+        
+        st_dict = {j['signal_type']: j for j in json['signal_types']}
+        for signal_type in ['co2_aoer', 'co2_moer', 'health_damage', 'marginal_fuel_mix']:
+            st_object = st_dict[signal_type]
+            self.assertIn("regions", st_object)
+            self.assertIn("signal_type", st_object)
+            self.assertIn("region", st_object["regions"][0])
+            self.assertIn("region_full_name", st_object["regions"][0])
+            self.assertIn("parent", st_object["regions"][0])
+            self.assertIn(
+                "data_point_period_seconds", st_object["regions"][0]
+            )
+            self.assertIn("endpoints", st_object["regions"][0])
+            self.assertIn("endpoint", st_object["regions"][0]["endpoints"][0])
+            self.assertIn("models", st_object["regions"][0]["endpoints"][0])
+            self.assertIn(
+                "model", st_object["regions"][0]["endpoints"][0]["models"][0]
+            )
+            self.assertIn(
+                "data_start",
+                st_object["regions"][0]["endpoints"][0]["models"][0],
+            )
+            self.assertIn(
+                "train_start",
+                st_object["regions"][0]["endpoints"][0]["models"][0],
+            )
+            self.assertIn(
+                "train_end",
+                st_object["regions"][0]["endpoints"][0]["models"][0],
+            )
+            self.assertIn(
+                "type", st_object["regions"][0]["endpoints"][0]["models"][0]
+            )
 
     def test_access_pandas(self):
         df = self.access.get_access_pandas()

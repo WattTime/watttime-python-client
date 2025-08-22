@@ -108,7 +108,7 @@ def get_random_overlapping_period(
 
 
 def plot_sample_moers(
-    factory: DataHandlerFactory, max_sample_period="365D"
+    factory: DataHandlerFactory, max_sample_period="365D", first_week_of_month_only=True
 ) -> Dict[str, go.Figure]:
     """
     Plot a sample of old and new MOER values over time, creating a subplot for each unique region.
@@ -124,7 +124,7 @@ def plot_sample_moers(
     times = get_random_overlapping_period(
         [j.moers for j in factory.data_handlers],
         max_sample_period,
-        first_week_of_month_only=True,
+        first_week_of_month_only=first_week_of_month_only,
     )
     for region_abbrev, region_models in factory.data_handlers_by_region_dict.items():
 
@@ -140,7 +140,7 @@ def plot_sample_moers(
                     y=_df.signal_value,
                     mode="lines",
                     name=model_job.model_date,
-                    line=dict(width=2),
+                    line=dict(width=2, shape="hv"),
                     showlegend=True,
                     connectgaps=False,
                 )
@@ -618,11 +618,35 @@ AER_SCENARIOS = {
         "window_starts": None,
         "load_kw": 3,  # typical AC
     },
+    "10 kW / 24hr / 25% Duty Cycle": {
+        "charge_mins": 6 * 60,
+        "window_mins": 24 * 60,  # 4 days
+        "window_starts": ["00:00"],
+        "load_kw": 10,
+    },
+   "10 kW / 72hr / 25% Duty Cycle": {
+        "charge_mins": 3 * 3 * 60,
+        "window_mins": 24 * 3 * 60,  # 4 days
+        "window_starts": ["00:00"],
+        "load_kw": 10,
+    },
+    "10 kW / 24hr / 50% Duty Cycle": {
+        "charge_mins": 6 * 60,
+        "window_mins": 24 * 60,  # 4 days
+        "window_starts": ["00:00"],
+        "load_kw": 10,
+    },
+   "10 kW / 72hr / 50% Duty Cycle": {
+        "charge_mins": 12 * 3 * 60,
+        "window_mins": 24 * 3 * 60,  # 4 days
+        "window_starts": ["00:00"],
+        "load_kw": 10,
+    },
 }
 
 
 def plot_impact_forecast_metrics(
-    factory: DataHandlerFactory, scenarios=["EV-night", "EV-day", "Thermostat"]
+    factory: DataHandlerFactory, scenarios=["EV-night", "EV-day", "Thermostat", "10 kW / 24hr / 25% Duty Cycle", "10 kW / 72hr / 25% Duty Cycle", "10 kW / 24hr / 50% Duty Cycle", "10 kW / 72hr / 50% Duty Cycle"]
 ):
 
     figs = {}
@@ -651,7 +675,8 @@ def plot_impact_forecast_metrics(
             ]
 
             _metrics = pd.DataFrame(_metrics)
-
+            _metrics['scenario'] = _metrics['scenario'].apply(lambda x: x.replace(' / ', '\n'))
+            
             fig.add_trace(
                 go.Bar(
                     x=_metrics["scenario"],
@@ -661,6 +686,8 @@ def plot_impact_forecast_metrics(
                         color="rgba(200, 200, 200, 0.8)"
                     ),  # Light gray for potential
                     hovertemplate="%{x}: %{y:.1f} lbs CO2<extra></extra>",
+                    legendgroup="Potential Savings",  # Group legend for potential savings
+                    showlegend=(model_ix == 1),  # Show legend only for the first subplot
                 ),
                 row=model_ix,
                 col=1,
@@ -678,6 +705,8 @@ def plot_impact_forecast_metrics(
                     textposition="outside",
                     marker=dict(color="rgba(0, 128, 0, 0.8)"),  # Green for reduction
                     hovertemplate="%{x}: %{y:.1f} lbs CO2<extra></extra>",
+                    legendgroup="Potential Savings",  # Group legend for potential savings
+                    showlegend=(model_ix == 1),  # Show legend only for the first subplot
                 ),
                 row=model_ix,
                 col=1,
@@ -717,7 +746,7 @@ def plot_sample_fuelmix(
     times = get_random_overlapping_period(
         [j.fuel_mix for j in factory.data_handlers],
         max_sample_period,
-        first_week_of_month_only=True,
+        first_week_of_month_only=False,
     )
     for region_abbrev, region_models in factory.data_handlers_by_region_dict.items():
 
@@ -744,11 +773,14 @@ def plot_sample_fuelmix(
                     go.Scatter(
                         x=stacked_values.index,
                         y=stacked_values.iloc[:, fuel_ix],
-                        fill="tonexty" if model_ix > 0 else "tozeroy",
-                        mode="none",  # Hide lines to emphasize the filled area
+                        fill="tonexty" if fuel_ix > 0 else "tozeroy",
+                        mode="none",
                         name=fuel,
                         fillcolor=fuel_cp[fuel],
                         connectgaps=False,
+                        legendgroup=fuel,
+                        showlegend=(model_ix == 1),
+                        line=dict(shape="hv"),
                     ),
                     row=model_ix,
                     col=1,
@@ -1161,6 +1193,138 @@ def plot_bland_altman(
     return figs
 
 
+def calc_precision_recall(
+    forecasts_v_moers: pd.DataFrame, horizon_minutes: int, impute_curtail_threshold: int,
+    pred_col="predicted_value", truth_col="signal_value",
+) -> Tuple[float, float]:
+    """
+    Calculate precision and recall for the all forecast values UP TO the specified horizon,
+    based on the given threshold for curtailment.
+
+    Parameters:
+        forecasts_v_moers (pd.DataFrame): DataFrame containing forecasts and signal value.
+        horizon_minutes (int): The horizon in minutes to consider for the calculation.
+        impute_curtail_threshold (int): Threshold to convert continuous MOER to binary curtailment.
+
+    Returns:
+        Tuple[float, float]: Precision and recall values.
+    """
+    # Filter forecasts based on the horizon
+    filtered_forecasts = forecasts_v_moers[
+        forecasts_v_moers["horizon_mins"] <= horizon_minutes
+    ]
+
+    pred_bool = filtered_forecasts[pred_col] <= impute_curtail_threshold
+    truth_bool = filtered_forecasts[truth_col] <= impute_curtail_threshold
+    
+    # TP / (TP + FP)
+    precision = (
+        (pred_bool & truth_bool).sum() / pred_bool.sum()
+        if pred_bool.sum() > 0 else 0.0
+    )
+    
+    # TP / (TP + FN)
+    recall = (
+        (pred_bool & truth_bool).sum() / truth_bool.sum()
+        if truth_bool.sum() > 0 else 0.0
+    )
+
+    return precision, recall
+
+
+def plot_precision_recall(
+    factory: DataHandlerFactory,
+    horizons_hr=[1, 6, 12, 18, 24, 72],
+    impute_curtail_threshold=100
+) -> Dict[str, go.Figure]:
+    """
+    Create a Plotly figure with subplots: each model in a separate row
+    showing precision and recall across horizons.
+    """
+
+    figs = {}
+
+    for region_abbrev, region_models in factory.data_handlers_by_region_dict.items():
+        # One row per model
+        fig = sp.make_subplots(
+            rows=len(region_models),
+            cols=1,
+            shared_xaxes=True,
+            subplot_titles=[f"Model {m.model_date}" for m in region_models],
+            vertical_spacing=0.15,
+        )
+
+        precision_y_max = recall_y_max = precision_y_min = recall_y_min = 0
+        x_values = [f"{h}hr" for h in horizons_hr]
+
+        for row_idx, model_job in enumerate(region_models, start=1):
+            values = [
+                calc_precision_recall(
+                    model_job.forecasts_v_moers, (h * 60) - 5,
+                    impute_curtail_threshold=impute_curtail_threshold
+                )
+                for h in horizons_hr
+            ]
+
+            # Convert from fractions to percentages
+            precision_values, recall_values = zip(*values)
+            precision_values = [p * 100 for p in precision_values]
+            recall_values = [r * 100 for r in recall_values]
+
+            precision_y_max = max(precision_values + [precision_y_max])
+            recall_y_max = max(recall_values + [recall_y_max])
+
+            # Precision trace
+            fig.add_trace(
+                go.Bar(
+                    x=x_values,
+                    y=precision_values,
+                    name="Precision",
+                    marker_color="blue",
+                    text=[f"{y:.1f}%" for y in precision_values],
+                    textposition="outside",
+                    showlegend=(row_idx == 1),  # only show once
+                ),
+                row=row_idx, col=1
+            )
+
+            # Recall trace
+            fig.add_trace(
+                go.Bar(
+                    x=x_values,
+                    y=recall_values,
+                    name="Recall",
+                    marker_color="red",
+                    text=[f"{y:.1f}%" for y in recall_values],
+                    textposition="outside",
+                    showlegend=(row_idx == 1),  # only show once
+                ),
+                row=row_idx, col=1
+            )
+
+        # Set uniform y-axis range across subplots
+        y_range = [
+            min(precision_y_min, recall_y_min) - (0.25 * max(precision_y_max, recall_y_max)),
+            max(precision_y_max, recall_y_max) + (0.25 * max(precision_y_max, recall_y_max))
+        ]
+
+        for row_idx in range(1, len(region_models) + 1):
+            fig.update_yaxes(range=y_range, row=row_idx, col=1)
+
+        fig.update_layout(
+            height=300 * len(region_models),
+            xaxis_title="Horizon (Hours)",
+            yaxis_title="Precision / Recall (%)",
+            showlegend=True,
+            margin=dict(l=50, r=50, t=50, b=50),
+            barmode="group",
+        )
+
+        figs[region_abbrev] = fig
+
+    return figs
+    
+
 def parse_report_command_line_args(sys_args):
     parser = argparse.ArgumentParser(
         description="Parse command line arguments to report_moers script"
@@ -1244,7 +1408,12 @@ PLOTS = {
         plot_max_impact_potential,
     ],
     "fuel_mix": [plot_sample_fuelmix, plot_fuelmix_heatmap],
-    "forecast": [plot_norm_mae, plot_rank_corr, plot_impact_forecast_metrics],
+    "forecast": [
+        plot_norm_mae,
+        plot_rank_corr,
+        plot_precision_recall,
+        plot_impact_forecast_metrics
+    ],
 }
 
 
@@ -1289,6 +1458,7 @@ def generate_report(
         regions=region_list,
         model_dates=model_date_list,
         signal_types=signal_type,
+        forecast_max_horizon=72 * 60,
     )
 
     kwargs = {

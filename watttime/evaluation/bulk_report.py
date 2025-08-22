@@ -28,14 +28,14 @@ def get_latest_model_date(abbrev, requested_model_dates: List[str]):
 
 
 def get_regions_for_model(
-    model: str, signal_type: str
+    model: str, signal_type: str, combine_subregions: bool = False,
 ) -> List[Union[str, Tuple[str, List[str]]]]:
     regions = MA_DF.loc[
         (MA_DF["signal_type"] == signal_type)
         & (MA_DF["model"] == model)
         & (MA_DF["endpoint"] == "v3/historical")
     ]["region"].unique()
-
+    
     regions_dict = defaultdict(list)
     for region in regions:
         parent = region.split("_")[0]
@@ -43,8 +43,11 @@ def get_regions_for_model(
 
     regions_list = []
     for k, v in regions_dict.items():
-        if len(v) > 1:
+        if len(v) > 1 and combine_subregions:
             regions_list.append((k, v))
+        elif len(v) > 1 and not combine_subregions:
+            for subregion in v:
+                regions_list.append(subregion)
         else:
             regions_list.append(v[0])
 

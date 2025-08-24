@@ -318,40 +318,65 @@ def calc_rank_corr(
     return np.nanmean(corr).round(3)
 
 
-def simulate_charge(df: pd.DataFrame, sort_col: str, charge_mins: int):
+def pick_k_optimal_charge(in_df: pd.DataFrame, truth_col, charge_mins: int):
+    df = in_df.copy()
+    
+    specify_generated_at = 'generated_at' in df.index.names
 
-    assert sort_col in df.columns
-    include_generated_at = "generated_at" in df.index.names
+    charge_needed = charge_mins // 5
+    df["charge_status"] = False
+    df = df.sort_index(ascending=True)
+
+    for window_start, w_df in df.reset_index().groupby("window_start"):
+        # Pick the `charge_needed` lowest truth_col values in this window
+        # If there are ties, 'first' ensures deterministic selection
+        if specify_generated_at:
+            w_df = w_df[w_df['generated_at'] == w_df['point_time']]
+        selected_points = (
+            w_df.sort_values(truth_col, ascending=True)
+            .head(charge_needed)
+        )
+
+        # Mark these point_times as charge periods in the original dataframe
+        if specify_generated_at:
+            df.loc[[(p, p) for p in selected_points['point_time']], "charge_status"] = True
+        else:
+            df.loc[selected_points['point_time'], "charge_status"] = True
+
+    return df["charge_status"]
+        
+        
+def simulate_charge(in_df: pd.DataFrame, sort_col: str, charge_mins: int):
+    
+    df = in_df.copy()
+
+    assert sort_col in df.columns        
 
     charge_needed = charge_mins // 5
     df = df.assign(charge_status=False)
     df = df.sort_index(ascending=True)
     for w in df.reset_index().groupby("window_start"):
         window_start, w_df = w
+        w_df = w_df.sort_values(['generated_at', 'point_time'], ascending=True)
+        charge_periods = []
+        _charge_needed = charge_needed
+        generated_at_groups = list(w_df.groupby("generated_at"))
+        total_groups = len(generated_at_groups)
 
-        if include_generated_at:
-            charge_periods = []
-            _charge_needed = charge_needed
-            generated_at_groups = list(w_df.groupby("generated_at"))
-            total_groups = len(generated_at_groups)
+        for processed_count, (generated_at, g_df) in enumerate(generated_at_groups):
+            n_below_now = g_df[sort_col].rank().iloc[0]
+            remaining_generated_at = total_groups - processed_count
+            should_charge_now = (n_below_now <= _charge_needed) or (
+                remaining_generated_at <= _charge_needed
+            )
 
-            for processed_count, (generated_at, g_df) in enumerate(generated_at_groups):
-                n_below_now = (g_df[sort_col] <= g_df.iloc[0][sort_col]).sum()
-                remaining_generated_at = total_groups - processed_count
-                should_charge_now = (n_below_now <= _charge_needed) or (
-                    remaining_generated_at <= _charge_needed
-                )
+            if should_charge_now:
+                assert generated_at == g_df.iloc[0]['point_time']
+                charge_periods.append((generated_at, generated_at))
+                _charge_needed -= 1
 
-                if should_charge_now:
-                    charge_periods.append((generated_at, generated_at))
-                    _charge_needed -= 1
-
-                if _charge_needed == 0:
-                    break
-
-        else:
-            w_df["rank"] = w_df[sort_col].rank(ascending=True, method="first")
-            charge_periods = w_df.loc[w_df["rank"] <= charge_needed, "point_time"]
+            if _charge_needed == 0:
+                break
 
         df.loc[charge_periods, "charge_status"] = True
 
@@ -365,71 +390,88 @@ def simulate_charge(df: pd.DataFrame, sort_col: str, charge_mins: int):
     return df["charge_status"]
 
 
+def assign_windows(generated_ats: List[pd.Timestamp], window_size: pd.Timedelta) -> List[pd.Timestamp]:
+
+    if isinstance(window_size, int):
+        window_size=pd.Timedelta(minutes=window_size)
+
+    first_tz = generated_ats[0].tz
+    if any((ts.tz is None or ts.tz != first_tz) for ts in generated_ats):
+        raise ValueError("All generated_ats must be tz-aware and share the same timezone")
+
+    # Sort with original indices
+    indexed = list(enumerate(generated_ats))
+    indexed.sort(key=lambda p: p[1])
+
+    times_sorted = [ts for _, ts in indexed]
+    signposts_sorted = [None] * len(times_sorted)
+
+    # Current signpost = the earliest timestamp of current window
+    current_start = times_sorted[0]
+    signposts_sorted[0] = current_start
+
+    for i in range(1, len(times_sorted)):
+        ts = times_sorted[i]
+        # if still within window, map to current_start
+        if ts < current_start + window_size:
+            signposts_sorted[i] = current_start
+        else:
+            # start a new window here
+            current_start = ts
+            signposts_sorted[i] = current_start
+
+    # Map back to original order
+    result = [None] * len(times_sorted)
+    for (orig_idx, _), signpost in zip(indexed, signposts_sorted):
+        result[orig_idx] = signpost
+
+    return result
+
+
 def calc_rank_compare_metrics(
     in_df,
     charge_mins,
     window_mins,
-    window_starts=None,
+    window_start_time=None,
     pred_col="predicted_value",
     truth_col="signal_value",
     load_kw=1000,
 ):
     df = in_df.copy()
-
-    if window_starts:
-        # Extract unique dates and create window ranges
-        unique_dates = df.index.get_level_values("generated_at").unique()
-        window_ranges = []
-        for date in unique_dates:
-            for start_time in window_starts:
-                start = pd.Timestamp(f"{date} {start_time}")
-                end = start + pd.Timedelta(minutes=window_mins)
-                window_ranges.append((start, end))
-
-        # Convert to DataFrame
-        window_df = pd.DataFrame(window_ranges, columns=["window_start", "window_end"])
-        window_df = window_df.sort_values("window_start")
-        tz = df.index.get_level_values("generated_at")[0].tz
-        window_df = window_df.assign(
-            window_start=pd.to_datetime(
-                window_df["window_start"], errors="coerce"
-            ).dt.tz_convert(tz)
-        )
-        window_df = window_df.dropna(subset=["window_start"])
-
-        # Use merge_asof to efficiently assign windows
-        df = pd.merge_asof(
-            df.reset_index().sort_values("generated_at", ascending=True),
-            window_df,
-            left_on="generated_at",
-            right_on="window_start",
-            direction="backward",
-        ).set_index(df.index.names)
-
+    
+    if isinstance(window_mins, int):
+        window_mins = pd.Timedelta(minutes=window_mins)
+        
+    window_starts = assign_windows(df.index.get_level_values('generated_at'), window_mins)
+    
+    if window_start_time:
+        start_offset = pd.to_timedelta(window_start_time + ":00")
+        adj_window_starts = [i.normalize() + start_offset for i in window_starts]
     else:
-        # Assign each row to a rolling window of `window_mins` based on `generated_at`
-        df["window_start"] = df.index.get_level_values("generated_at").floor(
-            f"{window_mins}min"
-        )
-        df["window_end"] = df["window_start"] + pd.Timedelta(f"{window_mins} min")
-
+        adj_window_starts = window_starts
+    
+    df = df.assign(
+        window_start=adj_window_starts,
+        window_end=[i + window_mins for i in adj_window_starts]
+    )
+    
     # Filter out rows that do not fall within the valid window
     df.loc[
         (df.index.get_level_values("point_time") >= df["window_end"])
         | (df.index.get_level_values("generated_at") >= df["window_end"])
-        | (df.index.get_level_values("generated_at") <= df["window_start"]),
+        | (df.index.get_level_values("generated_at") < df["window_start"]),
         "window_start",
     ] = pd.NaT
-    df = df.dropna(subset=["window_start"])
+    df = df.dropna(subset=["window_start", "window_end"])
 
     # Filter out rows where there aren't enough generated_ats to fulfill charge_mins
     n_generated_at_in_window = df.groupby("window_start").transform(
         lambda x: x.reset_index()["generated_at"].nunique()
     )[pred_col]
-    df = df.loc[n_generated_at_in_window >= charge_mins // 5]
-
+    df = df.loc[n_generated_at_in_window >= (charge_mins // 5) - 1]
+    
     df = df.assign(
-        truth_charge_status=simulate_charge(df, truth_col, charge_mins),
+        truth_charge_status=pick_k_optimal_charge(df, truth_col, charge_mins),
         pred_charge_status=simulate_charge(df, pred_col, charge_mins),
     )
 
@@ -598,55 +640,53 @@ def plot_rank_corr(
     return figs
 
 
-# TODO: translate to local time for start windows?
 AER_SCENARIOS = {
     "EV-night": {
         "charge_mins": 3 * 60,
         "window_mins": 12 * 60,
-        "window_starts": ["19:00"],
+        "window_start_time": "19:00",
         "load_kw": 19,
     },
     "EV-day": {
         "charge_mins": 2 * 60,
         "window_mins": 8 * 60,
-        "window_starts": ["09:00"],
+        "window_start_time": "09:00",
         "load_kw": 19,
     },
     "Thermostat": {
         "charge_mins": 30,
         "window_mins": 60,
-        "window_starts": None,
         "load_kw": 3,  # typical AC
     },
     "10 kW / 24hr / 25% Duty Cycle": {
         "charge_mins": 6 * 60,
-        "window_mins": 24 * 60,  # 4 days
-        "window_starts": ["00:00"],
+        "window_mins": 24 * 60,
         "load_kw": 10,
     },
    "10 kW / 72hr / 25% Duty Cycle": {
         "charge_mins": 3 * 3 * 60,
-        "window_mins": 24 * 3 * 60,  # 4 days
-        "window_starts": ["00:00"],
+        "window_mins": 24 * 3 * 60,
         "load_kw": 10,
     },
     "10 kW / 24hr / 50% Duty Cycle": {
         "charge_mins": 6 * 60,
-        "window_mins": 24 * 60,  # 4 days
-        "window_starts": ["00:00"],
+        "window_mins": 24 * 60,
         "load_kw": 10,
     },
    "10 kW / 72hr / 50% Duty Cycle": {
         "charge_mins": 12 * 3 * 60,
-        "window_mins": 24 * 3 * 60,  # 4 days
-        "window_starts": ["00:00"],
+        "window_mins": 24 * 3 * 60,
         "load_kw": 10,
     },
 }
 
 
 def plot_impact_forecast_metrics(
-    factory: DataHandlerFactory, scenarios=["EV-night", "EV-day", "Thermostat", "10 kW / 24hr / 25% Duty Cycle", "10 kW / 72hr / 25% Duty Cycle", "10 kW / 24hr / 50% Duty Cycle", "10 kW / 72hr / 50% Duty Cycle"]
+    factory: DataHandlerFactory,
+    scenarios=[
+        "10 kW / 24hr / 25% Duty Cycle", "10 kW / 72hr / 25% Duty Cycle",
+        "10 kW / 24hr / 50% Duty Cycle", "10 kW / 72hr / 50% Duty Cycle",
+        "EV-night", "EV-day", "Thermostat"]
 ):
 
     figs = {}
@@ -675,7 +715,6 @@ def plot_impact_forecast_metrics(
             ]
 
             _metrics = pd.DataFrame(_metrics)
-            _metrics['scenario'] = _metrics['scenario'].apply(lambda x: x.replace(' / ', '\n'))
             
             fig.add_trace(
                 go.Bar(
@@ -812,7 +851,7 @@ def calc_max_potential(
     in_df,
     charge_mins,
     window_mins,
-    window_starts=None,
+    window_start_time=None,
     truth_col="signal_value",
     load_kw=1000,
 ):
@@ -824,66 +863,38 @@ def calc_max_potential(
     needed_rows = charge_mins // 5
     load_factor = load_kw / 1000
 
-    if window_starts:
-        unique_dates = df.index.get_level_values("point_time").normalize().unique()
-        window_ranges = []
-        window_ranges_extend = window_ranges.extend
-
-        for date in unique_dates:
-            window_ranges_extend(
-                [
-                    (
-                        pd.Timestamp.combine(
-                            date.date(), pd.to_datetime(start_time).time()
-                        ),
-                        pd.Timestamp.combine(
-                            date.date(), pd.to_datetime(start_time).time()
-                        )
-                        + pd.Timedelta(minutes=window_mins),
-                    )
-                    for start_time in window_starts
-                ]
-            )
-
-        window_df = pd.DataFrame(window_ranges, columns=["window_start", "window_end"])
-        window_df.sort_values("window_start", inplace=True)
-
-        tz = df.index.get_level_values("point_time")[0].tz
-        if tz:
-            window_df["window_start"] = window_df["window_start"].dt.tz_localize(tz)
-            window_df["window_end"] = window_df["window_end"].dt.tz_localize(tz)
-
-        df_reset = df.reset_index().sort_values("point_time")
-        df = pd.merge_asof(
-            df_reset,
-            window_df,
-            left_on="point_time",
-            right_on="window_start",
-            direction="backward",
-        ).set_index(df.index.names)
+    if isinstance(window_mins, int):
+        window_mins = pd.Timedelta(minutes=window_mins)
+        
+    window_starts = assign_windows(df.index.get_level_values('point_time'), window_mins)
+    
+    if window_start_time:
+        start_offset = pd.to_timedelta(window_start_time + ":00")
+        adj_window_starts = [i.normalize() + start_offset for i in window_starts]
     else:
-        # local -> utc -> floor to nearest window -> local to avoid dst issues
-        point_times = df.index.get_level_values("point_time")
-        df["window_start"] = (
-            point_times.tz_convert("UTC")
-            .floor(f"{window_mins}min")
-            .tz_convert(point_times.tz)  # <-- use .tz, not .dt.tz
-        )
-        df["window_end"] = df["window_start"] + pd.Timedelta(minutes=window_mins)
+        adj_window_starts = window_starts
+    
+    df = df.assign(
+        window_start=adj_window_starts,
+        window_end=[i + window_mins for i in adj_window_starts]
+    )
+    
+    # Filter out rows that do not fall within the valid window
+    df.loc[
+        (df.index.get_level_values("point_time") >= df["window_end"]), "window_start",
+    ] = pd.NaT
+    df = df.dropna(subset=["window_start", "window_end"])
 
-    # Combined filtering operations
-    df = df.dropna(subset=["window_start"])
-    point_times = df.index.get_level_values("point_time")
-    time_mask = (point_times >= df["window_start"]) & (point_times < df["window_end"])
-    df = df.loc[time_mask]
-
-    window_counts = df.groupby("window_start")[truth_col].transform("count")
-    df = df[window_counts >= needed_rows]
+    # Filter out rows where there aren't enough generated_ats to fulfill charge_mins
+    n_generated_at_in_window = df.groupby("window_start").transform(
+        lambda x: x.reset_index()["point_time"].nunique()
+    )[truth_col]
+    df = df.loc[n_generated_at_in_window >= (charge_mins // 5) - 1]
 
     if df.empty:
         return {"potential": 0.0}
 
-    df["charge_status"] = simulate_charge(df, truth_col, charge_mins)
+    df["charge_status"] = pick_k_optimal_charge(df, truth_col, charge_mins)
 
     truth_values = df[truth_col]
     charge_emissions = truth_values * df["charge_status"] * load_factor
@@ -1280,7 +1291,7 @@ def plot_precision_recall(
                     x=x_values,
                     y=precision_values,
                     name="Precision",
-                    marker_color="blue",
+                    marker_color="#636EFA",
                     text=[f"{y:.1f}%" for y in precision_values],
                     textposition="outside",
                     showlegend=(row_idx == 1),  # only show once
@@ -1294,7 +1305,7 @@ def plot_precision_recall(
                     x=x_values,
                     y=recall_values,
                     name="Recall",
-                    marker_color="red",
+                    marker_color="#EF553B",
                     text=[f"{y:.1f}%" for y in recall_values],
                     textposition="outside",
                     showlegend=(row_idx == 1),  # only show once

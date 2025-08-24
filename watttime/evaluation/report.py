@@ -320,8 +320,8 @@ def calc_rank_corr(
 
 def pick_k_optimal_charge(in_df: pd.DataFrame, truth_col, charge_mins: int):
     df = in_df.copy()
-    
-    specify_generated_at = 'generated_at' in df.index.names
+
+    specify_generated_at = "generated_at" in df.index.names
 
     charge_needed = charge_mins // 5
     df["charge_status"] = False
@@ -331,33 +331,34 @@ def pick_k_optimal_charge(in_df: pd.DataFrame, truth_col, charge_mins: int):
         # Pick the `charge_needed` lowest truth_col values in this window
         # If there are ties, 'first' ensures deterministic selection
         if specify_generated_at:
-            w_df = w_df[w_df['generated_at'] == w_df['point_time']]
-        selected_points = (
-            w_df.sort_values(truth_col, ascending=True)
-            .head(charge_needed)
+            w_df = w_df[w_df["generated_at"] == w_df["point_time"]]
+        selected_points = w_df.sort_values(truth_col, ascending=True).head(
+            charge_needed
         )
 
         # Mark these point_times as charge periods in the original dataframe
         if specify_generated_at:
-            df.loc[[(p, p) for p in selected_points['point_time']], "charge_status"] = True
+            df.loc[[(p, p) for p in selected_points["point_time"]], "charge_status"] = (
+                True
+            )
         else:
-            df.loc[selected_points['point_time'], "charge_status"] = True
+            df.loc[selected_points["point_time"], "charge_status"] = True
 
     return df["charge_status"]
-        
-        
+
+
 def simulate_charge(in_df: pd.DataFrame, sort_col: str, charge_mins: int):
-    
+
     df = in_df.copy()
 
-    assert sort_col in df.columns        
+    assert sort_col in df.columns
 
     charge_needed = charge_mins // 5
     df = df.assign(charge_status=False)
     df = df.sort_index(ascending=True)
     for w in df.reset_index().groupby("window_start"):
         window_start, w_df = w
-        w_df = w_df.sort_values(['generated_at', 'point_time'], ascending=True)
+        w_df = w_df.sort_values(["generated_at", "point_time"], ascending=True)
         charge_periods = []
         _charge_needed = charge_needed
         generated_at_groups = list(w_df.groupby("generated_at"))
@@ -371,7 +372,7 @@ def simulate_charge(in_df: pd.DataFrame, sort_col: str, charge_mins: int):
             )
 
             if should_charge_now:
-                assert generated_at == g_df.iloc[0]['point_time']
+                assert generated_at == g_df.iloc[0]["point_time"]
                 charge_periods.append((generated_at, generated_at))
                 _charge_needed -= 1
 
@@ -386,18 +387,22 @@ def simulate_charge(in_df: pd.DataFrame, sort_col: str, charge_mins: int):
     assert df["charge_status"].sum() >= (
         len(df["window_start"].unique()) * 0.97 * charge_needed
     ), "Charge status is too low, check the logic for simulate_charge"
-    
+
     return df["charge_status"]
 
 
-def assign_windows(generated_ats: List[pd.Timestamp], window_size: pd.Timedelta) -> List[pd.Timestamp]:
+def assign_windows(
+    generated_ats: List[pd.Timestamp], window_size: pd.Timedelta
+) -> List[pd.Timestamp]:
 
     if isinstance(window_size, int):
-        window_size=pd.Timedelta(minutes=window_size)
+        window_size = pd.Timedelta(minutes=window_size)
 
     first_tz = generated_ats[0].tz
     if any((ts.tz is None or ts.tz != first_tz) for ts in generated_ats):
-        raise ValueError("All generated_ats must be tz-aware and share the same timezone")
+        raise ValueError(
+            "All generated_ats must be tz-aware and share the same timezone"
+        )
 
     # Sort with original indices
     indexed = list(enumerate(generated_ats))
@@ -438,23 +443,25 @@ def calc_rank_compare_metrics(
     load_kw=1000,
 ):
     df = in_df.copy()
-    
+
     if isinstance(window_mins, int):
         window_mins = pd.Timedelta(minutes=window_mins)
-        
-    window_starts = assign_windows(df.index.get_level_values('generated_at'), window_mins)
-    
+
+    window_starts = assign_windows(
+        df.index.get_level_values("generated_at"), window_mins
+    )
+
     if window_start_time:
         start_offset = pd.to_timedelta(window_start_time + ":00")
         adj_window_starts = [i.normalize() + start_offset for i in window_starts]
     else:
         adj_window_starts = window_starts
-    
+
     df = df.assign(
         window_start=adj_window_starts,
-        window_end=[i + window_mins for i in adj_window_starts]
+        window_end=[i + window_mins for i in adj_window_starts],
     )
-    
+
     # Filter out rows that do not fall within the valid window
     df.loc[
         (df.index.get_level_values("point_time") >= df["window_end"])
@@ -469,7 +476,7 @@ def calc_rank_compare_metrics(
         lambda x: x.reset_index()["generated_at"].nunique()
     )[pred_col]
     df = df.loc[n_generated_at_in_window >= (charge_mins // 5) - 1]
-    
+
     df = df.assign(
         truth_charge_status=pick_k_optimal_charge(df, truth_col, charge_mins),
         pred_charge_status=simulate_charge(df, pred_col, charge_mins),
@@ -663,7 +670,7 @@ AER_SCENARIOS = {
         "window_mins": 24 * 60,
         "load_kw": 10,
     },
-   "10 kW / 72hr / 25% Duty Cycle": {
+    "10 kW / 72hr / 25% Duty Cycle": {
         "charge_mins": 3 * 3 * 60,
         "window_mins": 24 * 3 * 60,
         "load_kw": 10,
@@ -673,7 +680,7 @@ AER_SCENARIOS = {
         "window_mins": 24 * 60,
         "load_kw": 10,
     },
-   "10 kW / 72hr / 50% Duty Cycle": {
+    "10 kW / 72hr / 50% Duty Cycle": {
         "charge_mins": 12 * 3 * 60,
         "window_mins": 24 * 3 * 60,
         "load_kw": 10,
@@ -684,9 +691,14 @@ AER_SCENARIOS = {
 def plot_impact_forecast_metrics(
     factory: DataHandlerFactory,
     scenarios=[
-        "10 kW / 24hr / 25% Duty Cycle", "10 kW / 72hr / 25% Duty Cycle",
-        "10 kW / 24hr / 50% Duty Cycle", "10 kW / 72hr / 50% Duty Cycle",
-        "EV-night", "EV-day", "Thermostat"]
+        "10 kW / 24hr / 25% Duty Cycle",
+        "10 kW / 72hr / 25% Duty Cycle",
+        "10 kW / 24hr / 50% Duty Cycle",
+        "10 kW / 72hr / 50% Duty Cycle",
+        "EV-night",
+        "EV-day",
+        "Thermostat",
+    ],
 ):
 
     figs = {}
@@ -715,7 +727,7 @@ def plot_impact_forecast_metrics(
             ]
 
             _metrics = pd.DataFrame(_metrics)
-            
+
             fig.add_trace(
                 go.Bar(
                     x=_metrics["scenario"],
@@ -726,7 +738,9 @@ def plot_impact_forecast_metrics(
                     ),  # Light gray for potential
                     hovertemplate="%{x}: %{y:.1f} lbs CO2<extra></extra>",
                     legendgroup="Potential Savings",  # Group legend for potential savings
-                    showlegend=(model_ix == 1),  # Show legend only for the first subplot
+                    showlegend=(
+                        model_ix == 1
+                    ),  # Show legend only for the first subplot
                 ),
                 row=model_ix,
                 col=1,
@@ -745,7 +759,9 @@ def plot_impact_forecast_metrics(
                     marker=dict(color="rgba(0, 128, 0, 0.8)"),  # Green for reduction
                     hovertemplate="%{x}: %{y:.1f} lbs CO2<extra></extra>",
                     legendgroup="Potential Savings",  # Group legend for potential savings
-                    showlegend=(model_ix == 1),  # Show legend only for the first subplot
+                    showlegend=(
+                        model_ix == 1
+                    ),  # Show legend only for the first subplot
                 ),
                 row=model_ix,
                 col=1,
@@ -865,23 +881,24 @@ def calc_max_potential(
 
     if isinstance(window_mins, int):
         window_mins = pd.Timedelta(minutes=window_mins)
-        
-    window_starts = assign_windows(df.index.get_level_values('point_time'), window_mins)
-    
+
+    window_starts = assign_windows(df.index.get_level_values("point_time"), window_mins)
+
     if window_start_time:
         start_offset = pd.to_timedelta(window_start_time + ":00")
         adj_window_starts = [i.normalize() + start_offset for i in window_starts]
     else:
         adj_window_starts = window_starts
-    
+
     df = df.assign(
         window_start=adj_window_starts,
-        window_end=[i + window_mins for i in adj_window_starts]
+        window_end=[i + window_mins for i in adj_window_starts],
     )
-    
+
     # Filter out rows that do not fall within the valid window
     df.loc[
-        (df.index.get_level_values("point_time") >= df["window_end"]), "window_start",
+        (df.index.get_level_values("point_time") >= df["window_end"]),
+        "window_start",
     ] = pd.NaT
     df = df.dropna(subset=["window_start", "window_end"])
 
@@ -1205,8 +1222,11 @@ def plot_bland_altman(
 
 
 def calc_precision_recall(
-    forecasts_v_moers: pd.DataFrame, horizon_minutes: int, impute_curtail_threshold: int,
-    pred_col="predicted_value", truth_col="signal_value",
+    forecasts_v_moers: pd.DataFrame,
+    horizon_minutes: int,
+    impute_curtail_threshold: int,
+    pred_col="predicted_value",
+    truth_col="signal_value",
 ) -> Tuple[float, float]:
     """
     Calculate precision and recall for the all forecast values UP TO the specified horizon,
@@ -1227,17 +1247,17 @@ def calc_precision_recall(
 
     pred_bool = filtered_forecasts[pred_col] <= impute_curtail_threshold
     truth_bool = filtered_forecasts[truth_col] <= impute_curtail_threshold
-    
+
     # TP / (TP + FP)
     precision = (
-        (pred_bool & truth_bool).sum() / pred_bool.sum()
-        if pred_bool.sum() > 0 else 0.0
+        (pred_bool & truth_bool).sum() / pred_bool.sum() if pred_bool.sum() > 0 else 0.0
     )
-    
+
     # TP / (TP + FN)
     recall = (
         (pred_bool & truth_bool).sum() / truth_bool.sum()
-        if truth_bool.sum() > 0 else 0.0
+        if truth_bool.sum() > 0
+        else 0.0
     )
 
     return precision, recall
@@ -1246,7 +1266,7 @@ def calc_precision_recall(
 def plot_precision_recall(
     factory: DataHandlerFactory,
     horizons_hr=[1, 6, 12, 18, 24, 72],
-    impute_curtail_threshold=100
+    impute_curtail_threshold=100,
 ) -> Dict[str, go.Figure]:
     """
     Create a Plotly figure with subplots: each model in a separate row
@@ -1271,8 +1291,9 @@ def plot_precision_recall(
         for row_idx, model_job in enumerate(region_models, start=1):
             values = [
                 calc_precision_recall(
-                    model_job.forecasts_v_moers, (h * 60) - 5,
-                    impute_curtail_threshold=impute_curtail_threshold
+                    model_job.forecasts_v_moers,
+                    (h * 60) - 5,
+                    impute_curtail_threshold=impute_curtail_threshold,
                 )
                 for h in horizons_hr
             ]
@@ -1296,7 +1317,8 @@ def plot_precision_recall(
                     textposition="outside",
                     showlegend=(row_idx == 1),  # only show once
                 ),
-                row=row_idx, col=1
+                row=row_idx,
+                col=1,
             )
 
             # Recall trace
@@ -1310,13 +1332,16 @@ def plot_precision_recall(
                     textposition="outside",
                     showlegend=(row_idx == 1),  # only show once
                 ),
-                row=row_idx, col=1
+                row=row_idx,
+                col=1,
             )
 
         # Set uniform y-axis range across subplots
         y_range = [
-            min(precision_y_min, recall_y_min) - (0.25 * max(precision_y_max, recall_y_max)),
-            max(precision_y_max, recall_y_max) + (0.25 * max(precision_y_max, recall_y_max))
+            min(precision_y_min, recall_y_min)
+            - (0.25 * max(precision_y_max, recall_y_max)),
+            max(precision_y_max, recall_y_max)
+            + (0.25 * max(precision_y_max, recall_y_max)),
         ]
 
         for row_idx in range(1, len(region_models) + 1):
@@ -1334,7 +1359,7 @@ def plot_precision_recall(
         figs[region_abbrev] = fig
 
     return figs
-    
+
 
 def parse_report_command_line_args(sys_args):
     parser = argparse.ArgumentParser(
@@ -1423,7 +1448,7 @@ PLOTS = {
         plot_norm_mae,
         plot_rank_corr,
         plot_precision_recall,
-        plot_impact_forecast_metrics
+        plot_impact_forecast_metrics,
     ],
 }
 

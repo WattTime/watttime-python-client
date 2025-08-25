@@ -9,6 +9,7 @@ from pathlib import Path
 from typing import List, Optional, Union, Literal, Dict, Tuple
 from zoneinfo import ZoneInfo
 import inspect
+from functools import lru_cache
 
 import numpy as np
 import pandas as pd
@@ -16,6 +17,8 @@ import plotly.graph_objects as go
 import plotly.subplots as sp
 import plotly.colors as pc
 import scipy.stats as stats
+from shapely.geometry import shape
+from timezonefinder import TimezoneFinder
 
 from jinja2 import Template
 from watttime.evaluation.get_wt_api_forecast_evaluation_data import (
@@ -23,6 +26,20 @@ from watttime.evaluation.get_wt_api_forecast_evaluation_data import (
     DataHandlerFactory,
 )
 from watttime.evaluation.fuels_cp import fuel_cp
+from watttime import api
+
+@lru_cache
+def get_tz_from_centroid(region):
+    wt_maps = api.WattTimeMaps()
+    all_maps = wt_maps.get_maps_json()
+    region = {
+        f["properties"]["region"]: f["geometry"] for f in all_maps["features"]
+    }[region]
+    centroid = shape(region).centroid
+    tz = TimezoneFinder().certain_timezone_at(
+        lat=centroid.y, lng=centroid.x
+    )
+    return tz
 
 
 def convert_to_timezone(dt: datetime, tz: Union[str, ZoneInfo]) -> datetime:
@@ -129,11 +146,14 @@ def plot_sample_moers(
     for region_abbrev, region_models in factory.data_handlers_by_region_dict.items():
 
         fig = go.Figure()
+        
+        tz = get_tz_from_centroid(region_abbrev)
 
         for model_job in region_models:
 
             _df = model_job.moers.reindex(times)
-
+            _df = _df.tz_convert(tz)
+            
             fig.add_trace(
                 go.Scatter(
                     x=_df.index,
@@ -394,49 +414,47 @@ def simulate_charge(in_df: pd.DataFrame, sort_col: str, charge_mins: int):
 def assign_windows(
     generated_ats: List[pd.Timestamp], window_size: pd.Timedelta
 ) -> List[pd.Timestamp]:
-
+    
     if isinstance(window_size, int):
         window_size = pd.Timedelta(minutes=window_size)
-
-    first_tz = generated_ats[0].tz
-    if any((ts.tz is None or ts.tz != first_tz) for ts in generated_ats):
-        raise ValueError(
-            "All generated_ats must be tz-aware and share the same timezone"
-        )
-
-    # Sort with original indices
-    indexed = list(enumerate(generated_ats))
-    indexed.sort(key=lambda p: p[1])
-
-    times_sorted = [ts for _, ts in indexed]
-    signposts_sorted = [None] * len(times_sorted)
-
-    # Current signpost = the earliest timestamp of current window
-    current_start = times_sorted[0]
-    signposts_sorted[0] = current_start
-
-    for i in range(1, len(times_sorted)):
-        ts = times_sorted[i]
-        # if still within window, map to current_start
-        if ts < current_start + window_size:
-            signposts_sorted[i] = current_start
+    
+    n = len(generated_ats)
+    if n == 0:
+        return []
+    
+    # Create array of (timestamp, original_index) and sort by timestamp
+    ts_with_idx = np.array([(ts.value, i) for i, ts in enumerate(generated_ats)], 
+                          dtype=[('ts', 'i8'), ('idx', 'i4')])
+    ts_with_idx.sort(order='ts')
+    
+    # Convert window_size to nanoseconds for direct comparison
+    window_ns = window_size.value
+    
+    # Assign signposts using vectorized operations where possible
+    signposts = np.empty(n, dtype='i8')
+    current_start_ns = ts_with_idx[0]['ts']
+    signposts[0] = current_start_ns
+    
+    for i in range(1, n):
+        ts_ns = ts_with_idx[i]['ts']
+        if ts_ns < current_start_ns + window_ns:
+            signposts[i] = current_start_ns
         else:
-            # start a new window here
-            current_start = ts
-            signposts_sorted[i] = current_start
-
-    # Map back to original order
-    result = [None] * len(times_sorted)
-    for (orig_idx, _), signpost in zip(indexed, signposts_sorted):
-        result[orig_idx] = signpost
-
-    return result
-
+            current_start_ns = ts_ns
+            signposts[i] = current_start_ns
+    
+    # Map back to original order using fancy indexing
+    result = np.empty(n, dtype='i8')
+    result[ts_with_idx['idx']] = signposts
+    
+    # Convert back to Timestamps
+    return [pd.Timestamp(ns, tz='UTC') for ns in result]
 
 def calc_rank_compare_metrics(
     in_df,
     charge_mins,
     window_mins,
+    tz=None,
     window_start_time=None,
     pred_col="predicted_value",
     truth_col="signal_value",
@@ -452,8 +470,12 @@ def calc_rank_compare_metrics(
     )
 
     if window_start_time:
-        start_offset = pd.to_timedelta(window_start_time + ":00")
-        adj_window_starts = [i.normalize() + start_offset for i in window_starts]
+        utc_offset = pd.to_timedelta(window_start_time + ":00")
+        local_dt = (pd.Timestamp("1999-01-01T00:00Z") + utc_offset).tz_convert(tz)
+        local_offset = pd.to_timedelta(local_dt.hour, unit="h") \
+              + pd.to_timedelta(local_dt.minute, unit="m") \
+              + pd.to_timedelta(local_dt.second, unit="s")
+        adj_window_starts = [i.normalize() + local_offset for i in window_starts]
     else:
         adj_window_starts = window_starts
 
@@ -713,13 +735,16 @@ def plot_impact_forecast_metrics(
             subplot_titles=[j.model_date for j in region_models],
             vertical_spacing=0.2,
         )
+        
+        tz = get_tz_from_centroid(region_abbrev)
 
         for model_ix, model_job in enumerate(region_models, start=1):
 
             _metrics = [
                 {
                     **calc_rank_compare_metrics(
-                        model_job.forecasts_v_moers, **AER_SCENARIOS[s]
+                        model_job.forecasts_v_moers, **AER_SCENARIOS[s],
+                        tz=tz
                     ),
                     "scenario": s,
                 }
@@ -813,10 +838,14 @@ def plot_sample_fuelmix(
             subplot_titles=[j.model_date for j in region_models],
             vertical_spacing=0.2,
         )
+        
+        tz = get_tz_from_centroid(region_abbrev)
 
         for model_ix, model_job in enumerate(region_models, start=1):
 
             stacked_values = model_job.fuel_mix.reindex(times)
+            
+            stacked_values = stacked_values.tz_convert(tz)
 
             # Create cumulative values for stacking
             for fuel_ix in range(1, len(stacked_values.columns)):
@@ -868,6 +897,7 @@ def calc_max_potential(
     charge_mins,
     window_mins,
     window_start_time=None,
+    tz=None,
     truth_col="signal_value",
     load_kw=1000,
 ):
@@ -885,8 +915,12 @@ def calc_max_potential(
     window_starts = assign_windows(df.index.get_level_values("point_time"), window_mins)
 
     if window_start_time:
-        start_offset = pd.to_timedelta(window_start_time + ":00")
-        adj_window_starts = [i.normalize() + start_offset for i in window_starts]
+        utc_offset = pd.to_timedelta(window_start_time + ":00")
+        local_dt = (pd.Timestamp("1999-01-01T00:00Z") + utc_offset).tz_convert(tz)
+        local_offset = pd.to_timedelta(local_dt.hour, unit="h") \
+              + pd.to_timedelta(local_dt.minute, unit="m") \
+              + pd.to_timedelta(local_dt.second, unit="s")
+        adj_window_starts = [i.normalize() + local_offset for i in window_starts]
     else:
         adj_window_starts = window_starts
 
@@ -941,13 +975,14 @@ def plot_max_impact_potential(
     y_max = 0
     for region_abbrev, region_models in factory.data_handlers_by_region_dict.items():
         fig = go.Figure()
+        tz = get_tz_from_centroid(region_abbrev)
 
         for model_job in region_models:
 
             _metrics = [
                 {
-                    **calc_max_potential(model_job.moers, **AER_SCENARIOS[s]),
-                    "scenario": s,
+                    **calc_max_potential(model_job.moers, **AER_SCENARIOS[s], tz=tz),
+                    "scenario": s, 
                 }
                 for s in scenarios
             ]

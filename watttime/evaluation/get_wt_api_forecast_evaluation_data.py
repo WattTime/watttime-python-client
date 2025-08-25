@@ -11,8 +11,7 @@ from itertools import product
 from dataclasses import dataclass
 
 import pandas as pd
-from shapely.geometry import shape
-from timezonefinder import TimezoneFinder
+
 
 from watttime import api
 
@@ -57,7 +56,6 @@ class AnalysisDataHandler:
     forecast_max_horizon: int = 60 * 24
     forecast_sample_seed: int = 42
     signal_type: str = "co2_moer"
-    localize_tz: bool = True
     model_date: Optional[str] = (
         None  # if None, will default to latest provided through API
     )
@@ -93,18 +91,6 @@ class AnalysisDataHandler:
         random.seed(self.forecast_sample_seed)
         self.sample_days = random.sample(self.eval_days, k)
 
-        # get tz by looking up centroid of region.
-        # Note that some regions may contain multiple timezones
-        if self.localize_tz:
-            wt_maps = api.WattTimeMaps()
-            all_maps = wt_maps.get_maps_json()
-            region = {
-                f["properties"]["region"]: f["geometry"] for f in all_maps["features"]
-            }[self.region]
-            centroid = shape(region).centroid
-            self.tz = TimezoneFinder().certain_timezone_at(
-                lat=centroid.y, lng=centroid.x
-            )
 
     @cached_property
     def moers(self) -> pd.DataFrame:
@@ -122,9 +108,6 @@ class AnalysisDataHandler:
             .rename(columns={"value": "signal_value"})
             .set_index("point_time", drop=True)
         )
-
-        if self.localize_tz:
-            moers.index = moers.index.tz_convert(self.tz)
 
         moers = moers.sort_index()
 
@@ -153,12 +136,6 @@ class AnalysisDataHandler:
             ).dt.total_seconds() / 60
             forecasts.rename({"value": "predicted_value"}, axis="columns", inplace=True)
 
-            if self.localize_tz:
-                forecasts["generated_at"] = forecasts["generated_at"].dt.tz_convert(
-                    self.tz
-                )
-                forecasts["point_time"] = forecasts["point_time"].dt.tz_convert(self.tz)
-
             self.returned_meta = self.wt_forecast._last_request_meta
             self.returned_forecast_model_date = self.wt_forecast._last_request_meta.get(
                 "model", {}
@@ -178,8 +155,8 @@ class AnalysisDataHandler:
             model=self.model_date,
         )
 
-        if self.localize_tz:
-            fm.index = fm.index.tz_convert(self.tz)
+        # if self.localize_tz:
+        #     fm.index = fm.index.tz_convert(self.tz)
 
         self.returned_meta = self.wt_fuel_mix._last_request_meta
         self.returned_fuel_mix_model_date = self.wt_fuel_mix._last_request_meta.get(

@@ -22,9 +22,9 @@ def convert_soc_to_soe(soc_power_df, voltage_curve, battery_capacity_coulombs):
 
     # Calculate differential SoC for numerical integration
     delta_soc = np.diff(soc, prepend=0)
-    charge_per_interval = delta_soc * battery_capacity_coulombs
+    charge_per_segment = delta_soc * battery_capacity_coulombs
     # Energy is voltage * charge
-    energy_kwh = np.cumsum(voltage * charge_per_interval * 0.001 / 3600)
+    energy_kwh = np.cumsum(voltage * charge_per_segment * 0.001 / 3600)
 
     # Normalize so that State of energy goes from 0 to 1
     soe_array = energy_kwh / energy_kwh.iloc[-1]

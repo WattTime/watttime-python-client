@@ -3,9 +3,9 @@ from datetime import datetime, timedelta
 import unittest
 import pandas as pd
 from pytz import UTC
-import pytz
-from watttime.api import RecalculatingWattTimeOptimizer, WattTimeOptimizer, WattTimeForecast, RecalculatingWattTimeOptimizerWithContiguity
+from watttime_optimizer import WattTimeOptimizer
 
+REGION = "CAISO_NORTH"
 
 def get_usage_plan_mean_power(usage_plan):
     usage_plan_when_active = usage_plan[usage_plan["usage"] != 0].copy()
@@ -62,7 +62,7 @@ class TestWattTimeOptimizer(unittest.TestCase):
         username = os.getenv("WATTTIME_USER")
         password = os.getenv("WATTTIME_PASSWORD")
         cls.wt_opt = WattTimeOptimizer(username, password)
-        cls.region = "PJM_NJ"
+        cls.region = REGION
         cls.usage_power_kw = 12
         now = datetime.now(UTC)
         cls.window_start_test = now + timedelta(minutes=10)
@@ -151,7 +151,7 @@ class TestWattTimeOptimizer(unittest.TestCase):
             optimization_method="sophisticated",
         )
         print("Using DP Plan w/ fixed power rate and charging uncertainty")
-        print(usage_plan["emissions_co2e_lb"].sum())
+        print(usage_plan["emissions_co2_lb"].sum())
 
         # Check time required
         self.assertAlmostEqual(usage_plan["usage"].sum(), 240)
@@ -179,7 +179,7 @@ class TestWattTimeOptimizer(unittest.TestCase):
             optimization_method="auto",
         )
         print("Using DP Plan w/ variable power rate")
-        print(usage_plan["emissions_co2e_lb"].sum())
+        print(usage_plan["emissions_co2_lb"].sum())
 
         # Check time required
         self.assertAlmostEqual(usage_plan["usage"].sum(), 320)
@@ -263,19 +263,19 @@ class TestWattTimeOptimizer(unittest.TestCase):
             usage_plan["energy_usage_mwh"].sum() * 1000, 180 * 5 / 60
         )
 
-    def test_dp_two_intervals_unbounded(self):
-        """Test auto mode with two intervals."""
+    def test_dp_two_segments_unbounded(self):
+        """Test auto mode with two segments."""
         usage_plan = self.wt_opt.get_optimal_usage_plan(
             region=self.region,
             usage_window_start=self.window_start_test,
             usage_window_end=self.window_end_test,
             usage_time_required_minutes=160,
             usage_power_kw=self.usage_power_kw,
-            charge_per_interval=[(0, 999999), (0, 999999)],
+            charge_per_segment=[(0, 999999), (0, 999999)],
             optimization_method="auto",
         )
         print(
-            "Using auto mode with two unbounded intervals\n",
+            "Using auto mode with two unbounded segments\n",
             pretty_format_usage(usage_plan),
         )
         print(usage_plan.sum())
@@ -293,19 +293,19 @@ class TestWattTimeOptimizer(unittest.TestCase):
         # Check number of components
         self.assertLessEqual(len(get_contiguity_info(usage_plan)), 2)
 
-    def test_dp_two_intervals_flexible_length(self):
-        """Test auto mode with two variable length intervals."""
+    def test_dp_two_segments_flexible_length(self):
+        """Test auto mode with two variable length segments."""
         usage_plan = self.wt_opt.get_optimal_usage_plan(
             region=self.region,
             usage_window_start=self.window_start_test,
             usage_window_end=self.window_end_test,
             usage_time_required_minutes=160,
             usage_power_kw=self.usage_power_kw,
-            charge_per_interval=[(60, 100), (60, 100)],
+            charge_per_segment=[(60, 100), (60, 100)],
             optimization_method="auto",
         )
         print(
-            "Using auto mode with two flexible intervals\n",
+            "Using auto mode with two flexible segments\n",
             pretty_format_usage(usage_plan),
         )
         print(usage_plan.sum())
@@ -335,19 +335,19 @@ class TestWattTimeOptimizer(unittest.TestCase):
             # Check combined component length
             self.assertAlmostEqual(contiguity_info[0]["sum"], 160)
 
-    def test_dp_two_intervals_one_sided_length(self):
-        """Test auto mode with two variable length intervals."""
+    def test_dp_two_segments_one_sided_length(self):
+        """Test auto mode with two variable length segments."""
         usage_plan = self.wt_opt.get_optimal_usage_plan(
             region=self.region,
             usage_window_start=self.window_start_test,
             usage_window_end=self.window_end_test,
             usage_time_required_minutes=160,
             usage_power_kw=self.usage_power_kw,
-            charge_per_interval=[(30, None), (30, None), (30, None), (30, None)],
+            charge_per_segment=[(30, None), (30, None), (30, None), (30, None)],
             optimization_method="auto",
         )
         print(
-            "Using auto mode with one-sided intervals\n",
+            "Using auto mode with one-sided segments\n",
             pretty_format_usage(usage_plan),
         )
         print(usage_plan.sum())
@@ -370,20 +370,20 @@ class TestWattTimeOptimizer(unittest.TestCase):
             # Check component length
             self.assertGreaterEqual(contiguity_info[i]["sum"], 30)
 
-    def test_dp_two_intervals_one_sided_length_use_all_false(self):
-        """Test auto mode with two variable length intervals."""
+    def test_dp_two_segments_one_sided_length_use_all_false(self):
+        """Test auto mode with two variable length segments."""
         usage_plan = self.wt_opt.get_optimal_usage_plan(
             region=self.region,
             usage_window_start=self.window_start_test,
             usage_window_end=self.window_end_test,
             usage_time_required_minutes=160,
             usage_power_kw=self.usage_power_kw,
-            charge_per_interval=[(40, None), (40, None), (40, None), (40, None)],
-            use_all_intervals=False,
+            charge_per_segment=[(40, None), (40, None), (40, None), (40, None)],
+            use_all_segments=False,
             optimization_method="auto",
         )
         print(
-            "Using auto mode with one-sided intervals\n",
+            "Using auto mode with one-sided segments\n",
             pretty_format_usage(usage_plan),
         )
         print(usage_plan.sum())
@@ -406,19 +406,19 @@ class TestWattTimeOptimizer(unittest.TestCase):
             # Check component length
             self.assertGreaterEqual(contiguity_info[i]["sum"], 40)
 
-    def test_dp_two_intervals_exact_input_a(self):
-        """Test auto mode with two intervals."""
+    def test_dp_two_segments_exact_input_a(self):
+        """Test auto mode with two segments."""
         usage_plan = self.wt_opt.get_optimal_usage_plan(
             region=self.region,
             usage_window_start=self.window_start_test,
             usage_window_end=self.window_end_test,
             usage_time_required_minutes=160,
             usage_power_kw=self.usage_power_kw,
-            charge_per_interval=[(60, 60), (100, 100)],
+            charge_per_segment=[(60, 60), (100, 100)],
             optimization_method="auto",
         )
         print(
-            "Using auto mode with two exact intervals\n",
+            "Using auto mode with two exact segments\n",
             pretty_format_usage(usage_plan),
         )
         print(usage_plan.sum())
@@ -446,18 +446,18 @@ class TestWattTimeOptimizer(unittest.TestCase):
             # Check combined component length
             self.assertAlmostEqual(contiguity_info[0]["sum"], 160)
 
-    def test_dp_two_intervals_exact_input_b(self):
-        """Test auto mode with two intervals."""
+    def test_dp_two_segments_exact_input_b(self):
+        """Test auto mode with two segments."""
         usage_plan = self.wt_opt.get_optimal_usage_plan(
             region=self.region,
             usage_window_start=self.window_start_test,
             usage_window_end=self.window_end_test,
             usage_time_required_minutes=160,
             usage_power_kw=self.usage_power_kw,
-            charge_per_interval=[60, 100],
+            charge_per_segment=[60, 100],
             optimization_method="auto",
         )
-        print("Using auto mode, but with two intervals")
+        print("Using auto mode, but with two segments")
         print(pretty_format_usage(usage_plan))
         print(usage_plan.sum())
 
@@ -484,19 +484,19 @@ class TestWattTimeOptimizer(unittest.TestCase):
             # Check combined component length
             self.assertAlmostEqual(contiguity_info[0]["sum"], 160)
 
-    def test_dp_two_intervals_exact_unround(self):
-        """Test auto mode with two intervals, specified via list of tuple."""
+    def test_dp_two_segments_exact_unround(self):
+        """Test auto mode with two segments, specified via list of tuple."""
         usage_plan = self.wt_opt.get_optimal_usage_plan(
             region=self.region,
             usage_window_start=self.window_start_test,
             usage_window_end=self.window_end_test,
             usage_time_required_minutes=160,
             usage_power_kw=self.usage_power_kw,
-            charge_per_interval=[(67, 67), (93, 93)],
+            charge_per_segment=[(67, 67), (93, 93)],
             optimization_method="auto",
         )
         print(
-            "Using auto mode with two exact unround intervals\n",
+            "Using auto mode with two exact unround segments\n",
             pretty_format_usage(usage_plan),
         )
         print(usage_plan.sum())
@@ -524,19 +524,19 @@ class TestWattTimeOptimizer(unittest.TestCase):
             # Check combined component length
             self.assertAlmostEqual(contiguity_info[0]["sum"], 160)
 
-    def test_dp_two_intervals_exact_unround_alternate_input(self):
-        """Test auto mode with two intervals, specified via list of ints."""
+    def test_dp_two_segments_exact_unround_alternate_input(self):
+        """Test auto mode with two segments, specified via list of ints."""
         usage_plan = self.wt_opt.get_optimal_usage_plan(
             region=self.region,
             usage_window_start=self.window_start_test,
             usage_window_end=self.window_end_test,
             usage_time_required_minutes=160,
             usage_power_kw=self.usage_power_kw,
-            charge_per_interval=[67, 93],
+            charge_per_segment=[67, 93],
             optimization_method="auto",
         )
         print(
-            "Using auto mode with two exact unround intervals\n",
+            "Using auto mode with two exact unround segments\n",
             pretty_format_usage(usage_plan),
         )
         print(usage_plan.sum())
@@ -564,18 +564,18 @@ class TestWattTimeOptimizer(unittest.TestCase):
             # Check combined component length
             self.assertAlmostEqual(contiguity_info[0]["sum"], 160)
 
-    def test_dp_two_intervals_exact_inconsistent_b(self):
-        """Test auto mode with one interval that is inconsistent with usage_time_required."""
+    def test_dp_two_segments_exact_inconsistent_b(self):
+        """Test auto mode with one segment that is inconsistent with usage_time_required."""
         usage_plan = self.wt_opt.get_optimal_usage_plan(
             region=self.region,
             usage_window_start=self.window_start_test,
             usage_window_end=self.window_end_test,
             usage_time_required_minutes=160,
             usage_power_kw=self.usage_power_kw,
-            charge_per_interval=[(65, 65)],
+            charge_per_segment=[(65, 65)],
             optimization_method="auto",
         )
-        print("Using auto mode, but with two intervals")
+        print("Using auto mode, but with two segments")
         print(pretty_format_usage(usage_plan))
         print(usage_plan.sum())
 
@@ -594,370 +594,5 @@ class TestWattTimeOptimizer(unittest.TestCase):
         # Check number of components
         self.assertEqual(len(contiguity_info), 1)
 
-def convert_to_utc(local_time_str, local_tz_str):
-    local_time = datetime.strptime(
-        local_time_str.strftime("%Y-%m-%d %H:%M:%S"), "%Y-%m-%d %H:%M:%S"
-    )
-    local_tz = pytz.timezone(local_tz_str)
-    local_time = local_tz.localize(local_time)
-    return local_time.astimezone(pytz.utc)
-
-
-class TestRecalculatingOptimizer(unittest.TestCase):
-    def setUp(self):
-        self.region = "PJM_NJ"
-        self.username = os.getenv("WATTTIME_USER")
-        self.password = os.getenv("WATTTIME_PASSWORD")
-        self.static_start_time = convert_to_utc(
-            datetime(2024, 1, 1, hour=20, second=1), local_tz_str="America/New_York"
-        )
-        self.static_end_time = convert_to_utc(
-            datetime(2024, 1, 2, hour=8, second=1), local_tz_str="America/New_York"
-        )
-
-        self.wth = WattTimeForecast(self.username, self.password)
-        self.curr_fcst_data = self.wth.get_historical_forecast_pandas(
-            start=self.static_start_time - timedelta(minutes=5),
-            end=self.static_end_time,
-            region=self.region,
-            signal_type="co2_moer",
-            horizon_hours=72,
-        )
-        self.data_times = self.curr_fcst_data["generated_at"]
-
-    def test_init_recalculating_optimizer(self) -> None:
-        """Test init"""
-        fcst_data = self.curr_fcst_data[
-            self.curr_fcst_data["generated_at"] < self.static_start_time
-        ]
-        basic_schedule = WattTimeOptimizer(
-            self.username, self.password
-        ).get_optimal_usage_plan(
-            region=self.region,
-            usage_window_start=self.static_start_time,
-            usage_window_end=self.static_end_time,
-            usage_time_required_minutes=240,
-            usage_power_kw=2,
-            optimization_method="auto",
-            moer_data_override=fcst_data,
-        )
-
-        recalculating_optimizer = RecalculatingWattTimeOptimizer(
-            region=self.region,
-            watttime_username=self.username,
-            watttime_password=self.password,
-            usage_time_required_minutes=240,
-            usage_power_kw=2,
-            optimization_method="auto",
-        )
-
-        starting_schedule = recalculating_optimizer.get_new_schedule(
-            self.static_start_time, self.static_end_time, curr_fcst_data=fcst_data
-        )
-
-        self.assertEqual(
-            basic_schedule["usage"].tolist(), starting_schedule["usage"].tolist()
-        )
-        self.assertEqual(basic_schedule["usage"].sum(), 240)
-
-    def test_get_single_combined_schedule(self) -> None:
-        """Test get_combined with single schedule"""
-        recalculating_optimizer = RecalculatingWattTimeOptimizer(
-            region=self.region,
-            watttime_username=self.username,
-            watttime_password=self.password,
-            usage_time_required_minutes=240,
-            usage_power_kw=2,
-            optimization_method="auto",
-        )
-
-        newest_schedule = recalculating_optimizer.get_new_schedule(
-            self.static_start_time,
-            self.static_end_time,
-        )
-        combined_schedule = recalculating_optimizer.get_combined_schedule()
-
-        self.assertEqual(
-            newest_schedule["usage"].tolist(), combined_schedule["usage"].tolist()
-        )
-        self.assertEqual(combined_schedule["usage"].sum(), 240)
-
-    def test_multiple_schedules_combined(self) -> None:
-        """Test combining two schedules"""
-        recalculating_optimizer = RecalculatingWattTimeOptimizer(
-            region=self.region,
-            watttime_username=self.username,
-            watttime_password=self.password,
-            usage_time_required_minutes=240,
-            usage_power_kw=2,
-            optimization_method="auto",
-        )
-        first_schedule = recalculating_optimizer.get_new_schedule(
-            self.static_start_time,
-            self.static_end_time,
-        )
-        first_combined_schedule = recalculating_optimizer.get_combined_schedule()
-        second_schedule = recalculating_optimizer.get_new_schedule(
-            self.static_start_time + timedelta(hours=7),
-            self.static_end_time,
-        )
-        second_combined_schedule = recalculating_optimizer.get_combined_schedule()
-
-        self.assertNotEqual(
-            first_combined_schedule["usage"].tolist(),
-            second_combined_schedule["usage"].tolist(),
-        )
-        self.assertEqual(
-            first_combined_schedule["usage"].tolist()[: 12 * 7],
-            second_combined_schedule["usage"].tolist()[: 12 * 7],
-        )
-        self.assertEqual(first_combined_schedule["usage"].sum(), 240)
-        self.assertEqual(second_combined_schedule["usage"].sum(), 240)
-
-    def test_schedule_times(self) -> None:
-        recalculating_optimizer = RecalculatingWattTimeOptimizer(
-            region=self.region,
-            watttime_username=self.username,
-            watttime_password=self.password,
-            usage_time_required_minutes=30,
-            usage_power_kw=2,
-            optimization_method="auto",
-        )
-
-        start_time = self.static_start_time
-        end_time = self.static_end_time + timedelta(hours=2)
-
-        for i in range(2 * 2):
-            start_time = start_time + timedelta(minutes=30)
-            schedule = recalculating_optimizer.get_new_schedule(start_time, end_time)
-            self.assertTrue(schedule.index.is_unique)
-            self.assertEquals(
-                schedule.index[0].to_pydatetime(),
-                start_time + timedelta(minutes=4, seconds=59),
-            )
-
-        self.assertTrue(recalculating_optimizer.get_combined_schedule().index.is_unique)
-
-    def test_override_data_behavior(self) -> None:
-        """Test combining schedules with overriden data"""
-        recalculating_optimizer = RecalculatingWattTimeOptimizer(
-            region=self.region,
-            watttime_username=self.username,
-            watttime_password=self.password,
-            usage_time_required_minutes=240,
-            usage_power_kw=2,
-            optimization_method="auto",
-        )
-        last_data_time = self.data_times[self.data_times < self.static_start_time].max()
-        first_query_time_data = self.curr_fcst_data[
-            self.curr_fcst_data["generated_at"] == last_data_time
-        ]
-        first_schedule = recalculating_optimizer.get_new_schedule(
-            self.static_start_time, self.static_end_time, first_query_time_data
-        )
-        first_combined_schedule = recalculating_optimizer.get_combined_schedule()
-
-        last_data_time = self.data_times[
-            self.data_times < self.static_start_time + timedelta(hours=7)
-        ].max()
-        second_query_time_data = self.curr_fcst_data[
-            self.curr_fcst_data["generated_at"] == last_data_time
-        ]
-        second_schedule = recalculating_optimizer.get_new_schedule(
-            self.static_start_time + timedelta(hours=7),
-            self.static_end_time,
-            second_query_time_data,
-        )
-
-        second_combined_schedule = recalculating_optimizer.get_combined_schedule()
-        self.assertNotEqual(
-            first_combined_schedule["usage"].tolist(),
-            second_combined_schedule["usage"].tolist(),
-        )
-        self.assertEqual(
-            first_combined_schedule["usage"].tolist()[: 12 * 7],
-            second_combined_schedule["usage"].tolist()[: 12 * 7],
-        )
-
-        self.assertEqual(first_combined_schedule["usage"].sum(), 240)
-        self.assertEqual(second_combined_schedule["usage"].sum(), 240)
-
-
-def check_num_intervals(schedule: pd.DataFrame) -> int:
-    charging_indicator = schedule["usage"].apply(lambda x: 1 if x > 0 else 0)
-    intervals = charging_indicator.diff().value_counts().get(1, 0)
-    if charging_indicator[0] > 0:
-        intervals += 1
-    return intervals
-
-
-class TestRecalculatingOptimizerWithConstraints(unittest.TestCase):
-    def setUp(self):
-        self.region = "PJM_NJ"
-        self.username = os.getenv("WATTTIME_USER")
-        self.password = os.getenv("WATTTIME_PASSWORD")
-
-        self.static_start_time = convert_to_utc(
-            datetime(2024, 1, 1, hour=20, second=1), local_tz_str="America/New_York"
-        )
-        self.static_end_time = convert_to_utc(
-            datetime(2024, 1, 2, hour=8, second=1), local_tz_str="America/New_York"
-        )
-
-        self.wth = WattTimeForecast(self.username, self.password)
-        self.curr_fcst_data = self.wth.get_historical_forecast_pandas(
-            start=self.static_start_time - timedelta(minutes=5),
-            end=self.static_end_time,
-            region=self.region,
-            signal_type="co2_moer",
-            horizon_hours=72,
-        )
-        self.data_times = self.curr_fcst_data["generated_at"]
-
-    def test_recalculating_optimizer_adjust_num_intervals(self) -> None:
-        recalculating_optimizer = RecalculatingWattTimeOptimizerWithContiguity(
-            region=self.region,
-            watttime_username=self.username,
-            watttime_password=self.password,
-            usage_time_required_minutes=240,
-            usage_power_kw=2,
-            optimization_method="sophisticated",
-            charge_per_interval=[140, 100],
-        )
-
-        initial_schedule = recalculating_optimizer.get_new_schedule(
-            self.static_start_time,
-            self.static_end_time,
-        )
-        self.assertTrue(check_num_intervals(initial_schedule) <= 2)
-
-        first_interval_end_time = initial_schedule[
-            initial_schedule["usage"].diff() < 0
-        ].index[0]
-
-        next_schedule = recalculating_optimizer.get_new_schedule(
-            first_interval_end_time,
-            self.static_end_time,
-        )
-
-        self.assertTrue(check_num_intervals(next_schedule) == 1)
-        self.assertEqual(
-            recalculating_optimizer.get_combined_schedule()["usage"].sum(), 240
-        )
-
-    def test_recalculating_optimizer_mid_interval(self) -> None:
-        recalculating_optimizer = RecalculatingWattTimeOptimizerWithContiguity(
-            region=self.region,
-            watttime_username=self.username,
-            watttime_password=self.password,
-            usage_time_required_minutes=240,
-            usage_power_kw=2,
-            optimization_method="sophisticated",
-            charge_per_interval=[120, 120],
-        )
-
-        initial_schedule = recalculating_optimizer.get_new_schedule(
-            self.static_start_time,
-            self.static_end_time,
-        )
-        self.assertTrue(check_num_intervals(initial_schedule) <= 2)
-
-        mid_interval_time = initial_schedule[
-            initial_schedule["usage"].diff() < 0
-        ].index[0] - timedelta(minutes=10)
-
-        next_schedule = recalculating_optimizer.get_new_schedule(
-            mid_interval_time,
-            self.static_end_time,
-        )
-
-        # Check that remaining schedule before interval end is the same
-        self.assertTrue(
-            initial_schedule[initial_schedule.index >= mid_interval_time]
-            .head(2)
-            .equals(next_schedule.head(2))
-        )
-        self.assertEqual(next_schedule.index[0], mid_interval_time)
-        self.assertEqual(
-            recalculating_optimizer.get_combined_schedule()["usage"].sum(), 240
-        )
-
-    def test_init_recalculating_contiguity_optimizer(self) -> None:
-        """Test init"""
-
-        recalculating_optimizer = RecalculatingWattTimeOptimizerWithContiguity(
-            region=self.region,
-            watttime_username=self.username,
-            watttime_password=self.password,
-            usage_time_required_minutes=240,
-            usage_power_kw=2,
-            optimization_method="sophisticated",
-            charge_per_interval=[100, 140],
-        )
-
-        for i in range(12):
-            schedule = recalculating_optimizer.get_new_schedule(
-                self.static_start_time + timedelta(hours=i),
-                self.static_end_time,
-            )
-
-        self.assertTrue(
-            check_num_intervals(recalculating_optimizer.get_combined_schedule()) <= 2
-        )
-        self.assertEqual(
-            recalculating_optimizer.get_combined_schedule()["usage"].sum(), 240
-        )
-
-    def test_frequent_recalculating_with_contiguity(self) -> None:
-        recalculating_optimizer = RecalculatingWattTimeOptimizerWithContiguity(
-            region=self.region,
-            watttime_username=self.username,
-            watttime_password=self.password,
-            usage_time_required_minutes=30,
-            usage_power_kw=2,
-            optimization_method="sophisticated",
-            charge_per_interval=[15, 15],
-        )
-        start_time = self.static_start_time
-        end_time = self.static_end_time + timedelta(hours=2)
-
-        for i in range(12 * 2):
-            start_time = start_time + timedelta(minutes=5)
-            schedule = recalculating_optimizer.get_new_schedule(start_time, end_time)
-
-        self.assertTrue(
-            check_num_intervals(recalculating_optimizer.get_combined_schedule()) <= 2
-        )
-        self.assertEqual(
-            recalculating_optimizer.get_combined_schedule()["usage"].sum(), 30
-        )
-
-    def test_schedule_times(self) -> None:
-        recalculating_optimizer = RecalculatingWattTimeOptimizerWithContiguity(
-            region=self.region,
-            watttime_username=self.username,
-            watttime_password=self.password,
-            usage_time_required_minutes=30,
-            usage_power_kw=2,
-            optimization_method="sophisticated",
-            charge_per_interval=[15, 15],
-        )
-
-        start_time = self.static_start_time
-        end_time = self.static_end_time + timedelta(hours=2)
-
-        for i in range(2 * 2):
-            start_time = start_time + timedelta(minutes=30)
-            schedule = recalculating_optimizer.get_new_schedule(start_time, end_time)
-            self.assertTrue(schedule.index.is_unique)
-            self.assertEqual(
-                schedule.index[0].to_pydatetime(),
-                start_time + timedelta(minutes=4, seconds=59),
-            )
-
-        self.assertTrue(recalculating_optimizer.get_combined_schedule().index.is_unique)
-
 if __name__ == "__main__":
     unittest.main()
-    # TestWattTimeOptimizer.setUpClass()
-    # TestWattTimeOptimizer().test_dp_non_round_usage_time()

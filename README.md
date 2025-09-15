@@ -1,9 +1,9 @@
 # About
-This SDK is meant to help users with basic queries to WattTime’s API (version 3), and to get data returned in specific formats (e.g., JSON, pandas, csv).
+This SDK is provided to help users retrieve data from WattTime’s API (version 3) in specific formats (e.g., JSON, pandas, csv). The SDK is open-source with an MIT license. The data retrieved is not open-source, it is subject to a separate license with WattTime. [Contact WattTime](https://watttime.org/contact/) about obtaining a data license.
 
-Users may register for access to the WattTime API through this client, however the basic user scoping given will only allow newly registered users to access data for the `CAISO_NORTH` region. Additionally, data may not be available for all signal types for newly registered users.
+Users may register for access to the WattTime API through this client or directly with an API query, however the basic user scoping given upon registration will only allow users to access data for the CAISO_NORTH region, and the 'co2_moer' and 'health_damage' signal types.
 
-Full documentation of WattTime's API, along with response samples and information about [available endpoints is also available](https://docs.watttime.org/).
+See the [API docs](https://docs.watttime.org/) for full documentation of WattTime's API including information about available endpoints and signals along with response samples.
 
 # Configuration
 The SDK can be installed as a python package from the PyPi repository, we recommend using an environment manager such as [miniconda](https://docs.conda.io/projects/miniconda/en/latest/) or [venv](https://docs.python.org/3/library/venv.html).

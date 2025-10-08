@@ -28,14 +28,16 @@ def get_latest_model_date(abbrev, requested_model_dates: List[str]):
 
 
 def get_regions_for_model(
-    model: str, signal_type: str, combine_subregions: bool = False,
+    model: str,
+    signal_type: str,
+    combine_subregions: bool = False,
 ) -> List[Union[str, Tuple[str, List[str]]]]:
     regions = MA_DF.loc[
         (MA_DF["signal_type"] == signal_type)
         & (MA_DF["model"] == model)
         & (MA_DF["endpoint"] == "v3/historical")
     ]["region"].unique()
-    
+
     regions_dict = defaultdict(list)
     for region in regions:
         parent = region.split("_")[0]
@@ -54,8 +56,10 @@ def get_regions_for_model(
     return regions_list
 
 
-def _process_region(region_list, signal_type, model_date, start, end, output_dir, steps):
-    
+def _process_region(
+    region_list, signal_type, model_date, start, end, output_dir, steps
+):
+
     # TODO: make this DRY
     if isinstance(region_list, str):
         region_title = region_list
@@ -79,7 +83,7 @@ def _process_region(region_list, signal_type, model_date, start, end, output_dir
     if output_path.exists():
         print(f"[SKIP] {output_path} already exists, skipping.")
         return (region_title, None)
-    
+
     try:
         print(f"[PID] working on {region_title}")
         generate_report(
@@ -125,7 +129,14 @@ def bulk_generate_reports(
         with ProcessPoolExecutor(max_workers=max_workers) as executor:
             future_to_region = {
                 executor.submit(
-                    _process_region, region, signal_type, model_date, start, end, output_dir, steps
+                    _process_region,
+                    region,
+                    signal_type,
+                    model_date,
+                    start,
+                    end,
+                    output_dir,
+                    steps,
                 ): region
                 for region in regions
             }
@@ -149,5 +160,11 @@ OUTPUT_DIR = Path("/app/watttime-python-client/analysis/2024-10-01")
 
 if __name__ == "__main__":
     bulk_generate_reports(
-        MODEL, SIGNAL_TYPE, START, END, OUTPUT_DIR, ["signal", "fuel_mix", "forecast"], max_workers=5
+        MODEL,
+        SIGNAL_TYPE,
+        START,
+        END,
+        OUTPUT_DIR,
+        ["signal", "fuel_mix", "forecast"],
+        max_workers=5,
     )

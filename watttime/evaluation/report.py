@@ -2,6 +2,7 @@ import argparse
 import calendar
 import sys
 import json
+import warnings
 from datetime import datetime, timedelta, timezone
 from dateutil.parser import parse
 from operator import attrgetter
@@ -21,24 +22,20 @@ from shapely.geometry import shape
 from timezonefinder import TimezoneFinder
 
 from jinja2 import Template
-from watttime.evaluation.get_wt_api_forecast_evaluation_data import (
-    AnalysisDataHandler,
-    DataHandlerFactory,
-)
+from watttime.evaluation.get_wt_api_forecast_evaluation_data import DataHandlerFactory
 from watttime.evaluation.fuels_cp import fuel_cp
 from watttime import api
+
 
 @lru_cache
 def get_tz_from_centroid(region):
     wt_maps = api.WattTimeMaps()
     all_maps = wt_maps.get_maps_json()
-    region = {
-        f["properties"]["region"]: f["geometry"] for f in all_maps["features"]
-    }[region]
+    region = {f["properties"]["region"]: f["geometry"] for f in all_maps["features"]}[
+        region
+    ]
     centroid = shape(region).centroid
-    tz = TimezoneFinder().certain_timezone_at(
-        lat=centroid.y, lng=centroid.x
-    )
+    tz = TimezoneFinder().certain_timezone_at(lat=centroid.y, lng=centroid.x)
     return tz
 
 
@@ -146,14 +143,14 @@ def plot_sample_moers(
     for region_abbrev, region_models in factory.data_handlers_by_region_dict.items():
 
         fig = go.Figure()
-        
+
         tz = get_tz_from_centroid(region_abbrev)
 
         for model_job in region_models:
 
             _df = model_job.moers.reindex(times)
             _df = _df.tz_convert(tz)
-            
+
             fig.add_trace(
                 go.Scatter(
                     x=_df.index,
@@ -326,16 +323,22 @@ def calc_norm_mae(
 def calc_rank_corr(
     df, horizon_mins, pred_col="predicted_value", truth_col="signal_value"
 ):
-    """Returns mean daily Rank Correlation"""
+    """Compute mean daily Spearman rank correlation up to a given forecast horizon."""
 
-    filtered_df = df[df["horizon_mins"] <= horizon_mins].dropna()
-    corr = filtered_df.groupby("generated_at").apply(
-        lambda group_df: stats.spearmanr(
-            group_df[truth_col], group_df[pred_col]
-        ).statistic
+    filtered_df = df[df["horizon_mins"] <= horizon_mins].dropna(
+        subset=[pred_col, truth_col]
     )
+    if filtered_df.empty:
+        return np.nan
 
-    return np.nanmean(corr).round(3)
+    def safe_spearmanr(group_df):
+        if group_df[truth_col].nunique() < 2 or group_df[pred_col].nunique() < 2:
+            return np.nan
+        return stats.spearmanr(group_df[truth_col], group_df[pred_col]).statistic
+
+    corr = filtered_df.groupby("generated_at").apply(safe_spearmanr)
+
+    return float(np.nanmean(corr).round(3))
 
 
 def pick_k_optimal_charge(in_df: pd.DataFrame, truth_col, charge_mins: int):
@@ -358,9 +361,9 @@ def pick_k_optimal_charge(in_df: pd.DataFrame, truth_col, charge_mins: int):
 
         # Mark these point_times as charge periods in the original dataframe
         if specify_generated_at:
-            df.loc[[(p, p) for p in selected_points["point_time"]], "charge_status"] = (
-                True
-            )
+            df.loc[
+                [(p, p) for p in selected_points["point_time"]], "charge_status"
+            ] = True
         else:
             df.loc[selected_points["point_time"], "charge_status"] = True
 
@@ -392,7 +395,14 @@ def simulate_charge(in_df: pd.DataFrame, sort_col: str, charge_mins: int):
             )
 
             if should_charge_now:
-                assert generated_at == g_df.iloc[0]["point_time"]
+
+                if generated_at != g_df.iloc[0]["point_time"]:
+                    warnings.warn(
+                        "The generated_at and first point_time for a forecast do not match, look closely to understand why!",
+                        RuntimeWarning,
+                    )
+                    continue
+
                 charge_periods.append((generated_at, generated_at))
                 _charge_needed -= 1
 
@@ -414,41 +424,44 @@ def simulate_charge(in_df: pd.DataFrame, sort_col: str, charge_mins: int):
 def assign_windows(
     generated_ats: List[pd.Timestamp], window_size: pd.Timedelta
 ) -> List[pd.Timestamp]:
-    
+
     if isinstance(window_size, int):
         window_size = pd.Timedelta(minutes=window_size)
-    
+
     n = len(generated_ats)
     if n == 0:
         return []
-    
+
     # Create array of (timestamp, original_index) and sort by timestamp
-    ts_with_idx = np.array([(ts.value, i) for i, ts in enumerate(generated_ats)], 
-                          dtype=[('ts', 'i8'), ('idx', 'i4')])
-    ts_with_idx.sort(order='ts')
-    
+    ts_with_idx = np.array(
+        [(ts.value, i) for i, ts in enumerate(generated_ats)],
+        dtype=[("ts", "i8"), ("idx", "i4")],
+    )
+    ts_with_idx.sort(order="ts")
+
     # Convert window_size to nanoseconds for direct comparison
     window_ns = window_size.value
-    
+
     # Assign signposts using vectorized operations where possible
-    signposts = np.empty(n, dtype='i8')
-    current_start_ns = ts_with_idx[0]['ts']
+    signposts = np.empty(n, dtype="i8")
+    current_start_ns = ts_with_idx[0]["ts"]
     signposts[0] = current_start_ns
-    
+
     for i in range(1, n):
-        ts_ns = ts_with_idx[i]['ts']
+        ts_ns = ts_with_idx[i]["ts"]
         if ts_ns < current_start_ns + window_ns:
             signposts[i] = current_start_ns
         else:
             current_start_ns = ts_ns
             signposts[i] = current_start_ns
-    
+
     # Map back to original order using fancy indexing
-    result = np.empty(n, dtype='i8')
-    result[ts_with_idx['idx']] = signposts
-    
+    result = np.empty(n, dtype="i8")
+    result[ts_with_idx["idx"]] = signposts
+
     # Convert back to Timestamps
-    return [pd.Timestamp(ns, tz='UTC') for ns in result]
+    return [pd.Timestamp(ns, tz="UTC") for ns in result]
+
 
 def calc_rank_compare_metrics(
     in_df,
@@ -472,9 +485,11 @@ def calc_rank_compare_metrics(
     if window_start_time:
         utc_offset = pd.to_timedelta(window_start_time + ":00")
         local_dt = (pd.Timestamp("1999-01-01T00:00Z") + utc_offset).tz_convert(tz)
-        local_offset = pd.to_timedelta(local_dt.hour, unit="h") \
-              + pd.to_timedelta(local_dt.minute, unit="m") \
-              + pd.to_timedelta(local_dt.second, unit="s")
+        local_offset = (
+            pd.to_timedelta(local_dt.hour, unit="h")
+            + pd.to_timedelta(local_dt.minute, unit="m")
+            + pd.to_timedelta(local_dt.second, unit="s")
+        )
         adj_window_starts = [i.normalize() + local_offset for i in window_starts]
     else:
         adj_window_starts = window_starts
@@ -498,6 +513,12 @@ def calc_rank_compare_metrics(
         lambda x: x.reset_index()["generated_at"].nunique()
     )[pred_col]
     df = df.loc[n_generated_at_in_window >= (charge_mins // 5) - 1]
+
+    # Filter out rows where generated_at != first point_time in the window
+    df = df.loc[
+        df.index.get_level_values("generated_at")
+        == df.reset_index().groupby("generated_at")["point_time"].transform("first")
+    ]
 
     df = df.assign(
         truth_charge_status=pick_k_optimal_charge(df, truth_col, charge_mins),
@@ -540,12 +561,15 @@ def calc_rank_compare_metrics(
     assert y_pred_emissions >= y_best_emissions
     assert y_base_emissions >= y_best_emissions
 
-    reduction = (y_base_emissions - y_pred_emissions) / len(
-        set(df.index.get_level_values("generated_at").date)
-    )
-    potential = (y_base_emissions - y_best_emissions) / len(
-        set(df.index.get_level_values("generated_at").date)
-    )
+    dates = df.index.get_level_values("generated_at")
+    n_days = len(set(dates.dropna().date))
+
+    if n_days == 0:
+        reduction = np.nan
+        potential = np.nan
+    else:
+        reduction = (y_base_emissions - y_pred_emissions) / n_days
+        potential = (y_base_emissions - y_best_emissions) / n_days
 
     return {
         "reduction": round(reduction, 1),
@@ -735,7 +759,7 @@ def plot_impact_forecast_metrics(
             subplot_titles=[j.model_date for j in region_models],
             vertical_spacing=0.2,
         )
-        
+
         tz = get_tz_from_centroid(region_abbrev)
 
         for model_ix, model_job in enumerate(region_models, start=1):
@@ -743,8 +767,7 @@ def plot_impact_forecast_metrics(
             _metrics = [
                 {
                     **calc_rank_compare_metrics(
-                        model_job.forecasts_v_moers, **AER_SCENARIOS[s],
-                        tz=tz
+                        model_job.forecasts_v_moers, **AER_SCENARIOS[s], tz=tz
                     ),
                     "scenario": s,
                 }
@@ -838,13 +861,16 @@ def plot_sample_fuelmix(
             subplot_titles=[j.model_date for j in region_models],
             vertical_spacing=0.2,
         )
-        
+
         tz = get_tz_from_centroid(region_abbrev)
+
+        # Track which fuel types have been added to legend
+        fuels_in_legend = set()
 
         for model_ix, model_job in enumerate(region_models, start=1):
 
             stacked_values = model_job.fuel_mix.reindex(times)
-            
+
             stacked_values = stacked_values.tz_convert(tz)
 
             # Create cumulative values for stacking
@@ -853,6 +879,11 @@ def plot_sample_fuelmix(
 
             # Add each fuel type as an area
             for fuel_ix, fuel in enumerate(model_job.fuel_mix.columns):
+                # Only show in legend if not already added
+                show_in_legend = fuel not in fuels_in_legend
+                if show_in_legend:
+                    fuels_in_legend.add(fuel)
+
                 fig.add_trace(
                     go.Scatter(
                         x=stacked_values.index,
@@ -863,7 +894,7 @@ def plot_sample_fuelmix(
                         fillcolor=fuel_cp[fuel],
                         connectgaps=False,
                         legendgroup=fuel,
-                        showlegend=(model_ix == 1),
+                        showlegend=show_in_legend,
                         line=dict(shape="hv"),
                     ),
                     row=model_ix,
@@ -917,9 +948,11 @@ def calc_max_potential(
     if window_start_time:
         utc_offset = pd.to_timedelta(window_start_time + ":00")
         local_dt = (pd.Timestamp("1999-01-01T00:00Z") + utc_offset).tz_convert(tz)
-        local_offset = pd.to_timedelta(local_dt.hour, unit="h") \
-              + pd.to_timedelta(local_dt.minute, unit="m") \
-              + pd.to_timedelta(local_dt.second, unit="s")
+        local_offset = (
+            pd.to_timedelta(local_dt.hour, unit="h")
+            + pd.to_timedelta(local_dt.minute, unit="m")
+            + pd.to_timedelta(local_dt.second, unit="s")
+        )
         adj_window_starts = [i.normalize() + local_offset for i in window_starts]
     else:
         adj_window_starts = window_starts
@@ -982,7 +1015,7 @@ def plot_max_impact_potential(
             _metrics = [
                 {
                     **calc_max_potential(model_job.moers, **AER_SCENARIOS[s], tz=tz),
-                    "scenario": s, 
+                    "scenario": s,
                 }
                 for s in scenarios
             ]

@@ -56,9 +56,9 @@ class AnalysisDataHandler:
     forecast_max_horizon: int = 60 * 24
     forecast_sample_seed: int = 42
     signal_type: str = "co2_moer"
-    model_date: Optional[str] = (
-        None  # if None, will default to latest provided through API
-    )
+    model_date: Optional[
+        str
+    ] = None  # if None, will default to latest provided through API
     wt_forecast: Optional[api.WattTimeForecast] = api.WattTimeForecast(
         multithreaded=True
     )
@@ -91,7 +91,6 @@ class AnalysisDataHandler:
         random.seed(self.forecast_sample_seed)
         self.sample_days = random.sample(self.eval_days, k)
 
-
     @cached_property
     def moers(self) -> pd.DataFrame:
         moers = (
@@ -111,6 +110,7 @@ class AnalysisDataHandler:
 
         moers = moers.sort_index()
 
+        self.returned_moer_warnings = self.wt_hist.raised_warnings
         self.returned_meta = self.wt_hist._last_request_meta
         self.returned_hist_model_date = self.wt_hist._last_request_meta.get(
             "model", {}
@@ -136,6 +136,7 @@ class AnalysisDataHandler:
             ).dt.total_seconds() / 60
             forecasts.rename({"value": "predicted_value"}, axis="columns", inplace=True)
 
+            self.returned_forecast_warnings = self.wt_forecast.raised_warnings
             self.returned_meta = self.wt_forecast._last_request_meta
             self.returned_forecast_model_date = self.wt_forecast._last_request_meta.get(
                 "model", {}
@@ -155,9 +156,7 @@ class AnalysisDataHandler:
             model=self.model_date,
         )
 
-        # if self.localize_tz:
-        #     fm.index = fm.index.tz_convert(self.tz)
-
+        self.returned_fuel_mix_warnings = self.wt_fuel_mix.raised_warnings
         self.returned_meta = self.wt_fuel_mix._last_request_meta
         self.returned_fuel_mix_model_date = self.wt_fuel_mix._last_request_meta.get(
             "model", {}
@@ -251,22 +250,47 @@ class DataHandlerFactory:
 
     @property
     def collected_model_meta(self):
-        return [
-            {
-                "region": dh.region,
-                "requested_model_date": dh.model_date,
-                "returned_hist_model_date": getattr(
-                    dh, "returned_hist_model_date", None
-                ),
-                "returned_fuel_mix_model_date": getattr(
-                    dh, "returned_fuel_mix_model_date", None
-                ),
-                "returned_forecast_model_date": getattr(
-                    dh, "returned_forecast_model_date", None
-                ),
+        meta = []
+        for dh in self.data_handlers:
+            # Helper: safely convert warnings to list[dict]
+            def serialize_warnings(warnings):
+                if warnings is None:
+                    return None
+                return [w.to_dict() if hasattr(w, "to_dict") else w for w in warnings]
+
+            # Build the warnings dict, excluding None values
+            warnings = {
+                k: serialize_warnings(v)
+                for k, v in {
+                    "moer": getattr(dh, "returned_moer_warnings", None),
+                    "fuel_mix": getattr(dh, "returned_fuel_mix_warnings", None),
+                    "forecast": getattr(dh, "returned_forecast_warnings", None),
+                }.items()
+                if v is not None
             }
-            for dh in self.data_handlers
-        ]
+
+            # Build the main meta dict, excluding None values and empty warnings
+            m = {
+                k: v
+                for k, v in {
+                    "region": dh.region,
+                    "requested_model_date": dh.model_date,
+                    "returned_hist_model_date": getattr(
+                        dh, "returned_hist_model_date", None
+                    ),
+                    "returned_fuel_mix_model_date": getattr(
+                        dh, "returned_fuel_mix_model_date", None
+                    ),
+                    "returned_forecast_model_date": getattr(
+                        dh, "returned_forecast_model_date", None
+                    ),
+                    "returned_warnings": warnings if warnings else None,
+                }.items()
+                if v is not None
+            }
+
+            meta.append(m)
+        return meta
 
     @property
     def data_handlers_by_region_dict(self) -> Dict[str, List[AnalysisDataHandler]]:

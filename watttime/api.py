@@ -19,6 +19,28 @@ from dateutil.parser import parse
 from pytz import UTC
 
 
+class WattTimeAPIWarning:
+    def __init__(self, url: str, params: Dict[str, Any], warning_message: str):
+        self.url = url
+        self.params = params
+        self.warning_message = warning_message
+
+    def __repr__(self):
+        return f"<WattTimeAPIWarning url={self.url}, params={self.params}, warning={self.warning_message}>\n"
+
+    def to_dict(self) -> Dict[str, Any]:
+        def stringify(value: Any) -> Any:
+            if isinstance(value, datetime):
+                return value.isoformat()
+            return value
+
+        return {
+            "url": self.url,
+            "params": {k: stringify(v) for k, v in self.params.items()},
+            "warning_message": self.warning_message,
+        }
+
+
 def get_log():
     logging.basicConfig(
         format="%(asctime)s [%(levelname)-1s]  " "%(message)s",
@@ -63,6 +85,7 @@ class WattTimeBase:
         self.rate_limit = rate_limit
         self._last_request_times = []
         self.worker_count = worker_count
+        self.raised_warnings: List[WattTimeAPIWarning] = []
 
         if self.multithreaded:
             self._rate_limit_lock = (
@@ -248,10 +271,19 @@ class WattTimeBase:
                 f"API Request Failed: {e}\nURL: {url}\nParams: {params}"
             ) from e
 
-        if j.get("meta", {}).get("warnings"):
-            print("Warnings Returned: %s | Response: %s", params, j["meta"])
+        meta = j.get("meta", {})
+        warnings = meta.get("warnings")
+        if warnings:
+            for warning_message in warnings:
+                warning = WattTimeAPIWarning(
+                    url=url, params=params, warning_message=warning_message
+                )
+                self.raised_warnings.append(warning)
+                LOG.warning(
+                    f"API Warning: {warning_message} | URL: {url} | Params: {params}"
+                )
 
-        self._last_request_meta = j.get("meta", {})
+        self._last_request_meta = meta
 
         return j
 
@@ -738,7 +770,6 @@ class WattTimeMaps(WattTimeBase):
 
 
 class WattTimeMarginalFuelMix(WattTimeBase):
-
     def get_fuel_mix_jsons(
         self,
         start: Union[str, datetime],

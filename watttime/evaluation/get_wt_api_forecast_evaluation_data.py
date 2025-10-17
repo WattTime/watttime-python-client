@@ -56,9 +56,9 @@ class AnalysisDataHandler:
     forecast_max_horizon: int = 60 * 24
     forecast_sample_seed: int = 42
     signal_type: str = "co2_moer"
-    model_date: Optional[
-        str
-    ] = None  # if None, will default to latest provided through API
+    model_date: Optional[str] = (
+        None  # if None, will default to latest provided through API
+    )
     wt_forecast: Optional[api.WattTimeForecast] = api.WattTimeForecast(
         multithreaded=True
     )

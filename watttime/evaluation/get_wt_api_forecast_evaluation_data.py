@@ -1,18 +1,15 @@
-from typing import Optional, List, Union, Dict
-from datetime import datetime
 import inspect
-import warnings
-import random
 import math
-from dateutil.parser import parse
+import random
+import warnings
+from dataclasses import dataclass
+from datetime import datetime
 from functools import cached_property
 from itertools import product
-
-from dataclasses import dataclass
+from typing import Dict, List, Optional, Union
 
 import pandas as pd
-
-
+from dateutil.parser import parse
 from watttime import api
 
 
@@ -55,6 +52,7 @@ class AnalysisDataHandler:
     forecast_sample_size: Union[int, float] = 0.1
     forecast_max_horizon: int = 60 * 24
     forecast_sample_seed: int = 42
+    forecast_data_horizon_days: int = 3
     signal_type: str = "co2_moer"
     model_date: Optional[str] = (
         None  # if None, will default to latest provided through API
@@ -90,6 +88,14 @@ class AnalysisDataHandler:
         k = max(k, 1)
         random.seed(self.forecast_sample_seed)
         self.sample_days = random.sample(self.eval_days, k)
+        sample_days_extended = set()
+        for day in sample_days:
+            sample_days_extended = sample_days_extended | set(
+                pd.date_range(
+                    start=day, periods=self.forecast_data_horizon_days, freq="1D"
+                )
+            )
+        self.sample_days = list(sample_days_extended)
 
     @cached_property
     def moers(self) -> pd.DataFrame:

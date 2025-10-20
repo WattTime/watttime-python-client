@@ -49,7 +49,7 @@ class AnalysisDataHandler:
     region: str
     eval_start: Union[datetime, str]
     eval_end: Union[datetime, str]
-    forecast_sample_size: Union[int, float] = 0.1
+    forecast_sample_size: Union[int, float] = 0.03
     forecast_max_horizon: int = 60 * 24
     forecast_sample_seed: int = 42
     forecast_data_horizon_days: int = 3
@@ -89,7 +89,7 @@ class AnalysisDataHandler:
         random.seed(self.forecast_sample_seed)
         self.sample_days = random.sample(self.eval_days, k)
         sample_days_extended = set()
-        for day in sample_days:
+        for day in self.sample_days:
             sample_days_extended = sample_days_extended | set(
                 pd.date_range(
                     start=day, periods=self.forecast_data_horizon_days, freq="1D"

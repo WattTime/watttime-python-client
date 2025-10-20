@@ -163,7 +163,7 @@ END = "2024-12-31T00:00Z"
 OUTPUT_DIR = Path(
     os.getenv("OUTPUT_DIR", "/app/watttime-python-client/analysis/2024-10-01")
 )
-MAX_WORKERS = int(os.getenv("MAX_WORKERS"), 5)
+MAX_WORKERS = int(os.getenv("MAX_WORKERS", 5))
 
 if __name__ == "__main__":
     bulk_generate_reports(

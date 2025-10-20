@@ -1,9 +1,11 @@
-from watttime.api import WattTimeMyAccess
-from watttime.evaluation.report import generate_report
-from pathlib import Path
-from typing import List, Tuple, Union, Literal
+import os
 from collections import defaultdict
 from concurrent.futures import ProcessPoolExecutor, as_completed
+from pathlib import Path
+from typing import List, Literal, Tuple, Union
+
+from watttime.api import WattTimeMyAccess
+from watttime.evaluation.report import generate_report
 
 ma = WattTimeMyAccess()
 MA_DF = ma.get_access_pandas()
@@ -110,7 +112,9 @@ def bulk_generate_reports(
     steps: List[Literal["signal", "fuel_mix", "forecast"]],
     max_workers: int = 4,
 ):
-    regions = get_regions_for_model(model_date, signal_type)
+    regions = os.getenv("REGIONS", "").split(",")
+    if regions == [""]:
+        regions = get_regions_for_model(model_date, signal_type)
     failed = []
 
     if max_workers == 1:
@@ -156,7 +160,10 @@ MODEL = "2024-10-01"
 SIGNAL_TYPE = "co2_moer"
 START = "2024-01-01T00:00Z"
 END = "2024-12-31T00:00Z"
-OUTPUT_DIR = Path("/app/watttime-python-client/analysis/2024-10-01")
+OUTPUT_DIR = Path(
+    os.getenv("OUTPUT_DIR", "/app/watttime-python-client/analysis/2024-10-01")
+)
+MAX_WORKERS = int(os.getenv("MAX_WORKERS", 5))
 
 if __name__ == "__main__":
     bulk_generate_reports(
@@ -166,5 +173,5 @@ if __name__ == "__main__":
         END,
         OUTPUT_DIR,
         ["signal", "fuel_mix", "forecast"],
-        max_workers=5,
+        max_workers=MAX_WORKERS,
     )

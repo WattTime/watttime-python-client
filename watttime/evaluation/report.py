@@ -188,45 +188,64 @@ def plot_sample_moers(
     return figs
 
 
-def plot_distribution_moers(factory: DataHandlerFactory) -> Dict[str, go.Figure]:
+def plot_distribution_moers(factory: DataHandlerFactory, subsample_size=500) -> Dict[str, go.Figure]:
     """
-    Plot the distribution of old and new MOER values for each region, creating a stacked subplot.
+    Plot the distribution of MOER values for each region using horizontal Plotly violin plots.
 
     Args:
-        jobs (list): List of AnalysisDataHandler objects with a .moers atribute.
+        factory: DataHandlerFactory that exposes .data_handlers_by_region_dict
 
     Returns:
-        plotly.graph_objects.Figure: A Plotly figure with stacked subplots of distributions.
+        dict mapping region abbreviation to a Plotly Figure
     """
-    # Create a figure with a subplot for each region, stacked vertically
+
     figs = {}
+
+    # Use Plotly's qualitative color palette
+    palette = pc.qualitative.Plotly
 
     for region_abbrev, region_models in factory.data_handlers_by_region_dict.items():
         fig = go.Figure()
-        for model_job in region_models:
 
-            # Add a histogram trace for the new MOER distribution
+        for ix, model_job in enumerate(region_models):
+            series = model_job.moers["signal_value"].dropna()
+            color = palette[ix % len(palette)]
+            
+            # Calculate exact min/max for span
+            min_val = series.min()
+            max_val = series.max()
+            
             fig.add_trace(
-                go.Box(
-                    x=model_job.moers["signal_value"].dropna(),
-                    name=model_job.model_date,
-                    opacity=0.6,
+                go.Violin(
+                    x=series.values,  # horizontal violin
+                    name=str(model_job.model_date),
+                    box=dict(visible=True),
+                    meanline=dict(visible=False),
+                    points='outliers',
+                    scalemode='width',
+                    spanmode='manual',  # Manually set the span
+                    span=[min_val, max_val],  # Don't extend beyond data range
+                    opacity=0.5,  # Fill opacity
+                    line=dict(
+                        color='black',
+                        width=1.5,  # Slightly thicker line for better visibility
+                    ),
+                    fillcolor=color,
                 )
             )
 
-        # Update layout for the figure
+        if not fig.data:
+            figs[region_abbrev] = go.Figure()
+            continue
+
         fig.update_layout(
-            height=300,
-            xaxis_title=f"{region_models[0].signal_type} Values",
+            height=350,
+            xaxis_title=f"{region_models[0].signal_type} Values",  # x axis is now the value
             showlegend=True,
             margin=dict(l=50, r=50, t=50, b=50),
-            xaxis=dict(
-                type="linear",
-                tickangle=45,
-                showgrid=True,
-            ),
-            yaxis_visible=False,
-            yaxis_showticklabels=False,
+            violingap=0.2,
+            violingroupgap=0.1,
+            violinmode='group',
         )
 
         figs[region_abbrev] = fig

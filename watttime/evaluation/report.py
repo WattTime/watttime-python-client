@@ -549,10 +549,12 @@ def calc_rank_compare_metrics(
     df = df.assign(
         truth_charge_emissions=df[truth_col]
         * df["truth_charge_status"]
-        * (load_kw / 1000),
+        * (load_kw / 1000)
+        * (5 / 60), # normalize hourly MOER to 5-minute intervals,
         pred_charge_emissions=df[truth_col]
         * df["pred_charge_status"]
-        * (load_kw / 1000),
+        * (load_kw / 1000)
+        * (5 / 60),
     )
 
     # baseline: immediate charging rather than AER
@@ -563,16 +565,17 @@ def calc_rank_compare_metrics(
         baseline_charge_emissions=df[truth_col]
         * df["baseline_charge_status"]
         * (load_kw / 1000)
+        * (5 / 60)
     )
 
     assert (
         df["baseline_charge_status"].sum()
         == (len(df["window_start"].unique())) * charge_mins // 5
     )
-    # assert (
-    #     df["baseline_charge_status"].sum()
-    #     <= (len(df["window_start"].unique()) + 1) * charge_mins // 5
-    # )
+    assert (
+        df["baseline_charge_status"].sum()
+        <= (len(df["window_start"].unique()) + 1) * charge_mins // 5
+    )
 
     # Calculate total CO2 emissions ("truth")
     y_best_emissions = df["truth_charge_emissions"].sum()
@@ -591,6 +594,7 @@ def calc_rank_compare_metrics(
     else:
         reduction = (y_base_emissions - y_pred_emissions) / n_days
         potential = (y_base_emissions - y_best_emissions) / n_days
+
 
     return {
         "reduction": round(reduction, 1),
@@ -733,22 +737,22 @@ AER_SCENARIOS = {
         "load_kw": 3,  # typical AC
     },
     "10 kW / 24hr / 25% Duty Cycle": {
-        "charge_mins": 6 * 60,
+        "charge_mins": int(24 * 60 * 0.25),
         "window_mins": 24 * 60,
         "load_kw": 10,
     },
     "10 kW / 72hr / 25% Duty Cycle": {
-        "charge_mins": 3 * 3 * 60,
+        "charge_mins": int(24 * 3 * 60 * 0.25),
         "window_mins": 24 * 3 * 60,
         "load_kw": 10,
     },
     "10 kW / 24hr / 50% Duty Cycle": {
-        "charge_mins": 6 * 60,
+        "charge_mins": int(24 * 60 * 0.5),
         "window_mins": 24 * 60,
         "load_kw": 10,
     },
     "10 kW / 72hr / 50% Duty Cycle": {
-        "charge_mins": 12 * 3 * 60,
+        "charge_mins": (int(24 * 3 * 60 * 0.5)),
         "window_mins": 24 * 3 * 60,
         "load_kw": 10,
     },
@@ -842,7 +846,7 @@ def plot_impact_forecast_metrics(
         fig.update_layout(
             height=300 * len(region_models),
             xaxis_title="Scenario",
-            yaxis_title="CO2 Savings (lbs/MWh)",
+            yaxis_title="CO2 Savings (lbs per day)",
             barmode="group",  # Grouped bars (side by side)
             showlegend=True,  # Show legend
             margin=dict(l=50, r=50, t=50, b=50),
@@ -851,7 +855,7 @@ def plot_impact_forecast_metrics(
         # Update axes for all subplots
         for model_ix in range(1, len(region_models) + 1):
             fig.update_xaxes(title_text="Scenario", row=model_ix, col=1)
-            fig.update_yaxes(title_text="CO2 Savings (lbs/MWh)", row=model_ix, col=1)
+            fig.update_yaxes(title_text="CO2 Savings (lbs per day)", row=model_ix, col=1)
 
         figs[region_abbrev] = fig
 

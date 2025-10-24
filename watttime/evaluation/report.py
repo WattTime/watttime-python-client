@@ -274,10 +274,12 @@ def plot_heatmaps(
             subplot_titles=[j.model_date for j in region_models],
             vertical_spacing=0.1,  # Reduced spacing for better alignment
         )
+        tz = get_tz_from_centroid(region_abbrev)
 
         for j, job in enumerate(region_models, start=1):
-            heat = job.moers.assign(
-                month=job.moers.index.month, hour=job.moers.index.hour
+            moers = job.moers.tz_convert(tz)
+            heat = moers.assign(
+                month=moers.index.month, hour=moers.index.hour
             )
             heat = heat.dropna(subset=["signal_value"])
             heat = (
@@ -1128,7 +1130,8 @@ def plot_fuelmix_heatmap(factory: DataHandlerFactory):
         # Add traces for each job
         for job_idx, job in enumerate(region_models, start=1):
             for fuel_idx, fuel in enumerate(all_columns_list):
-                pivot = create_pivot_table(job.fuel_mix, fuel)
+                fuel_mix = job.fuel_mix.tz_convert(tz)
+                pivot = create_pivot_table(fuel_mix, fuel)
 
                 fig.add_trace(
                     go.Heatmap(

@@ -1107,6 +1107,8 @@ def plot_fuelmix_heatmap(factory: DataHandlerFactory):
 
     for region_abbrev, region_models in factory.data_handlers_by_region_dict.items():
 
+        tz = get_tz_from_centroid(region_abbrev)
+
         # We need to ensure all jobs have the same fuel types for the buttons to work
         all_columns = set()
         for job in region_models:

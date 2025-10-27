@@ -54,9 +54,9 @@ class AnalysisDataHandler:
     forecast_sample_seed: int = 42
     forecast_data_horizon_days: int = 3
     signal_type: str = "co2_moer"
-    model_date: Optional[str] = (
-        None  # if None, will default to latest provided through API
-    )
+    model_date: Optional[
+        str
+    ] = None  # if None, will default to latest provided through API
     wt_forecast: Optional[api.WattTimeForecast] = api.WattTimeForecast(
         multithreaded=True
     )
@@ -125,29 +125,27 @@ class AnalysisDataHandler:
 
     @cached_property
     def forecasts(self) -> pd.DataFrame:
-        # context manager to only return critical logs
-        with warnings.catch_warnings():
-            warnings.simplefilter("ignore")
-            forecasts = self.wt_forecast.get_historical_forecast_pandas_list(
-                list_of_dates=self.sample_days,
-                region=self.region,
-                signal_type=self.signal_type,
-                model=self.model_date,
-                horizon_hours=math.ceil(self.forecast_max_horizon / 60),
-            )
 
-            forecasts["point_time"] = pd.to_datetime(forecasts["point_time"])
-            forecasts["horizon_mins"] = (
-                forecasts["point_time"] - forecasts["generated_at"]
-            ).dt.total_seconds() / 60
-            forecasts.rename({"value": "predicted_value"}, axis="columns", inplace=True)
+        forecasts = self.wt_forecast.get_historical_forecast_pandas_list(
+            list_of_dates=self.sample_days,
+            region=self.region,
+            signal_type=self.signal_type,
+            model=self.model_date,
+            horizon_hours=math.ceil(self.forecast_max_horizon / 60),
+        )
 
-            self.returned_forecast_warnings = self.wt_forecast.raised_warnings
-            self.returned_meta = self.wt_forecast._last_request_meta
-            self.returned_forecast_model_date = self.wt_forecast._last_request_meta.get(
-                "model", {}
-            ).get("date", None)
-            return forecasts
+        forecasts["point_time"] = pd.to_datetime(forecasts["point_time"])
+        forecasts["horizon_mins"] = (
+            forecasts["point_time"] - forecasts["generated_at"]
+        ).dt.total_seconds() / 60
+        forecasts.rename({"value": "predicted_value"}, axis="columns", inplace=True)
+
+        self.returned_forecast_warnings = self.wt_forecast.raised_warnings
+        self.returned_meta = self.wt_forecast._last_request_meta
+        self.returned_forecast_model_date = self.wt_forecast._last_request_meta.get(
+            "model", {}
+        ).get("date", None)
+        return forecasts
 
     @cached_property
     def fuel_mix(self) -> pd.DataFrame:

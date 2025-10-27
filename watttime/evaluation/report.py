@@ -188,7 +188,9 @@ def plot_sample_moers(
     return figs
 
 
-def plot_distribution_moers(factory: DataHandlerFactory, subsample_size=500) -> Dict[str, go.Figure]:
+def plot_distribution_moers(
+    factory: DataHandlerFactory, subsample_size=500
+) -> Dict[str, go.Figure]:
     """
     Plot the distribution of MOER values for each region using horizontal Plotly violin plots.
 
@@ -210,24 +212,24 @@ def plot_distribution_moers(factory: DataHandlerFactory, subsample_size=500) -> 
         for ix, model_job in enumerate(region_models):
             series = model_job.moers["signal_value"].dropna()
             color = palette[ix % len(palette)]
-            
+
             # Calculate exact min/max for span
             min_val = series.min()
             max_val = series.max()
-            
+
             fig.add_trace(
                 go.Violin(
                     x=series.values,  # horizontal violin
                     name=str(model_job.model_date),
                     box=dict(visible=True),
                     meanline=dict(visible=False),
-                    points='outliers',
-                    scalemode='width',
-                    spanmode='manual',  # Manually set the span
+                    points="outliers",
+                    scalemode="width",
+                    spanmode="manual",  # Manually set the span
                     span=[min_val, max_val],  # Don't extend beyond data range
                     opacity=0.5,  # Fill opacity
                     line=dict(
-                        color='black',
+                        color="black",
                         width=1.5,  # Slightly thicker line for better visibility
                     ),
                     fillcolor=color,
@@ -245,7 +247,7 @@ def plot_distribution_moers(factory: DataHandlerFactory, subsample_size=500) -> 
             margin=dict(l=50, r=50, t=50, b=50),
             violingap=0.2,
             violingroupgap=0.1,
-            violinmode='group',
+            violinmode="group",
         )
 
         figs[region_abbrev] = fig
@@ -278,9 +280,7 @@ def plot_heatmaps(
 
         for j, job in enumerate(region_models, start=1):
             moers = job.moers.tz_convert(tz)
-            heat = moers.assign(
-                month=moers.index.month, hour=moers.index.hour
-            )
+            heat = moers.assign(month=moers.index.month, hour=moers.index.hour)
             heat = heat.dropna(subset=["signal_value"])
             heat = (
                 heat.groupby(["month", "hour"])["signal_value"]
@@ -550,7 +550,7 @@ def calc_rank_compare_metrics(
         truth_charge_emissions=df[truth_col]
         * df["truth_charge_status"]
         * (load_kw / 1000)
-        * (5 / 60), # normalize hourly MOER to 5-minute intervals,
+        * (5 / 60),  # normalize hourly MOER to 5-minute intervals,
         pred_charge_emissions=df[truth_col]
         * df["pred_charge_status"]
         * (load_kw / 1000)
@@ -594,7 +594,6 @@ def calc_rank_compare_metrics(
     else:
         reduction = (y_base_emissions - y_pred_emissions) / n_days
         potential = (y_base_emissions - y_best_emissions) / n_days
-
 
     return {
         "reduction": round(reduction, 1),
@@ -855,7 +854,9 @@ def plot_impact_forecast_metrics(
         # Update axes for all subplots
         for model_ix in range(1, len(region_models) + 1):
             fig.update_xaxes(title_text="Scenario", row=model_ix, col=1)
-            fig.update_yaxes(title_text="CO2 Savings (lbs per day)", row=model_ix, col=1)
+            fig.update_yaxes(
+                title_text="CO2 Savings (lbs per day)", row=model_ix, col=1
+            )
 
         figs[region_abbrev] = fig
 
@@ -1458,8 +1459,8 @@ def plot_precision_recall(
 
 
 def plot_forecasts_vs_signal(
-        factory: DataHandlerFactory,
-        horizons=['15min', '1h', '8h'],
+    factory: DataHandlerFactory,
+    horizons=["15min", "1h", "8h"],
 ) -> Dict[str, go.Figure]:
     """
     Plot forecasts vs signal for different forecast pull frequencies.
@@ -1468,12 +1469,13 @@ def plot_forecasts_vs_signal(
 
     Only plots the longest contiguous block of forecasts to avoid gaps in the forecast time series.
     """
-    
+
+    horizons = sorted([pd.Timedelta(h) for h in horizons])
 
     figs = {}
 
     for region_abbrev, region_models in factory.data_handlers_by_region_dict.items():
-        
+
         fig = sp.make_subplots(
             rows=len(region_models),
             cols=1,
@@ -1485,96 +1487,140 @@ def plot_forecasts_vs_signal(
 
         for j, model_job in enumerate(region_models, start=1):
 
-            # Before plotting, identify the longest contiguous generated_at block (5-min cadence)
-            # to ensure we plot a continuous series even when forecast_sample_size < 1.0
             fh = model_job.forecasts_v_moers
             if fh is None or fh.empty:
                 # nothing to plot for this model_job
                 continue
 
-            # Extract generated_at level (expected freq 5T) and sort unique values
-            gen_at = fh.index.get_level_values('generated_at').unique()
-            gen_at = pd.DatetimeIndex(gen_at).sort_values()
+            # Before plotting, identify the longest contiguous generated_at block (5-min cadence)
+            # to ensure we plot a continuous series even when forecast_sample_size < 1.0
+            if j == 1:
+                # Extract generated_at level (expected freq 5T) and sort unique values
+                gen_at = fh.index.get_level_values("generated_at").unique()
+                gen_at = pd.DatetimeIndex(gen_at).sort_values()
 
-            # compute gaps between successive generated_at timestamps in minutes
-            deltas = gen_at.to_series().diff().dt.total_seconds().div(60)
+                # compute gaps between successive generated_at timestamps in minutes
+                deltas = gen_at.to_series().diff().dt.total_seconds().div(60)
 
-            # treat a gap as > 5 minutes (allow a small tolerance)
-            gap_mask = deltas > 6  # >6 minutes considered a gap
+                # treat a gap as > 5 minutes (allow a small tolerance)
+                gap_mask = deltas > 6  # >6 minutes considered a gap
 
-            # find contiguous blocks by grouping on cumulative gaps
-            block_id = gap_mask.cumsum()
-            blocks = pd.DataFrame({'ts': gen_at, 'block': block_id.values})
+                # find contiguous blocks by grouping on cumulative gaps
+                block_id = gap_mask.cumsum()
+                blocks = pd.DataFrame({"ts": gen_at, "block": block_id.values})
 
-            # compute block lengths and pick the longest block
-            block_lengths = blocks.groupby('block').size()
-            longest_block = block_lengths.idxmax()
-            block_times = blocks[blocks['block'] == longest_block]['ts']
+                # compute block lengths and pick the longest block
+                block_lengths = blocks.groupby("block").size()
+                longest_block = block_lengths.idxmax()
+                block_times = blocks[blocks["block"] == longest_block]["ts"]
 
-            if block_times.empty:
-                # fallback: use the full range
-                start_ts, end_ts = gen_at.min(), gen_at.max()
-            else:
-                start_ts, end_ts = block_times.min(), block_times.max()
+                if block_times.empty:
+                    # fallback: use the full range
+                    start_ts, end_ts = gen_at.min(), gen_at.max()
+                else:
+                    start_ts, end_ts = block_times.min(), block_times.max()
 
             # filter forecasts to only generated_at within the longest contiguous block
-            fh_mask = (fh.index.get_level_values('generated_at') >= start_ts) & (
-                fh.index.get_level_values('generated_at') <= end_ts
+            fh_mask = (fh.index.get_level_values("generated_at") >= start_ts) & (
+                fh.index.get_level_values("generated_at") <= end_ts
             )
-            fh_filtered = fh[fh_mask].sort_index()
+            fh = fh[fh_mask].sort_index()
 
             # plot each resample_horizon as its own trace using the filtered forecasts
 
-            max_point_time = pd.Timestamp('1999-01-01T00:00Z')
             for ix, resample_horizon in enumerate(horizons):
 
                 # filter df down to only rows where 'generated_at' is the first one in each resample_horizon period
-                gen_at_f = fh_filtered.index.get_level_values('generated_at')
-                first_gen_at = pd.DatetimeIndex(gen_at_f.to_series().resample(resample_horizon).first().dropna())
+                gen_at_f = fh.index.get_level_values("generated_at")
+                first_gen_at = pd.DatetimeIndex(
+                    gen_at_f.to_series().resample(resample_horizon).first().dropna()
+                )
 
                 # include final forecast in first_gen_at to show horizon
-                first_gen_at = first_gen_at.append(gen_at[-1:]) 
-                df_filtered = fh_filtered[fh_filtered.index.get_level_values('generated_at').isin(first_gen_at)]
+                first_gen_at = first_gen_at.append(gen_at_f[-1:])
+                df_filtered = fh[
+                    fh.index.get_level_values("generated_at").isin(first_gen_at)
+                ]
 
                 # filter df to avoid overlapping forecasts, only keep rows where horizon_mins < resample_horizon in minutes
-                df_filtered = df_filtered[df_filtered['horizon_mins'] < pd.Timedelta(resample_horizon).total_seconds() / 60]
+                df_filtered = df_filtered[
+                    df_filtered["horizon_mins"] <= resample_horizon.total_seconds() / 60
+                ]
                 df_filtered = df_filtered.sort_index()
-
-                max_point_time = max(max_point_time, df_filtered.index.get_level_values('point_time').max())
+                df_filtered = (
+                    df_filtered.reset_index()
+                    .drop_duplicates(subset="point_time", keep="first")
+                    .set_index(["generated_at", "point_time"])
+                )
 
                 if df_filtered.empty:
                     continue
 
-                fig.add_trace(go.Scatter(
-                    x=df_filtered.index.get_level_values('point_time').tz_convert(tz),
-                    y=df_filtered['predicted_value'],
-                    mode='lines',
-                    name=f'Forecast Pull Freq: {resample_horizon}',
-                    opacity=0.9,
-                    line=dict(color=pc.qualitative.Plotly[ix % len(pc.qualitative.Plotly)], width=3, dash='dash'),
-                ), row=j, col=1)
+                fig.add_trace(
+                    go.Scatter(
+                        x=df_filtered.index.get_level_values("point_time").tz_convert(
+                            tz
+                        ),
+                        y=df_filtered["predicted_value"],
+                        mode="lines",
+                        name=f"Forecast Pull Freq: {resample_horizon}",
+                        opacity=0.9,
+                        line=dict(
+                            color=pc.qualitative.Plotly[
+                                ix % len(pc.qualitative.Plotly)
+                            ],
+                            width=3,
+                            dash="dash",
+                        ),
+                    ),
+                    row=j,
+                    col=1,
+                )
 
             # get unique point_time values, and plot the signal_value as a solid line
-            signal = fh_filtered.reset_index().drop_duplicates('point_time').set_index('point_time').sort_index()['signal_value']
-            signal = signal.loc['1999-01-01T00:00Z':max_point_time]
-            fig.add_trace(go.Scatter(
-                x=signal.index.tz_convert(tz),
-                y=signal.values,
-                mode='lines',
-                name='Signal Value',
-                opacity=0.9,
-                line=dict(color='black', width=1),
-            ), row=j, col=1)
+            signal = (
+                fh.reset_index()
+                .drop_duplicates("point_time")
+                .set_index("point_time")
+                .sort_index()["signal_value"]
+            )
+            signal = signal.loc[start_ts : end_ts + max(horizons)].sort_index()
+            fig.add_trace(
+                go.Scatter(
+                    x=signal.index.tz_convert(tz),
+                    y=signal.values,
+                    mode="lines",
+                    name="Signal Value",
+                    opacity=0.9,
+                    line=dict(color="black", width=1),
+                ),
+                row=j,
+                col=1,
+            )
 
+            # Update layout for the figure
             fig.update_layout(
-                height=300,
-                xaxis_title='Point Time',
-                yaxis_title='Value',
-                showlegend=True
+                height=500,
+                yaxis=dict(
+                    title=f"{model_job.signal_type}",
+                    fixedrange=True,  # Disable y-axis panning
+                ),
+                showlegend=True,
+                margin=dict(l=50, r=50, t=50, b=50),
+                xaxis=dict(
+                    type="date",
+                    tickformat="%Y-%m-%d %H:%M",
+                    tickangle=45,
+                    showgrid=True,
+                    range=[
+                        start_ts,
+                        end_ts + max(horizons),
+                    ],
+                ),
             )
 
         figs[region_abbrev] = fig
-    
+
     return figs
 
 

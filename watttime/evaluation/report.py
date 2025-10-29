@@ -188,9 +188,7 @@ def plot_sample_moers(
     return figs
 
 
-def plot_distribution_moers(
-    factory: DataHandlerFactory, subsample_size=500
-) -> Dict[str, go.Figure]:
+def plot_distribution_moers(factory: DataHandlerFactory) -> Dict[str, go.Figure]:
     """
     Plot the distribution of MOER values for each region using horizontal Plotly violin plots.
 
@@ -432,63 +430,118 @@ def simulate_charge(in_df: pd.DataFrame, sort_col: str, charge_mins: int):
 
         df.loc[charge_periods, "charge_status"] = True
 
+    # Compute the feasible number of charge periods given available generated_at groups per window
+    # We can decide at most once per generated_at (we charge at the forecast's first point_time),
+    # so the upper bound per-window is min(charge_needed, n_generated_at_in_window).
+    window_group_counts = (
+        df.reset_index().groupby("window_start")["generated_at"].nunique()
+    )
+    expected_total_needed = int(
+        sum(min(charge_needed, c) for c in window_group_counts.values)
+    )
+
+    charged_total = int(df["charge_status"].sum())
+
+    # Upper bound: cannot exceed feasible slots
     assert (
-        df["charge_status"].sum() <= (len(df["window_start"].unique())) * charge_needed
+        charged_total <= expected_total_needed
     ), "Charge status is too high, check the logic for simulate_charge"
-    assert df["charge_status"].sum() >= (
-        len(df["window_start"].unique()) * 0.97 * charge_needed
-    ), "Charge status is too low, check the logic for simulate_charge"
+
+    # Lower bound: be within 3% of feasible slots (or equal when small counts)
+    if expected_total_needed > 0:
+        assert (
+            charged_total >= int(np.floor(0.97 * expected_total_needed))
+        ), "Charge status is too low, check the logic for simulate_charge"
 
     return df["charge_status"]
 
 
 def assign_windows(
-    generated_ats: List[pd.Timestamp], window_size: pd.Timedelta
+    timestamps: List[pd.Timestamp] | pd.DatetimeIndex,
+    window_size: Union[int, pd.Timedelta],
+    window_start_time: Optional[str] = None,
 ) -> List[pd.Timestamp]:
+    """
+    Assign a window_start timestamp for each input time based on:
+    - A fixed window length (window_size)
+    - An optional daily start time (window_start_time in "HH:MM").
 
+    Behavior:
+        - If window_start_time is provided: one window per day starting at that local time.
+            For each timestamp t, compute daily_start = local midnight + window_start_time and
+            daily_end = daily_start + window_size. Return daily_start only if daily_start <= t < daily_end;
+            otherwise return NaT for that row (the row is outside the window).
+    - If window_start_time is None: windows are tiled back-to-back every `window_size`
+      from a fixed base (the first timestamp's local midnight), producing non-overlapping
+      windows of length `window_size` across the entire timeline.
+
+    All input timestamps are expected to be timezone-aware and already localized.
+    Returns a list of tz-aware pandas Timestamps in the same timezone as inputs.
+    """
+
+    # Normalize inputs
     if isinstance(window_size, int):
         window_size = pd.Timedelta(minutes=window_size)
 
-    n = len(generated_ats)
-    if n == 0:
-        return []
+    if isinstance(timestamps, list):
+        if len(timestamps) == 0:
+            return []
+        ts_index = pd.DatetimeIndex(timestamps)
+    elif isinstance(timestamps, pd.DatetimeIndex):
+        if len(timestamps) == 0:
+            return []
+        ts_index = timestamps
+    else:
+        # Fallback: try to construct a DatetimeIndex
+        ts_index = pd.DatetimeIndex(timestamps)
+        if len(ts_index) == 0:
+            return []
 
-    # Create array of (timestamp, original_index) and sort by timestamp
-    ts_with_idx = np.array(
-        [(ts.value, i) for i, ts in enumerate(generated_ats)],
-        dtype=[("ts", "i8"), ("idx", "i4")],
-    )
-    ts_with_idx.sort(order="ts")
+    # Branch 1: daily-anchored windows at specific local time
+    if window_start_time:
+        try:
+            hour_str, minute_str = window_start_time.split(":")
+            start_hours, start_minutes = int(hour_str), int(minute_str)
+        except Exception as e:
+            raise ValueError(
+                f"Invalid window_start_time '{window_start_time}'. Expected 'HH:MM'."
+            ) from e
 
-    # Convert window_size to nanoseconds for direct comparison
-    window_ns = window_size.value
+        # For each timestamp, find the most recent daily anchor whose window [start, start+window_size)
+        # contains t. This supports windows that cross midnight and windows longer than 24h by
+        # checking up to ceil(window_size/1day) days back.
+        anchors = []
+        start_offset = pd.Timedelta(hours=start_hours, minutes=start_minutes)
+        one_day = pd.Timedelta(days=1)
+        days_back_to_check = int(np.ceil(window_size / one_day))
+        for t in ts_index:
+            # Start with today's anchor; if t is before it, start from previous day's anchor
+            base_anchor = t.normalize() + start_offset
+            candidate = base_anchor if t >= base_anchor else base_anchor - one_day
+            assigned = pd.NaT
+            for k in range(days_back_to_check):
+                a = candidate - (k * one_day)
+                if (t >= a) and (t < a + window_size):
+                    assigned = a
+                    break
+            anchors.append(assigned)
 
-    # Assign signposts using vectorized operations where possible
-    signposts = np.empty(n, dtype="i8")
-    current_start_ns = ts_with_idx[0]["ts"]
-    signposts[0] = current_start_ns
+        return anchors
 
-    for i in range(1, n):
-        ts_ns = ts_with_idx[i]["ts"]
-        if ts_ns < current_start_ns + window_ns:
-            signposts[i] = current_start_ns
-        else:
-            current_start_ns = ts_ns
-            signposts[i] = current_start_ns
-
-    # Map back to original order using fancy indexing
-    result = np.empty(n, dtype="i8")
-    result[ts_with_idx["idx"]] = signposts
-
-    # Convert back to Timestamps
-    return [pd.Timestamp(ns, tz="UTC") for ns in result]
+    # Branch 2: continuous tiling of windows across the timeline
+    # Use a stable base so windows are non-overlapping and consistent across days
+    base = ts_index.min().normalize()
+    delta = ts_index - base  # TimedeltaIndex
+    # Floor-divide to count how many full windows have elapsed since base
+    steps = delta // window_size
+    anchor_idx = base + (steps * window_size)
+    return list(pd.DatetimeIndex(anchor_idx))
 
 
 def calc_rank_compare_metrics(
     in_df,
     charge_mins,
     window_mins,
-    tz=None,
     window_start_time=None,
     pred_col="predicted_value",
     truth_col="signal_value",
@@ -499,25 +552,14 @@ def calc_rank_compare_metrics(
     if isinstance(window_mins, int):
         window_mins = pd.Timedelta(minutes=window_mins)
 
+
     window_starts = assign_windows(
-        df.index.get_level_values("generated_at"), window_mins
+        df.index.get_level_values("generated_at"), window_mins, window_start_time
     )
 
-    if window_start_time:
-        utc_offset = pd.to_timedelta(window_start_time + ":00")
-        local_dt = (pd.Timestamp("1999-01-01T00:00Z") + utc_offset).tz_convert(tz)
-        local_offset = (
-            pd.to_timedelta(local_dt.hour, unit="h")
-            + pd.to_timedelta(local_dt.minute, unit="m")
-            + pd.to_timedelta(local_dt.second, unit="s")
-        )
-        adj_window_starts = [i.normalize() + local_offset for i in window_starts]
-    else:
-        adj_window_starts = window_starts
-
     df = df.assign(
-        window_start=adj_window_starts,
-        window_end=[i + window_mins for i in adj_window_starts],
+        window_start=window_starts,
+        window_end=[i + window_mins for i in window_starts],
     )
 
     # Filter out rows that do not fall within the valid window
@@ -536,10 +578,10 @@ def calc_rank_compare_metrics(
     df = df.loc[n_generated_at_in_window >= (charge_mins // 5) - 1]
 
     # Filter out rows where generated_at != first point_time in the window
-    df = df.loc[
-        df.index.get_level_values("generated_at")
-        == df.reset_index().groupby("generated_at")["point_time"].transform("first")
-    ]
+    # df = df.loc[
+    #     df.index.get_level_values("generated_at")
+    #     == df.reset_index().groupby("generated_at")["point_time"].transform("first")
+    # ]
 
     df = df.assign(
         truth_charge_status=pick_k_optimal_charge(df, truth_col, charge_mins),
@@ -720,12 +762,12 @@ def plot_rank_corr(
 AER_SCENARIOS = {
     "EV-night": {
         "charge_mins": 3 * 60,
-        "window_mins": 12 * 60,
+        "window_mins": 8 * 60,
         "window_start_time": "19:00",
         "load_kw": 19,
     },
     "EV-day": {
-        "charge_mins": 2 * 60,
+        "charge_mins": 3 * 60,
         "window_mins": 8 * 60,
         "window_start_time": "09:00",
         "load_kw": 19,
@@ -783,8 +825,6 @@ def plot_impact_forecast_metrics(
             subplot_titles=[j.model_date for j in region_models],
             vertical_spacing=0.2,
         )
-
-        tz = get_tz_from_centroid(region_abbrev)
 
         for model_ix, model_job in enumerate(region_models, start=1):
 
@@ -964,23 +1004,13 @@ def calc_max_potential(
     if isinstance(window_mins, int):
         window_mins = pd.Timedelta(minutes=window_mins)
 
-    window_starts = assign_windows(df.index.get_level_values("point_time"), window_mins)
-
-    if window_start_time:
-        utc_offset = pd.to_timedelta(window_start_time + ":00")
-        local_dt = (pd.Timestamp("1999-01-01T00:00Z") + utc_offset).tz_convert(tz)
-        local_offset = (
-            pd.to_timedelta(local_dt.hour, unit="h")
-            + pd.to_timedelta(local_dt.minute, unit="m")
-            + pd.to_timedelta(local_dt.second, unit="s")
-        )
-        adj_window_starts = [i.normalize() + local_offset for i in window_starts]
-    else:
-        adj_window_starts = window_starts
+    window_starts = assign_windows(
+        df.index.get_level_values("point_time"), window_mins, window_start_time
+    )
 
     df = df.assign(
-        window_start=adj_window_starts,
-        window_end=[i + window_mins for i in adj_window_starts],
+        window_start=window_starts,
+        window_end=[i + window_mins for i in window_starts],
     )
 
     # Filter out rows that do not fall within the valid window
@@ -1002,11 +1032,11 @@ def calc_max_potential(
     df["charge_status"] = pick_k_optimal_charge(df, truth_col, charge_mins)
 
     truth_values = df[truth_col]
-    charge_emissions = truth_values * df["charge_status"] * load_factor
+    charge_emissions = truth_values * df["charge_status"] * load_factor * (5 / 60)
 
     df["sequential_rank"] = df.groupby("window_start").cumcount()
     baseline_charge_status = df["sequential_rank"] < needed_rows
-    baseline_charge_emissions = truth_values * baseline_charge_status * load_factor
+    baseline_charge_emissions = truth_values * baseline_charge_status * load_factor * (5 / 60)
 
     y_best_total = charge_emissions.sum()
     y_baseline_total = baseline_charge_emissions.sum()
@@ -1023,7 +1053,15 @@ def calc_max_potential(
 
 def plot_max_impact_potential(
     factory: DataHandlerFactory,
-    scenarios: List[str] = ["EV-night", "EV-day", "Thermostat"],
+    scenarios: List[str] = [
+        "10 kW / 24hr / 25% Duty Cycle",
+        "10 kW / 72hr / 25% Duty Cycle",
+        "10 kW / 24hr / 50% Duty Cycle",
+        "10 kW / 72hr / 50% Duty Cycle",
+        "EV-night",
+        "EV-day",
+        "Thermostat",
+    ],
 ):
     figs = {}
     y_max = 0
@@ -1546,14 +1584,18 @@ def plot_forecasts_vs_signal(
                 if df_filtered.empty:
                     continue
 
+                # format resample_horizon for legend
+                if resample_horizon >= pd.Timedelta("1h"):
+                    rh_str = f"{int(resample_horizon.total_seconds() // 3600)}h"
+                else:
+                    rh_str = f"{int(resample_horizon.total_seconds() // 60)}min"
+
                 fig.add_trace(
                     go.Scatter(
-                        x=df_filtered.index.get_level_values("point_time").tz_convert(
-                            tz
-                        ),
+                        x=df_filtered.index.get_level_values("point_time"),
                         y=df_filtered["predicted_value"],
                         mode="lines",
-                        name=f"Forecast Pull Freq: {resample_horizon}",
+                        name=f"Forecast Pull Freq: {rh_str}",
                         opacity=0.9,
                         line=dict(
                             color=pc.qualitative.Plotly[
@@ -1572,12 +1614,12 @@ def plot_forecasts_vs_signal(
                 fh.reset_index()
                 .drop_duplicates("point_time")
                 .set_index("point_time")
-                .sort_index()["signal_value"]
+                .sort_index(ascending=True)["signal_value"]
             )
-            signal = signal.loc[start_ts : end_ts + max(horizons)].sort_index()
+            signal = signal.loc[start_ts : end_ts + max(horizons)]
             fig.add_trace(
                 go.Scatter(
-                    x=signal.index.tz_convert(tz),
+                    x=signal,
                     y=signal.values,
                     mode="lines",
                     name="Signal Value",
@@ -1688,7 +1730,7 @@ def parse_report_command_line_args(sys_args):
     return args
 
 
-PLOTS = {
+MOER_PLOTS = {
     "signal": [
         plot_sample_moers,
         plot_distribution_moers,
@@ -1701,9 +1743,26 @@ PLOTS = {
         plot_forecasts_vs_signal,
         plot_norm_mae,
         plot_rank_corr,
-        plot_precision_recall,
         plot_impact_forecast_metrics,
     ],
+}
+
+OTHER_PLOTS = {
+    "signal": [
+        plot_sample_moers,
+        plot_heatmaps,
+    ],
+    "forecast": [
+        plot_forecasts_vs_signal,
+        plot_norm_mae,
+        plot_precision_recall,
+    ],
+}
+
+
+PLOTS = {
+    'co2_moer': MOER_PLOTS,
+    'co2_health_damages': MOER_PLOTS,
 }
 
 
@@ -1756,8 +1815,16 @@ def generate_report(
     }
 
     plotly_html = {}
+
+    if signal_type in PLOTS:
+        plot_dict = PLOTS[signal_type]
+    elif len(signal_type) == 11 and 'tail' in signal_type:  # shh
+        plot_dict = OTHER_PLOTS
+    else:
+        raise NotImplementedError(f"Plots not defined for signal_type {signal_type}")
+
     for step in steps:
-        for plot_func in PLOTS[step]:
+        for plot_func in plot_dict[step]:
             _func_params = inspect.signature(plot_func).parameters
             _kwargs = {k: v for k, v in kwargs.items() if k in _func_params}
             _plot = plot_func(factory, **_kwargs)

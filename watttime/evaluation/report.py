@@ -791,7 +791,7 @@ def plot_impact_forecast_metrics(
             _metrics = [
                 {
                     **calc_rank_compare_metrics(
-                        model_job.forecasts_v_moers, **AER_SCENARIOS[s], tz=tz
+                        model_job.forecasts_v_moers, **AER_SCENARIOS[s],
                     ),
                     "scenario": s,
                 }
@@ -888,16 +888,12 @@ def plot_sample_fuelmix(
             vertical_spacing=0.2,
         )
 
-        tz = get_tz_from_centroid(region_abbrev)
-
         # Track which fuel types have been added to legend
         fuels_in_legend = set()
 
         for model_ix, model_job in enumerate(region_models, start=1):
 
             stacked_values = model_job.fuel_mix.reindex(times)
-
-            stacked_values = stacked_values.tz_convert(tz)
 
             # Create cumulative values for stacking
             for fuel_ix in range(1, len(stacked_values.columns)):
@@ -954,7 +950,6 @@ def calc_max_potential(
     charge_mins,
     window_mins,
     window_start_time=None,
-    tz=None,
     truth_col="signal_value",
     load_kw=1000,
 ):
@@ -1034,13 +1029,12 @@ def plot_max_impact_potential(
     y_max = 0
     for region_abbrev, region_models in factory.data_handlers_by_region_dict.items():
         fig = go.Figure()
-        tz = get_tz_from_centroid(region_abbrev)
 
         for model_job in region_models:
 
             _metrics = [
                 {
-                    **calc_max_potential(model_job.moers, **AER_SCENARIOS[s], tz=tz),
+                    **calc_max_potential(model_job.moers, **AER_SCENARIOS[s]),
                     "scenario": s,
                 }
                 for s in scenarios
@@ -1112,8 +1106,6 @@ def plot_fuelmix_heatmap(factory: DataHandlerFactory):
 
     for region_abbrev, region_models in factory.data_handlers_by_region_dict.items():
 
-        tz = get_tz_from_centroid(region_abbrev)
-
         # We need to ensure all jobs have the same fuel types for the buttons to work
         all_columns = set()
         for job in region_models:
@@ -1137,8 +1129,7 @@ def plot_fuelmix_heatmap(factory: DataHandlerFactory):
         # Add traces for each job
         for job_idx, job in enumerate(region_models, start=1):
             for fuel_idx, fuel in enumerate(all_columns_list):
-                fuel_mix = job.fuel_mix.tz_convert(tz)
-                pivot = create_pivot_table(fuel_mix, fuel)
+                pivot = create_pivot_table(job.fuel_mix, fuel)
 
                 fig.add_trace(
                     go.Heatmap(
@@ -1483,7 +1474,6 @@ def plot_forecasts_vs_signal(
             subplot_titles=[j.model_date for j in region_models],
             vertical_spacing=0.1,  # Reduced spacing for better alignment
         )
-        tz = get_tz_from_centroid(region_abbrev)
 
         for j, model_job in enumerate(region_models, start=1):
 

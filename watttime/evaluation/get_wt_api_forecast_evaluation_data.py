@@ -109,7 +109,7 @@ class AnalysisDataHandler:
     region: str
     eval_start: Union[datetime, str]
     eval_end: Union[datetime, str]
-    forecast_sample_size: Union[int, float] = 0.1
+    forecast_sample_size: Union[int, float] = 0.03
     forecast_max_horizon: int = 60 * 24
     forecast_sample_seed: int = 42
     forecast_data_horizon_days: int = 3
@@ -308,6 +308,14 @@ class AnalysisDataHandler:
         if use_highest:
             return self.forecast_v_moer[forecast_ranks >= n_rows]
         return self.forecast_v_moer[forecast_ranks <= n_rows]
+    
+    @cached_property
+    def effective_forecast_sample_rate(self) -> float:
+        df_reset_for_sampling = self.forecasts_v_moers.reset_index()
+        generated_at_dates = df_reset_for_sampling["generated_at"].dt.normalize()
+        unique_forecast_days = generated_at_dates.nunique()
+        date_range_days = (generated_at_dates.max() - generated_at_dates.min()).days + 1
+        return unique_forecast_days / date_range_days if date_range_days > 0 else 1.0
 
 
 class DataHandlerFactory:

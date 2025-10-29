@@ -326,24 +326,97 @@ def plot_heatmaps(
 
 
 def calc_norm_mae(
-    df, horizon_mins, pred_col="predicted_value", truth_col="signal_value"
+    data_handler, 
+    horizon_mins, 
+    pred_col="predicted_value", 
+    truth_col="signal_value",
+    ci=False,
 ):
-    """Returns normalized MAE in lbs/Mwh"""
+    """
+    Calculate normalized MAE in lbs/Mwh.
+    
+    Parameters:
+        data_handler: AnalysisDataHandler object with forecasts_v_moers DataFrame
+        horizon_mins: Forecast horizon in minutes
+        pred_col: Column name for predictions
+        truth_col: Column name for ground truth
+        ci: If True, returns dict with confidence intervals; if False, returns scalar (default False)
+    
+    Returns:
+        float or dict: If ci=False, returns normalized MAE value.
+                      If ci=True, returns {"norm_mae": value, "norm_mae_ci_lower": value, "norm_mae_ci_upper": value}
+    """
 
+    df = data_handler.forecasts_v_moers
     filtered_df = df[df["horizon_mins"] == horizon_mins].dropna()
     filtered_df["abs_error"] = (filtered_df[truth_col] - filtered_df[pred_col]).abs()
-    # truth_mean = filtered_df[truth_col].mean()
-
     norm_mae = (filtered_df["abs_error"].mean() / filtered_df[truth_col].mean()) * 100.0
-
-    return round(norm_mae, 1)
+    norm_mae = round(norm_mae, 1)
+    
+    if not ci:
+        return norm_mae
+    
+    effective_forecast_samp_rate = data_handler.effective_forecast_sample_rate
+    df_with_date = filtered_df.reset_index()
+    df_with_date["date"] = df_with_date["generated_at"].dt.normalize()
+    
+    daily_errors = df_with_date.groupby("date", as_index=False).apply(
+        lambda g: pd.Series({
+            "abs_error_sum": (g[truth_col] - g[pred_col]).abs().sum(),
+            "truth_sum": g[truth_col].sum(),
+            "count": len(g),
+        }),
+        include_groups=False
+    )
+    
+    def calc_mae_metric(daily_df):
+        total_abs_error = daily_df["abs_error_sum"].sum()
+        total_truth = daily_df["truth_sum"].sum()
+        return {"norm_mae": (total_abs_error / total_truth) * 100.0 if total_truth > 0 else 0.0}
+    
+    try:
+        ci_dict = bootstrap_confidence_interval(
+            df_with_date=daily_errors,
+            metric_func=calc_mae_metric,
+            effective_forecast_samp_rate=effective_forecast_samp_rate,
+        )
+        return {
+            "norm_mae": norm_mae,
+            "norm_mae_ci_lower": round(ci_dict["norm_mae_ci_lower"], 1),
+            "norm_mae_ci_upper": round(ci_dict["norm_mae_ci_upper"], 1),
+        }
+    except ValueError:
+        # Not enough data for bootstrap
+        return {
+            "norm_mae": norm_mae,
+            "norm_mae_ci_lower": np.nan,
+            "norm_mae_ci_upper": np.nan,
+        }
 
 
 def calc_rank_corr(
-    df, horizon_mins, pred_col="predicted_value", truth_col="signal_value"
+    data_handler, 
+    horizon_mins, 
+    pred_col="predicted_value", 
+    truth_col="signal_value",
+    ci=False,
 ):
-    """Compute mean daily Spearman rank correlation up to a given forecast horizon."""
+    """
+    Compute mean daily Spearman rank correlation up to a given forecast horizon.
+    
+    Parameters:
+        data_handler: AnalysisDataHandler object with forecasts_v_moers DataFrame
+        horizon_mins: Maximum forecast horizon in minutes
+        pred_col: Column name for predictions
+        truth_col: Column name for ground truth
+        ci: If True, returns dict with confidence intervals; if False, returns scalar (default False)
+    
+    Returns:
+        float or dict: If ci=False, returns rank correlation value.
+                      If ci=True, returns {"rank_corr": value, "rank_corr_ci_lower": value, "rank_corr_ci_upper": value}
+    """
 
+    df = data_handler.forecasts_v_moers
     filtered_df = df[df["horizon_mins"] <= horizon_mins].dropna(
         subset=[pred_col, truth_col]
     )
@@ -355,9 +428,123 @@ def calc_rank_corr(
             return np.nan
         return stats.spearmanr(group_df[truth_col], group_df[pred_col]).statistic
 
-    corr = filtered_df.groupby("generated_at").apply(safe_spearmanr)
+    corr_by_forecast = filtered_df.groupby("generated_at").apply(
+        safe_spearmanr, include_groups=False
+    )
+    
+    rank_corr = float(np.nanmean(corr_by_forecast))
+    if not np.isnan(rank_corr):
+        rank_corr = round(rank_corr, 3)
+    
+    if not ci:
+        return rank_corr
+    
+    # block bootstrap
+    df_reset = corr_by_forecast.reset_index()
+    df_reset.columns = ["generated_at", "correlation"]
+    df_reset = df_reset.dropna()
+    df_reset["date"] = df_reset["generated_at"].dt.normalize()
+    
+    # Group by date and average correlations within each day
+    daily_corr = df_reset.groupby("date")["correlation"].mean().reset_index()
+    
+    effective_forecast_samp_rate = data_handler.effective_forecast_sample_rate
+    
+    def calc_corr_metric(daily_df):
+        return {"rank_corr": daily_df["correlation"].mean()}
+    
+    try:
+        ci_dict = bootstrap_confidence_interval(
+            df_with_date=daily_corr,
+            metric_func=calc_corr_metric,
+            effective_forecast_samp_rate=effective_forecast_samp_rate,
+        )
+        return {
+            "rank_corr": rank_corr,
+            "rank_corr_ci_lower": round(ci_dict["rank_corr_ci_lower"], 3),
+            "rank_corr_ci_upper": round(ci_dict["rank_corr_ci_upper"], 3),
+        }
+    except ValueError:
+        # Not enough data for bootstrap
+        return {
+            "rank_corr": rank_corr,
+            "rank_corr_ci_lower": np.nan,
+            "rank_corr_ci_upper": np.nan,
+        }
 
-    return float(np.nanmean(corr).round(3))
+
+def bootstrap_confidence_interval(
+    df_with_date: pd.DataFrame,
+    metric_func,
+    effective_forecast_samp_rate: float,
+    n_bootstrap: int = 1000,
+    confidence_level: float = 0.95,
+    random_seed: int = 42,
+):
+    """
+    Calculate bootstrap confidence intervals for a metric, accounting for forecast sampling.
+    
+    This function implements a day-level block bootstrap that appropriately handles
+    uncertainty when forecasts are sampled on entire days (not all days have forecasts).
+    
+    Parameters:
+        df_with_date: DataFrame with a 'date' column (normalized datetime) for grouping
+        metric_func: Function that takes a DataFrame and returns a dict of metrics
+                    Example: lambda df: {"metric": df["value"].sum()}
+        effective_forecast_samp_rate: Fraction of days in date range that have forecasts (0-1)
+        n_bootstrap: Number of bootstrap iterations (default 1000)
+        confidence_level: Confidence level for intervals (default 0.95 = 95% CI)
+        random_seed: Random seed for reproducibility (default 42)
+    
+    Returns:
+        dict: Point estimates and CIs for each metric returned by metric_func
+              Keys: {metric}_ci_lower, {metric}_ci_upper for each metric
+    
+    Algorithm:
+        - If effective_forecast_samp_rate < 0.95: Use reduced effective sample size to inflate CIs
+        - If effective_forecast_samp_rate >= 0.95: Use standard bootstrap (full sample size)
+        - Both approaches use block resampling of entire days to preserve temporal structure
+    
+    """
+    
+    n_days = len(df_with_date)
+    
+    if n_days == 0:
+        raise ValueError("DataFrame is empty, cannot calculate confidence intervals")
+    
+    # Determine bootstrap strategy based on sampling rate
+    if effective_forecast_samp_rate < 0.95:
+        # Sampled forecasts: use effective sample size to account for sampling uncertainty
+        effective_n_days = max(2, int(n_days * effective_forecast_samp_rate))
+    else:
+        # Full or nearly-full data: standard bootstrap
+        effective_n_days = n_days
+    
+    np.random.seed(random_seed)
+    bootstrap_results = []
+    
+    for _ in range(n_bootstrap):
+        # Block resample: sample entire days with replacement
+        sampled_days = df_with_date.sample(n=effective_n_days, replace=True)
+        metrics = metric_func(sampled_days)
+        bootstrap_results.append(metrics)
+    
+    bootstrap_df = pd.DataFrame(bootstrap_results)
+    
+    alpha = 1 - confidence_level
+    lower_percentile = (alpha / 2) * 100
+    upper_percentile = (1 - alpha / 2) * 100
+    
+    ci_dict = {}
+    for metric_name in bootstrap_df.columns:
+        ci_dict[f"{metric_name}_ci_lower"] = np.percentile(
+            bootstrap_df[metric_name], lower_percentile
+        )
+        ci_dict[f"{metric_name}_ci_upper"] = np.percentile(
+            bootstrap_df[metric_name], upper_percentile
+        )
+    
+    return ci_dict
 
 
 def pick_k_optimal_charge(in_df: pd.DataFrame, truth_col, charge_mins: int):
@@ -389,7 +576,44 @@ def pick_k_optimal_charge(in_df: pd.DataFrame, truth_col, charge_mins: int):
     return df["charge_status"]
 
 
-def simulate_charge(in_df: pd.DataFrame, sort_col: str, charge_mins: int):
+def simulate_charge(
+    in_df: pd.DataFrame, 
+    sort_col: str, 
+    charge_mins: int,
+    discount_factor: float = 0.0,
+    discount_horizon_hours: float = 6.0
+):
+    """
+    Simulate a greedy charging strategy that makes sequential decisions at each forecast time.
+    
+    At each decision point (generated_at), determines whether to charge immediately based on:
+    1. Current forecast's prediction for "now"
+    2. How that prediction ranks among all forecasted values
+    3. Remaining opportunities to charge before window ends
+    
+    The algorithm processes forecasts chronologically and makes irrevocable charging decisions
+    without knowledge of future forecasts (causally valid simulation).
+    
+    Parameters:
+        in_df: DataFrame with MultiIndex (generated_at, point_time)
+        sort_col: Column name to use for ranking (e.g., 'predicted_value')
+        charge_mins: Total minutes of charging needed in each window
+        discount_factor: If > 0, applies exponential time-discounting to future predictions
+                        to account for increasing uncertainty (default 0.0 = no discounting)
+        discount_horizon_hours: Reference horizon for discounting (default 6h)
+    
+    Returns:
+        Series of boolean charge_status values
+    
+    Algorithm:
+        For each window and each generated_at time T:
+        1. Get current forecast value for time T
+        2. Count how many forecasted values are better:
+           - Without discounting: simple count of values < current
+           - With discounting: weighted count using exp(-discount * hours_ahead)
+        3. Charge if: (better_count <= remaining_charge_needed) OR (running_out_of_time)
+        4. Continue to next decision point
+    """
 
     df = in_df.copy()
 
@@ -398,6 +622,7 @@ def simulate_charge(in_df: pd.DataFrame, sort_col: str, charge_mins: int):
     charge_needed = charge_mins // 5
     df = df.assign(charge_status=False)
     df = df.sort_index(ascending=True)
+    
     for w in df.reset_index().groupby("window_start"):
         window_start, w_df = w
         w_df = w_df.sort_values(["generated_at", "point_time"], ascending=True)
@@ -407,7 +632,19 @@ def simulate_charge(in_df: pd.DataFrame, sort_col: str, charge_mins: int):
         total_groups = len(generated_at_groups)
 
         for processed_count, (generated_at, g_df) in enumerate(generated_at_groups):
-            n_below_now = g_df[sort_col].rank().iloc[0]
+            current_value = g_df.iloc[0][sort_col]
+            current_time = generated_at
+            
+            if discount_factor > 0:
+                # Apply time-based discounting to future predictions
+                g_df_reset = g_df.reset_index()
+                hours_ahead = (g_df_reset["point_time"] - current_time).dt.total_seconds() / 3600
+                weights = np.exp(-discount_factor * hours_ahead / discount_horizon_hours)
+                better_mask = g_df[sort_col] < current_value
+                n_below_now = (better_mask * weights).sum()
+            else:
+                n_below_now = (g_df[sort_col] < current_value).sum()
+            
             remaining_generated_at = total_groups - processed_count
             should_charge_now = (n_below_now <= _charge_needed) or (
                 remaining_generated_at <= _charge_needed
@@ -535,11 +772,11 @@ def assign_windows(
     # Floor-divide to count how many full windows have elapsed since base
     steps = delta // window_size
     anchor_idx = base + (steps * window_size)
-    return list(pd.DatetimeIndex(anchor_idx))
+    return list(anchor_idx)
 
 
 def calc_rank_compare_metrics(
-    in_df,
+    data_handler,
     charge_mins,
     window_mins,
     window_start_time=None,
@@ -547,41 +784,56 @@ def calc_rank_compare_metrics(
     truth_col="signal_value",
     load_kw=1000,
 ):
+    in_df = data_handler.forecasts_v_moers
     df = in_df.copy()
 
     if isinstance(window_mins, int):
         window_mins = pd.Timedelta(minutes=window_mins)
+
+    effective_forecast_samp_rate = data_handler.effective_forecast_sample_rate
 
 
     window_starts = assign_windows(
         df.index.get_level_values("generated_at"), window_mins, window_start_time
     )
 
-    df = df.assign(
-        window_start=window_starts,
-        window_end=[i + window_mins for i in window_starts],
-    )
+    df = df.assign(window_start=window_starts)
+    
+    window_ends = []
+    for ws in window_starts:
+        if pd.isna(ws):
+            window_ends.append(pd.NaT)
+        else:
+            window_ends.append(ws + window_mins)
+    
+    df = df.assign(window_end=window_ends)
+
+    # reset index before filtering
+    df = df.reset_index()
 
     # Filter out rows that do not fall within the valid window
     df.loc[
-        (df.index.get_level_values("point_time") >= df["window_end"])
-        | (df.index.get_level_values("generated_at") >= df["window_end"])
-        | (df.index.get_level_values("generated_at") < df["window_start"]),
+        (df["point_time"] >= df["window_end"])
+        | (df["generated_at"] >= df["window_end"])
+        | (df["generated_at"] < df["window_start"]),
         "window_start",
     ] = pd.NaT
     df = df.dropna(subset=["window_start", "window_end"])
 
-    # Filter out rows where there aren't enough generated_ats to fulfill charge_mins
-    n_generated_at_in_window = df.groupby("window_start").transform(
-        lambda x: x.reset_index()["generated_at"].nunique()
-    )[pred_col]
-    df = df.loc[n_generated_at_in_window >= (charge_mins // 5) - 1]
+    # Filter out windows where we don't have generated_ats covering the full window duration
+    expected_gen_ats = window_mins // pd.Timedelta(minutes=5)
+    window_gen_at_counts = df.groupby("window_start")["generated_at"].nunique()
+    valid_windows = window_gen_at_counts[window_gen_at_counts >= expected_gen_ats].index
+    df = df[df["window_start"].isin(valid_windows)]
 
     # Filter out rows where generated_at != first point_time in the window
-    # df = df.loc[
-    #     df.index.get_level_values("generated_at")
-    #     == df.reset_index().groupby("generated_at")["point_time"].transform("first")
-    # ]
+    # e.g. we pulled an incomplete forecast (not sure why this would happen, but appe)
+    df = df.loc[
+        df['generated_at']
+        == df.groupby('generated_at')["point_time"].transform("first")
+    ]
+
+    df = df.set_index(['generated_at', 'point_time']).sort_index(ascending=True)
 
     df = df.assign(
         truth_charge_status=pick_k_optimal_charge(df, truth_col, charge_mins),
@@ -619,35 +871,81 @@ def calc_rank_compare_metrics(
         <= (len(df["window_start"].unique()) + 1) * charge_mins // 5
     )
 
-    # Calculate total CO2 emissions ("truth")
-    y_best_emissions = df["truth_charge_emissions"].sum()
-    y_pred_emissions = df["pred_charge_emissions"].sum()
-    y_base_emissions = df["baseline_charge_emissions"].sum()
-
-    assert y_pred_emissions >= y_best_emissions
-    assert y_base_emissions >= y_best_emissions
-
-    dates = df.index.get_level_values("generated_at")
-    n_days = len(set(dates.dropna().date))
+    # Calculate daily-level emissions to enable bootstrap confidence intervals
+    df_with_date = df.reset_index()
+    df_with_date["date"] = df_with_date["generated_at"].dt.normalize()
+    
+    daily_emissions = df_with_date.groupby("date").agg({
+        "truth_charge_emissions": "sum",
+        "pred_charge_emissions": "sum",
+        "baseline_charge_emissions": "sum",
+    }).reset_index()
+    
+    n_days = len(daily_emissions)
 
     if n_days == 0:
         reduction = np.nan
         potential = np.nan
+        reduction_ci_lower = np.nan
+        reduction_ci_upper = np.nan
+        potential_ci_lower = np.nan
+        potential_ci_upper = np.nan
     else:
+        # Calculate point estimates
+        y_best_emissions = daily_emissions["truth_charge_emissions"].sum()
+        y_pred_emissions = daily_emissions["pred_charge_emissions"].sum()
+        y_base_emissions = daily_emissions["baseline_charge_emissions"].sum()
+
+        assert y_pred_emissions >= y_best_emissions
+        assert y_base_emissions >= y_best_emissions
+
         reduction = (y_base_emissions - y_pred_emissions) / n_days
         potential = (y_base_emissions - y_best_emissions) / n_days
+        
+        # Bootstrap confidence intervals (95% CI)
+        # Use the general bootstrap function to calculate CIs
+        def calc_emissions_metrics(daily_df):
+            """Calculate reduction and potential from daily emissions DataFrame"""
+            base = daily_df["baseline_charge_emissions"].sum()
+            pred = daily_df["pred_charge_emissions"].sum()
+            best = daily_df["truth_charge_emissions"].sum()
+            
+            return {
+                "reduction": (base - pred) / n_days,
+                "potential": (base - best) / n_days,
+            }
+        
+        ci_dict = bootstrap_confidence_interval(
+            df_with_date=daily_emissions,
+            metric_func=calc_emissions_metrics,
+            effective_forecast_samp_rate=effective_forecast_samp_rate,
+        )
+        
+        reduction_ci_lower = ci_dict["reduction_ci_lower"]
+        reduction_ci_upper = ci_dict["reduction_ci_upper"]
+        potential_ci_lower = ci_dict["potential_ci_lower"]
+        potential_ci_upper = ci_dict["potential_ci_upper"]
 
     return {
         "reduction": round(reduction, 1),
         "potential": round(potential, 1),
+        "reduction_ci_lower": round(reduction_ci_lower, 1),
+        "reduction_ci_upper": round(reduction_ci_upper, 1),
+        "potential_ci_lower": round(potential_ci_lower, 1),
+        "potential_ci_upper": round(potential_ci_upper, 1),
     }
 
 
 def plot_norm_mae(
-    factory: DataHandlerFactory, horizons_hr=[1, 6, 12, 18, 24, 72]
+    factory: DataHandlerFactory, horizons_hr=[1, 6, 12, 18, 24, 72], ci=True
 ) -> Dict[str, go.Figure]:
     """
-    Create a Plotly bar chart for rank correlation by horizon with one subplot per region (abbrev).
+    Create a Plotly bar chart for normalized MAE by horizon with one subplot per region (abbrev).
+    
+    Parameters:
+        factory: DataHandlerFactory with data handlers
+        horizons_hr: List of horizons in hours
+        ci: If True, adds confidence interval error bars (default True)
     """
 
     y_min = y_max = 0
@@ -659,12 +957,39 @@ def plot_norm_mae(
         x_values = [f"{h}hr" for h in horizons_hr]  # Add horizon labels
 
         for model_job in region_models:
-            y_values = [
-                calc_norm_mae(model_job.forecasts_v_moers, (h * 60) - 5)
+            # Calculate metrics with or without CIs
+            results = [
+                calc_norm_mae(model_job, (h * 60) - 5, ci=ci)
                 for h in horizons_hr
             ]
+            
+            if ci:
+                # Extract values and CIs from dict results
+                y_values = [r["norm_mae"] for r in results]
+                ci_lower = [r["norm_mae_ci_lower"] for r in results]
+                ci_upper = [r["norm_mae_ci_upper"] for r in results]
+                
+                # Calculate error bar arrays (distance from point estimate)
+                error_minus = [y - lower if not np.isnan(lower) else 0 for y, lower in zip(y_values, ci_lower)]
+                error_plus = [upper - y if not np.isnan(upper) else 0 for y, upper in zip(y_values, ci_upper)]
+                
+                # Update y_max to include CI upper bounds
+                y_max = max([u for u in ci_upper if not np.isnan(u)] + [y_max])
+            else:
+                # Scalar results
+                y_values = results
+                error_minus = None
+                error_plus = None
+            
             y_max = max(y_values + [y_max])
             y_min = min(y_values + [y_min])
+
+            error_y_config = dict(
+                type="data",
+                symmetric=False,
+                array=error_plus,
+                arrayminus=error_minus,
+            ) if ci else None
 
             fig.add_trace(
                 go.Bar(
@@ -673,61 +998,89 @@ def plot_norm_mae(
                     name=model_job.model_date,
                     text=[f"{y:.1f}%" for y in y_values],  # Add text labels on bars
                     textposition="outside",
+                    error_y=error_y_config,
                 )
             )
 
-            fig.update_layout(
-                height=300,
-                xaxis_title="Horizon (Hours)",
-                yaxis_title="Normalized MAE (%)",
-                showlegend=True,  # Legends appear in individual subplot titles
-                margin=dict(l=50, r=50, t=50, b=50),
-                barmode="group",  # Ensure bars for each region are grouped
-            )
+        fig.update_layout(
+            height=300,
+            xaxis_title="Horizon (Hours)",
+            yaxis_title="Normalized MAE (%)",
+            showlegend=True,  # Legends appear in individual subplot titles
+            margin=dict(l=50, r=50, t=50, b=50),
+            barmode="group",  # Ensure bars for each region are grouped
+        )
 
-            figs[region_abbrev] = fig
+        figs[region_abbrev] = fig
 
-        for region, fig in figs.items():
-            figs[region] = fig.update_yaxes(
-                range=[y_min - (0.25 * y_max), y_max + (0.25 * y_max)]
-            )
+    for region, fig in figs.items():
+        figs[region] = fig.update_yaxes(
+            range=[y_min - (0.25 * y_max), y_max + (0.25 * y_max)]
+        )
 
     return figs
 
 
 def plot_rank_corr(
-    factory: DataHandlerFactory, horizons_hr=[1, 6, 12, 18, 24, 72]
+    factory: DataHandlerFactory, horizons_hr=[1, 6, 12, 18, 24, 72], ci=True
 ) -> Dict[str, go.Figure]:
     """
-    Create a Plotly line plot for rank correlation by horizon with one subplot per region (abbrev).
+    Create a Plotly bar plot for rank correlation by horizon with one subplot per region (abbrev).
 
     Parameters:
-        df (pd.DataFrame): DataFrame containing the rank correlation data.
-                           Columns: ['abbrev', 'name', '24hr', '48hr', '72hr'].
-        metric_name (str): 'Rank Correlation' or 'Normalized MAE'
+        factory: DataHandlerFactory with data handlers
+        horizons_hr: List of horizons in hours
+        ci: If True, adds confidence interval error bars (default True)
 
     Returns:
         fig (plotly.graph_objects.Figure): A Plotly figure with subplots.
-
     """
 
     y_min = y_max = 0
     figs = {}
 
-    # Iterate through each region and create a line plot
+    # Iterate through each region and create a bar plot
     for region_abbrev, region_models in factory.data_handlers_by_region_dict.items():
         fig = go.Figure()
 
-        # Extract data for the line plot
+        # Extract data for the bar plot
         x_values = [f"{h}hr" for h in horizons_hr]  # Add horizon labels
 
         for model_job in region_models:
-            y_values = [
-                calc_rank_corr(model_job.forecasts_v_moers, (h * 60) - 5)
+            # Calculate metrics with or without CIs
+            results = [
+                calc_rank_corr(model_job, (h * 60) - 5, ci=ci)
                 for h in horizons_hr
             ]
+            
+            if ci:
+                # Extract values and CIs from dict results
+                y_values = [r["rank_corr"] for r in results]
+                ci_lower = [r["rank_corr_ci_lower"] for r in results]
+                ci_upper = [r["rank_corr_ci_upper"] for r in results]
+                
+                # Calculate error bar arrays (distance from point estimate)
+                error_minus = [y - lower if not np.isnan(lower) else 0 for y, lower in zip(y_values, ci_lower)]
+                error_plus = [upper - y if not np.isnan(upper) else 0 for y, upper in zip(y_values, ci_upper)]
+                
+                # Update y_max/y_min to include CI bounds
+                y_max = max([u for u in ci_upper if not np.isnan(u)] + [y_max])
+                y_min = min([l for l in ci_lower if not np.isnan(l)] + [y_min])
+            else:
+                # Scalar results
+                y_values = results
+                error_minus = None
+                error_plus = None
+            
             y_max = max(y_values + [y_max])
             y_min = min(y_values + [y_min])
+
+            error_y_config = dict(
+                type="data",
+                symmetric=False,
+                array=error_plus,
+                arrayminus=error_minus,
+            ) if ci else None
 
             fig.add_trace(
                 go.Bar(
@@ -736,6 +1089,7 @@ def plot_rank_corr(
                     name=model_job.model_date,
                     text=[f"{y:.3f}" for y in y_values],  # Add text labels on bars
                     textposition="outside",
+                    error_y=error_y_config,
                 )
             )
 
@@ -753,7 +1107,7 @@ def plot_rank_corr(
     for region, fig in figs.items():
         # Set uniform y-axis range for all subplots
         figs[region] = fig.update_yaxes(
-            range=[y_min - (0.25 * y_max), y_max + (0.25 * y_max)]
+            range=[y_min - (0.25 * abs(y_max - y_min)), y_max + (0.25 * abs(y_max - y_min))]
         )
 
     return figs
@@ -831,7 +1185,7 @@ def plot_impact_forecast_metrics(
             _metrics = [
                 {
                     **calc_rank_compare_metrics(
-                        model_job.forecasts_v_moers, **AER_SCENARIOS[s],
+                        model_job, **AER_SCENARIOS[s],
                     ),
                     "scenario": s,
                 }
@@ -840,10 +1194,26 @@ def plot_impact_forecast_metrics(
 
             _metrics = pd.DataFrame(_metrics)
 
+            # Calculate error bar values for potential (symmetric CIs)
+            potential_error = [
+                [
+                    _metrics["potential"].iloc[i] - _metrics["potential_ci_lower"].iloc[i],
+                    _metrics["potential_ci_upper"].iloc[i] - _metrics["potential"].iloc[i],
+                ]
+                for i in range(len(_metrics))
+            ]
+            potential_error_symmetric = list(zip(*potential_error))
+
             fig.add_trace(
                 go.Bar(
                     x=_metrics["scenario"],
                     y=_metrics["potential"],
+                    error_y=dict(
+                        type="data",
+                        symmetric=False,
+                        array=potential_error_symmetric[1],  # upper errors
+                        arrayminus=potential_error_symmetric[0],  # lower errors
+                    ),
                     name=f"CO2 Potential Savings",  # Legend only in the first subplot
                     marker=dict(
                         color="rgba(200, 200, 200, 0.8)"
@@ -858,10 +1228,26 @@ def plot_impact_forecast_metrics(
                 col=1,
             )
 
+            # Calculate error bar values for reduction
+            reduction_error = [
+                [
+                    _metrics["reduction"].iloc[i] - _metrics["reduction_ci_lower"].iloc[i],
+                    _metrics["reduction_ci_upper"].iloc[i] - _metrics["reduction"].iloc[i],
+                ]
+                for i in range(len(_metrics))
+            ]
+            reduction_error_symmetric = list(zip(*reduction_error))
+
             fig.add_trace(
                 go.Bar(
                     x=_metrics["scenario"],
                     y=_metrics["reduction"],
+                    error_y=dict(
+                        type="data",
+                        symmetric=False,
+                        array=reduction_error_symmetric[1],  # upper errors
+                        arrayminus=reduction_error_symmetric[0],  # lower errors
+                    ),
                     name="Forecast Achieved",
                     text=[
                         f"{(r / (p + 1e-6)) * 100:.1f}%"

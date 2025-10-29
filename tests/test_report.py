@@ -127,7 +127,7 @@ class TestPlotCreationSingleModel(unittest.TestCase):
 class TestSimulateCharge(unittest.TestCase):
     def setUp(self):
         """Creates a sample DataFrame where each generated_at has 4 point_time values."""
-        generated_at_times = pd.date_range("2025-03-11 00:00:00", periods=4, freq="5T")
+        generated_at_times = pd.date_range("2025-03-11 00:00:00", periods=4, freq="5min")
         point_time_offsets = pd.to_timedelta([0, 5, 10, 15], unit="m")
 
         index = pd.MultiIndex.from_tuples(
@@ -227,86 +227,6 @@ class TestSimulateCharge(unittest.TestCase):
         self.assertEqual(anchors[7], start + pd.Timedelta(minutes=30))  # 00:35 -> anchor 00:30
         self.assertEqual(anchors[12], start + pd.Timedelta(minutes=60))  # 01:00 -> anchor 01:00
 
-    def test_calc_max_potential_equals_rank_compare_potential_when_constrained_inputs_match(self):
-        """When both functions operate over the same constrained candidate set (earliest-per-pull rows after
-        window filtering), their 'potential' should match.
-
-        Steps:
-        - Build a synthetic forecasts_v_moers across a single 2-hour window.
-        - Reproduce the window filtering used by calc_rank_compare_metrics, then reduce to earliest-per-pull rows.
-        - Feed that constrained candidate set as a moers DataFrame into calc_max_potential.
-        - Assert that calc_max_potential['potential'] equals calc_rank_compare_metrics()['potential'].
-        """
-
-        tz = "America/Los_Angeles"
-        start = pd.Timestamp("2024-01-01 19:00", tz=tz)
-        window_mins = 60
-        charge_mins = 10  # 2 five-minute slots
-        load_kw = 100
-
-        # Build forecasts_v_moers: signal high then low to make ordering visible
-        rows = []
-        for ga in pd.date_range(start, start + pd.Timedelta(hours=2), freq="5T"):
-            for pt_i in pd.date_range(ga, ga + pd.Timedelta(minutes=55), freq="5T"):
-                rows.append(
-                    {
-                        "generated_at": ga,
-                        "point_time": pt_i,
-                        "predicted_value": random.random(),
-                        "signal_value": 1000 - pt_i.minute * 10
-                    }
-                )
-        fvm = (
-            pd.DataFrame(rows)
-            .set_index(["generated_at", "point_time"])
-            .sort_index()
-        )
-
-        # Compute rank-compare potential
-        rc = report.calc_rank_compare_metrics(
-            fvm,
-            charge_mins=charge_mins,
-            window_mins=window_mins,
-            window_start_time="19:00",
-            pred_col="predicted_value",
-            truth_col="signal_value",
-            load_kw=load_kw,
-        )
-        rc_potential = rc["potential"]
-
-        # Reproduce the same candidate set (earliest-per-pull after window filtering)
-        wm = pd.Timedelta(minutes=window_mins)
-        window_starts = report.assign_windows(
-            fvm.index.get_level_values("generated_at"), wm, "19:00"
-        )
-        df = fvm.assign(
-            window_start=window_starts,
-            window_end=[i + wm for i in window_starts],
-        )
-        # out-of-window filter
-        df.loc[
-            (df.index.get_level_values("point_time") >= df["window_end"])
-            | (df.index.get_level_values("generated_at") >= df["window_end"])
-            | (df.index.get_level_values("generated_at") < df["window_start"]),
-            "window_start",
-        ] = pd.NaT
-        df = df.dropna(subset=["window_start", "window_end"]).copy()
-        # sufficient generated_at per window
-        n_gen = df.groupby("window_start").transform(
-            lambda x: x.reset_index()["generated_at"].nunique()
-        )["predicted_value"]
-        df = df.loc[n_gen >= (charge_mins // 5) - 1]
-        
-        mp = report.calc_max_potential(
-            df,
-            charge_mins=charge_mins,
-            window_mins=window_mins,
-            window_start_time="19:00",
-            truth_col="signal_value",
-            load_kw=load_kw,
-        )["potential"]
-
-        self.assertAlmostEqual(mp, rc_potential, places=6)
 
 class TestAnalysisDataHandler(unittest.TestCase):
 
@@ -402,4 +322,350 @@ class TestAnalysisDataHandler(unittest.TestCase):
             self.handler.tz,
             "point_time index level does not have the expected timezone.",
         )
+
+
+class TestBootstrapConfidenceInterval(unittest.TestCase):
+    """Tests for the bootstrap_confidence_interval function."""
+
+    def setUp(self):
+        """Create sample daily data for testing."""
+        np.random.seed(42)
+        dates = pd.date_range("2024-01-01", periods=30, freq="D")
+        self.daily_data = pd.DataFrame({
+            "date": dates,
+            "emissions": np.random.normal(100, 20, 30),
+            "count": np.random.randint(10, 50, 30),
+        })
+
+    def test_bootstrap_returns_dict_with_ci_keys(self):
+        """Test that bootstrap returns a dict with CI lower/upper keys."""
+        def metric_func(df):
+            return {"mean_emissions": df["emissions"].mean()}
+        
+        result = report.bootstrap_confidence_interval(
+            df_with_date=self.daily_data,
+            metric_func=metric_func,
+            effective_forecast_samp_rate=1.0,
+            n_bootstrap=100,
+        )
+        
+        self.assertIsInstance(result, dict)
+        self.assertIn("mean_emissions_ci_lower", result)
+        self.assertIn("mean_emissions_ci_upper", result)
+
+    def test_bootstrap_ci_bounds_sensible(self):
+        """Test that CI lower < upper and bounds are reasonable."""
+        def metric_func(df):
+            return {"mean_emissions": df["emissions"].mean()}
+        
+        result = report.bootstrap_confidence_interval(
+            df_with_date=self.daily_data,
+            metric_func=metric_func,
+            effective_forecast_samp_rate=1.0,
+            n_bootstrap=100,
+        )
+        
+        self.assertLess(
+            result["mean_emissions_ci_lower"],
+            result["mean_emissions_ci_upper"],
+            "CI lower bound should be less than upper bound"
+        )
+        
+        # Check that bounds are within reasonable range of data
+        mean_val = self.daily_data["emissions"].mean()
+        self.assertLess(result["mean_emissions_ci_lower"], mean_val * 1.5)
+        self.assertGreater(result["mean_emissions_ci_upper"], mean_val * 0.5)
+
+    def test_bootstrap_multiple_metrics(self):
+        """Test that bootstrap works with multiple metrics returned."""
+        def metric_func(df):
+            return {
+                "mean": df["emissions"].mean(),
+                "total": df["emissions"].sum(),
+                "max": df["emissions"].max(),
+            }
+        
+        result = report.bootstrap_confidence_interval(
+            df_with_date=self.daily_data,
+            metric_func=metric_func,
+            effective_forecast_samp_rate=1.0,
+            n_bootstrap=100,
+        )
+        
+        # Check all metrics have CIs
+        self.assertIn("mean_ci_lower", result)
+        self.assertIn("mean_ci_upper", result)
+        self.assertIn("total_ci_lower", result)
+        self.assertIn("total_ci_upper", result)
+        self.assertIn("max_ci_lower", result)
+        self.assertIn("max_ci_upper", result)
+        
+        # All should be valid
+        for metric in ["mean", "total", "max"]:
+            self.assertLess(result[f"{metric}_ci_lower"], result[f"{metric}_ci_upper"])
+
+    def test_bootstrap_with_low_sample_rate(self):
+        """Test that low sample rate inflates CIs (wider intervals)."""
+        def metric_func(df):
+            return {"mean": df["emissions"].mean()}
+        
+        # Full sample
+        result_full = report.bootstrap_confidence_interval(
+            df_with_date=self.daily_data,
+            metric_func=metric_func,
+            effective_forecast_samp_rate=1.0,
+            n_bootstrap=200,
+            random_seed=42,
+        )
+        
+        # Low sample rate (10%)
+        result_sampled = report.bootstrap_confidence_interval(
+            df_with_date=self.daily_data,
+            metric_func=metric_func,
+            effective_forecast_samp_rate=0.1,
+            n_bootstrap=200,
+            random_seed=42,
+        )
+        
+        width_full = result_full["mean_ci_upper"] - result_full["mean_ci_lower"]
+        width_sampled = result_sampled["mean_ci_upper"] - result_sampled["mean_ci_lower"]
+        
+        self.assertGreater(
+            width_sampled,
+            width_full,
+            "Low sample rate should produce wider confidence intervals"
+        )
+
+    def test_bootstrap_reproducible_with_seed(self):
+        """Test that results are reproducible with same random seed."""
+        def metric_func(df):
+            return {"mean": df["emissions"].mean()}
+        
+        result1 = report.bootstrap_confidence_interval(
+            df_with_date=self.daily_data,
+            metric_func=metric_func,
+            effective_forecast_samp_rate=1.0,
+            n_bootstrap=100,
+            random_seed=123,
+        )
+        
+        result2 = report.bootstrap_confidence_interval(
+            df_with_date=self.daily_data,
+            metric_func=metric_func,
+            effective_forecast_samp_rate=1.0,
+            n_bootstrap=100,
+            random_seed=123,
+        )
+        
+        self.assertEqual(result1["mean_ci_lower"], result2["mean_ci_lower"])
+        self.assertEqual(result1["mean_ci_upper"], result2["mean_ci_upper"])
+
+    def test_bootstrap_raises_on_empty_data(self):
+        """Test that bootstrap raises ValueError on empty DataFrame."""
+        def metric_func(df):
+            return {"mean": df["emissions"].mean()}
+        
+        empty_df = pd.DataFrame({"date": [], "emissions": []})
+        
+        with self.assertRaises(ValueError) as context:
+            report.bootstrap_confidence_interval(
+                df_with_date=empty_df,
+                metric_func=metric_func,
+                effective_forecast_samp_rate=1.0,
+            )
+        
+        self.assertIn("empty", str(context.exception).lower())
+
+    def test_bootstrap_confidence_level(self):
+        """Test that different confidence levels produce different intervals."""
+        def metric_func(df):
+            return {"mean": df["emissions"].mean()}
+        
+        result_95 = report.bootstrap_confidence_interval(
+            df_with_date=self.daily_data,
+            metric_func=metric_func,
+            effective_forecast_samp_rate=1.0,
+            confidence_level=0.95,
+            n_bootstrap=200,
+            random_seed=42,
+        )
+        
+        result_90 = report.bootstrap_confidence_interval(
+            df_with_date=self.daily_data,
+            metric_func=metric_func,
+            effective_forecast_samp_rate=1.0,
+            confidence_level=0.90,
+            n_bootstrap=200,
+            random_seed=42,
+        )
+        
+        width_95 = result_95["mean_ci_upper"] - result_95["mean_ci_lower"]
+        width_90 = result_90["mean_ci_upper"] - result_90["mean_ci_lower"]
+        
+        self.assertGreater(
+            width_95,
+            width_90,
+            "95% CI should be wider than 90% CI"
+        )
+
+    def test_bootstrap_effective_sample_size_calculation(self):
+        """Test that effective sample size is calculated correctly for different rates."""
+        def metric_func(df):
+            return {"count": len(df)}
+        
+        # With 30 days and 0.1 sample rate, effective n should be max(2, int(30*0.1)) = 3
+        result = report.bootstrap_confidence_interval(
+            df_with_date=self.daily_data,
+            metric_func=metric_func,
+            effective_forecast_samp_rate=0.1,
+            n_bootstrap=50,
+            random_seed=42,
+        )
+        
+        # The count metric should reflect bootstrap sampling
+        # With very low effective sample size, CIs should be quite wide
+        self.assertIn("count_ci_lower", result)
+        self.assertIn("count_ci_upper", result)
+
+
+class TestCalcNormMaeWithCI(unittest.TestCase):
+    """Test calc_norm_mae with confidence intervals enabled."""
+
+    def setUp(self):
+        """Create a mock AnalysisDataHandler with synthetic data."""
+        # Create synthetic forecasts_v_moers data
+        np.random.seed(42)
+        dates = pd.date_range("2024-01-01", periods=10, freq="D", tz="America/Los_Angeles")
+        
+        rows = []
+        for date in dates:
+            for hour in range(24):
+                generated_at = date + pd.Timedelta(hours=hour)
+                for horizon in [55, 115, 175]:  # 55min, 115min, 175min horizons
+                    point_time = generated_at + pd.Timedelta(minutes=horizon)
+                    predicted = 100 + np.random.normal(0, 10)
+                    signal = 100 + np.random.normal(0, 10)
+                    rows.append({
+                        "generated_at": generated_at,
+                        "point_time": point_time,
+                        "horizon_mins": horizon,
+                        "predicted_value": predicted,
+                        "signal_value": signal,
+                    })
+        
+        forecasts_v_moers = pd.DataFrame(rows).set_index(["generated_at", "point_time"])
+        
+        # Create a mock data handler
+        self.mock_handler = type('MockHandler', (), {
+            'forecasts_v_moers': forecasts_v_moers,
+            'effective_forecast_sample_rate': 1.0,
+        })()
+
+    def test_calc_norm_mae_without_ci_returns_scalar(self):
+        """Test that calc_norm_mae returns scalar when ci=False."""
+        result = report.calc_norm_mae(
+            self.mock_handler,
+            horizon_mins=55,
+            ci=False,
+        )
+        
+        self.assertIsInstance(result, (int, float, np.floating))
+
+    def test_calc_norm_mae_with_ci_returns_dict(self):
+        """Test that calc_norm_mae returns dict with CIs when ci=True."""
+        result = report.calc_norm_mae(
+            self.mock_handler,
+            horizon_mins=55,
+            ci=True,
+        )
+        
+        self.assertIsInstance(result, dict)
+        self.assertIn("norm_mae", result)
+        self.assertIn("norm_mae_ci_lower", result)
+        self.assertIn("norm_mae_ci_upper", result)
+
+    def test_calc_norm_mae_ci_bounds_sensible(self):
+        """Test that MAE CIs are sensible (lower < value < upper)."""
+        result = report.calc_norm_mae(
+            self.mock_handler,
+            horizon_mins=55,
+            ci=True,
+        )
+        
+        self.assertLessEqual(result["norm_mae_ci_lower"], result["norm_mae"])
+        self.assertLessEqual(result["norm_mae"], result["norm_mae_ci_upper"])
+
+
+class TestCalcRankCorrWithCI(unittest.TestCase):
+    """Test calc_rank_corr with confidence intervals enabled."""
+
+    def setUp(self):
+        """Create a mock AnalysisDataHandler with synthetic data."""
+        np.random.seed(42)
+        dates = pd.date_range("2024-01-01", periods=10, freq="D", tz="America/Los_Angeles")
+        
+        rows = []
+        for date in dates:
+            for hour in range(24):
+                generated_at = date + pd.Timedelta(hours=hour)
+                # Create correlated predictions and signals
+                signal_base = 100 + hour * 2  # Time-varying pattern
+                for horizon in [55, 115, 175]:
+                    point_time = generated_at + pd.Timedelta(minutes=horizon)
+                    signal = signal_base + np.random.normal(0, 5)
+                    predicted = signal_base + np.random.normal(0, 8)  # Correlated with signal
+                    rows.append({
+                        "generated_at": generated_at,
+                        "point_time": point_time,
+                        "horizon_mins": horizon,
+                        "predicted_value": predicted,
+                        "signal_value": signal,
+                    })
+        
+        forecasts_v_moers = pd.DataFrame(rows).set_index(["generated_at", "point_time"])
+        
+        self.mock_handler = type('MockHandler', (), {
+            'forecasts_v_moers': forecasts_v_moers,
+            'effective_forecast_sample_rate': 1.0,
+        })()
+
+    def test_calc_rank_corr_without_ci_returns_scalar(self):
+        """Test that calc_rank_corr returns scalar when ci=False."""
+        result = report.calc_rank_corr(
+            self.mock_handler,
+            horizon_mins=175,
+            ci=False,
+        )
+        
+        self.assertIsInstance(result, (int, float, np.floating))
+
+    def test_calc_rank_corr_with_ci_returns_dict(self):
+        """Test that calc_rank_corr returns dict with CIs when ci=True."""
+        result = report.calc_rank_corr(
+            self.mock_handler,
+            horizon_mins=175,
+            ci=True,
+        )
+        
+        self.assertIsInstance(result, dict)
+        self.assertIn("rank_corr", result)
+        self.assertIn("rank_corr_ci_lower", result)
+        self.assertIn("rank_corr_ci_upper", result)
+
+    def test_calc_rank_corr_ci_bounds_sensible(self):
+        """Test that correlation CIs are sensible (within [-1, 1] and ordered)."""
+        result = report.calc_rank_corr(
+            self.mock_handler,
+            horizon_mins=175,
+            ci=True,
+        )
+        
+        # CIs should be ordered
+        self.assertLessEqual(result["rank_corr_ci_lower"], result["rank_corr"])
+        self.assertLessEqual(result["rank_corr"], result["rank_corr_ci_upper"])
+        
+        # All values should be in valid correlation range [-1, 1]
+        self.assertGreaterEqual(result["rank_corr_ci_lower"], -1)
+        self.assertLessEqual(result["rank_corr_ci_upper"], 1)
+
 

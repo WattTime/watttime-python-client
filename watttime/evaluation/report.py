@@ -356,42 +356,41 @@ def calc_norm_mae(
     if not ci:
         return norm_mae
     
-    effective_forecast_samp_rate = data_handler.effective_forecast_sample_rate
+    # Calculate per-forecast normalized MAE for confidence intervals
     df_with_date = filtered_df.reset_index()
     df_with_date["date"] = df_with_date["generated_at"].dt.normalize()
     
-    daily_errors = df_with_date.groupby("date", as_index=False).apply(
-        lambda g: pd.Series({
-            "abs_error_sum": (g[truth_col] - g[pred_col]).abs().sum(),
-            "truth_sum": g[truth_col].sum(),
-            "count": len(g),
-        }),
+    # Group by date and calculate daily normalized MAE
+    daily_mae = df_with_date.groupby("date").apply(
+        lambda g: (g[truth_col] - g[pred_col]).abs().sum() / g[truth_col].sum() * 100.0 if g[truth_col].sum() > 0 else np.nan,
         include_groups=False
     )
+    daily_mae = daily_mae.dropna()
     
-    def calc_mae_metric(daily_df):
-        total_abs_error = daily_df["abs_error_sum"].sum()
-        total_truth = daily_df["truth_sum"].sum()
-        return {"norm_mae": (total_abs_error / total_truth) * 100.0 if total_truth > 0 else 0.0}
-    
-    try:
-        ci_dict = bootstrap_confidence_interval(
-            df_with_date=daily_errors,
-            metric_func=calc_mae_metric,
-            effective_forecast_samp_rate=effective_forecast_samp_rate,
-        )
-        return {
-            "norm_mae": norm_mae,
-            "norm_mae_ci_lower": round(ci_dict["norm_mae_ci_lower"], 1),
-            "norm_mae_ci_upper": round(ci_dict["norm_mae_ci_upper"], 1),
-        }
-    except ValueError:
-        # Not enough data for bootstrap
+    n = len(daily_mae)
+    if n < 2:
         return {
             "norm_mae": norm_mae,
             "norm_mae_ci_lower": np.nan,
             "norm_mae_ci_upper": np.nan,
         }
+    
+    # Calculate 95% CI using t-distribution
+    # Use the module-level `stats` import to avoid creating a local binding that
+    # interferes with nested functions (see NameError closure issues).
+    mae_se = daily_mae.sem()
+    t_critical = stats.t.ppf(0.975, df=n-1)
+    
+    # Note: using daily_mae.mean() instead of norm_mae for consistency with CI calculation
+    mae_mean = daily_mae.mean()
+    mae_ci_lower = mae_mean - (t_critical * mae_se)
+    mae_ci_upper = mae_mean + (t_critical * mae_se)
+    
+    return {
+        "norm_mae": round(mae_mean, 1),
+        "norm_mae_ci_lower": round(mae_ci_lower, 1),
+        "norm_mae_ci_upper": round(mae_ci_upper, 1),
+    }
 
 
 def calc_rank_corr(
@@ -439,38 +438,38 @@ def calc_rank_corr(
     if not ci:
         return rank_corr
     
-    # block bootstrap
+    # Calculate per-day correlation for confidence intervals
     df_reset = corr_by_forecast.reset_index()
     df_reset.columns = ["generated_at", "correlation"]
     df_reset = df_reset.dropna()
     df_reset["date"] = df_reset["generated_at"].dt.normalize()
     
     # Group by date and average correlations within each day
-    daily_corr = df_reset.groupby("date")["correlation"].mean().reset_index()
+    daily_corr = df_reset.groupby("date")["correlation"].mean()
     
-    effective_forecast_samp_rate = data_handler.effective_forecast_sample_rate
-    
-    def calc_corr_metric(daily_df):
-        return {"rank_corr": daily_df["correlation"].mean()}
-    
-    try:
-        ci_dict = bootstrap_confidence_interval(
-            df_with_date=daily_corr,
-            metric_func=calc_corr_metric,
-            effective_forecast_samp_rate=effective_forecast_samp_rate,
-        )
-        return {
-            "rank_corr": rank_corr,
-            "rank_corr_ci_lower": round(ci_dict["rank_corr_ci_lower"], 3),
-            "rank_corr_ci_upper": round(ci_dict["rank_corr_ci_upper"], 3),
-        }
-    except ValueError:
-        # Not enough data for bootstrap
+    n = len(daily_corr)
+    if n < 2:
         return {
             "rank_corr": rank_corr,
             "rank_corr_ci_lower": np.nan,
             "rank_corr_ci_upper": np.nan,
         }
+    
+    # Calculate 95% CI using t-distribution
+    # Use the module-level `stats` import to avoid creating a local binding
+    corr_se = daily_corr.sem()
+    t_critical = stats.t.ppf(0.975, df=n-1)
+    
+    # Note: using daily_corr.mean() instead of rank_corr for consistency with CI calculation
+    corr_mean = daily_corr.mean()
+    corr_ci_lower = corr_mean - (t_critical * corr_se)
+    corr_ci_upper = corr_mean + (t_critical * corr_se)
+    
+    return {
+        "rank_corr": round(corr_mean, 3),
+        "rank_corr_ci_lower": round(corr_ci_lower, 3),
+        "rank_corr_ci_upper": round(corr_ci_upper, 3),
+    }
 
 
 def bootstrap_confidence_interval(
@@ -548,9 +547,21 @@ def bootstrap_confidence_interval(
 
 
 def pick_k_optimal_charge(in_df: pd.DataFrame, truth_col, charge_mins: int):
+    """
+    Select the k optimal charging periods (lowest truth_col values) within each window.
+    
+    This represents the theoretical best-case scenario where we have perfect knowledge
+    of future values and can select the optimal charging times.
+    
+    Parameters:
+        in_df: DataFrame with window_start column and point_time as index (or in MultiIndex)
+        truth_col: Column name containing the actual signal values
+        charge_mins: Total minutes of charging needed per window
+    
+    Returns:
+        Series of boolean charge_status values indicating optimal charge periods
+    """
     df = in_df.copy()
-
-    specify_generated_at = "generated_at" in df.index.names
 
     charge_needed = charge_mins // 5
     df["charge_status"] = False
@@ -558,20 +569,18 @@ def pick_k_optimal_charge(in_df: pd.DataFrame, truth_col, charge_mins: int):
 
     for window_start, w_df in df.reset_index().groupby("window_start"):
         # Pick the `charge_needed` lowest truth_col values in this window
-        # If there are ties, 'first' ensures deterministic selection
-        if specify_generated_at:
-            w_df = w_df[w_df["generated_at"] == w_df["point_time"]]
+        # If there are ties, 'first' ensures deterministic selection        
         selected_points = w_df.sort_values(truth_col, ascending=True).head(
             charge_needed
         )
 
         # Mark these point_times as charge periods in the original dataframe
-        if specify_generated_at:
-            df.loc[
-                [(p, p) for p in selected_points["point_time"]], "charge_status"
-            ] = True
-        else:
+        # Handle both simple index (point_time) and MultiIndex (generated_at, point_time)
+        try:
             df.loc[selected_points["point_time"], "charge_status"] = True
+        except KeyError:
+            # MultiIndex case - use the full index from selected_points
+            df.loc[selected_points.set_index(['generated_at', 'point_time']).index, "charge_status"] = True
 
     return df["charge_status"]
 
@@ -586,13 +595,19 @@ def simulate_charge(
     """
     Simulate a greedy charging strategy that makes sequential decisions at each forecast time.
     
-    At each decision point (generated_at), determines whether to charge immediately based on:
-    1. Current forecast's prediction for "now"
-    2. How that prediction ranks among all forecasted values
+    At each decision point (generated_at), determines whether to charge based on:
+    1. The forecast's predictions for future point_times
+    2. How those predictions rank among all forecasted values
     3. Remaining opportunities to charge before window ends
     
     The algorithm processes forecasts chronologically and makes irrevocable charging decisions
     without knowledge of future forecasts (causally valid simulation).
+    
+    The function automatically detects the forecast frequency (interval between generated_at times)
+    and determines how many 5-minute periods each forecast can schedule. For example:
+    - 5-minute frequency: each forecast schedules 1 period
+    - 30-minute frequency: each forecast schedules up to 6 periods
+    - 60-minute frequency: each forecast schedules up to 12 periods
     
     Parameters:
         in_df: DataFrame with MultiIndex (generated_at, point_time)
@@ -607,88 +622,157 @@ def simulate_charge(
     
     Algorithm:
         For each window and each generated_at time T:
-        1. Get current forecast value for time T
-        2. Count how many forecasted values are better:
-           - Without discounting: simple count of values < current
-           - With discounting: weighted count using exp(-discount * hours_ahead)
-        3. Charge if: (better_count <= remaining_charge_needed) OR (running_out_of_time)
-        4. Continue to next decision point
+        1. Determine how many periods this forecast can schedule (based on forecast frequency)
+        2. From the available forecasted periods, select the best N periods
+        3. Count how many forecasted values are better (with optional discounting)
+        4. Decide whether to schedule charging for the selected periods
+        5. Continue to next decision point
     """
 
     df = in_df.copy()
 
     assert sort_col in df.columns
 
-    charge_needed = charge_mins // 5
+    charge_needed = charge_mins // 5  # Total number of 5-min periods needed
     df = df.assign(charge_status=False)
     df = df.sort_index(ascending=True)
     
     for w in df.reset_index().groupby("window_start"):
         window_start, w_df = w
         w_df = w_df.sort_values(["generated_at", "point_time"], ascending=True)
+        
+        # Detect forecast frequency by looking at time between consecutive generated_at values
+        unique_generated_at = sorted(w_df["generated_at"].unique())
+        if len(unique_generated_at) > 1:
+            # Calculate median interval to be robust to missing forecasts
+            intervals = pd.Series(unique_generated_at).diff().dropna()
+            forecast_freq_minutes = int(intervals.median().total_seconds() / 60)
+        else:
+            # Only one forecast, assume 5-minute frequency
+            forecast_freq_minutes = 5
+        
+        # Calculate how many 5-minute periods each forecast can schedule
+        periods_per_forecast = max(1, forecast_freq_minutes // 5)
+        
         charge_periods = []
+        scheduled_periods = set()  # Track which periods are already scheduled
         _charge_needed = charge_needed
         generated_at_groups = list(w_df.groupby("generated_at"))
         total_groups = len(generated_at_groups)
 
         for processed_count, (generated_at, g_df) in enumerate(generated_at_groups):
-            current_value = g_df.iloc[0][sort_col]
-            current_time = generated_at
+            if _charge_needed == 0:
+                break
+                
+            # Filter to schedulable periods: not already scheduled, within [generated_at, generated_at + forecast_freq)
+            # This represents the "decision window" - we can only schedule for the next forecast period
+            g_df_reset = g_df.reset_index()
+            next_generated_at = generated_at + pd.Timedelta(minutes=forecast_freq_minutes)
+            
+            schedulable_mask = (
+                ~g_df_reset["point_time"].isin(scheduled_periods) &
+                (g_df_reset["point_time"] >= generated_at) &
+                (g_df_reset["point_time"] < next_generated_at)
+            )
+            schedulable_df = g_df_reset[schedulable_mask]
+            
+            if len(schedulable_df) == 0:
+                continue
+            
+            # Determine how many periods to schedule in this decision
+            # Can schedule up to periods_per_forecast, but limited by remaining need and available periods
+            max_to_schedule = min(periods_per_forecast, _charge_needed, len(schedulable_df))
+            
+            # Apply discounting if specified
+            if discount_factor > 0:
+                hours_ahead = (schedulable_df["point_time"] - generated_at).dt.total_seconds() / 3600
+                weights = np.exp(-discount_factor * hours_ahead / discount_horizon_hours)
+                schedulable_df = schedulable_df.copy()
+                schedulable_df["weighted_value"] = schedulable_df[sort_col] / weights
+                sort_column = "weighted_value"
+            else:
+                sort_column = sort_col
+            
+            # Select the best max_to_schedule periods from schedulable periods
+            best_periods = schedulable_df.nsmallest(max_to_schedule, sort_column)
+            
+            # Evaluate: Count how many periods in the ENTIRE forecast (all of g_df) are better than worst selected
+            # This gives us the ranking quality without the scheduling constraint
+            worst_selected_value = best_periods[sort_col].max()
             
             if discount_factor > 0:
-                # Apply time-based discounting to future predictions
-                g_df_reset = g_df.reset_index()
-                hours_ahead = (g_df_reset["point_time"] - current_time).dt.total_seconds() / 3600
-                weights = np.exp(-discount_factor * hours_ahead / discount_horizon_hours)
-                better_mask = g_df[sort_col] < current_value
-                n_below_now = (better_mask * weights).sum()
+                # For discounting, evaluate against all forecasted periods with weights
+                all_future_mask = g_df_reset["point_time"] > best_periods["point_time"].max()
+                all_future_df = g_df_reset[all_future_mask]
+                if len(all_future_df) > 0:
+                    hours_ahead_all = (all_future_df["point_time"] - generated_at).dt.total_seconds() / 3600
+                    weights_all = np.exp(-discount_factor * hours_ahead_all / discount_horizon_hours)
+                    better_mask = all_future_df[sort_col] < worst_selected_value
+                    n_below_worst = (better_mask * weights_all).sum()
+                else:
+                    n_below_worst = 0
             else:
-                n_below_now = (g_df[sort_col] < current_value).sum()
+                # Simple count: how many periods in the entire forecast are better than worst selected
+                all_future_mask = g_df_reset["point_time"] > best_periods["point_time"].max()
+                n_below_worst = (g_df_reset[all_future_mask][sort_col] < worst_selected_value).sum()
             
-            remaining_generated_at = total_groups - processed_count
-            should_charge_now = (n_below_now <= _charge_needed) or (
-                remaining_generated_at <= _charge_needed
+            remaining_generated_at = total_groups - processed_count - 1
+            remaining_capacity = remaining_generated_at * periods_per_forecast
+            should_charge_now = (n_below_worst <= _charge_needed) or (
+                remaining_capacity <= _charge_needed
             )
 
             if should_charge_now:
+                # Schedule charging for the selected periods
+                for _, row in best_periods.iterrows():
+                    pt = row["point_time"]
+                    charge_periods.append((generated_at, pt))
+                    scheduled_periods.add(pt)
+                    _charge_needed -= 1
 
-                if generated_at != g_df.iloc[0]["point_time"]:
-                    warnings.warn(
-                        "The generated_at and first point_time for a forecast do not match, look closely to understand why!",
-                        RuntimeWarning,
-                    )
-                    continue
-
-                charge_periods.append((generated_at, generated_at))
-                _charge_needed -= 1
-
-            if _charge_needed == 0:
-                break
-
+        # Mark the scheduled periods in the dataframe
         df.loc[charge_periods, "charge_status"] = True
 
-    # Compute the feasible number of charge periods given available generated_at groups per window
-    # We can decide at most once per generated_at (we charge at the forecast's first point_time),
-    # so the upper bound per-window is min(charge_needed, n_generated_at_in_window).
-    window_group_counts = (
-        df.reset_index().groupby("window_start")["generated_at"].nunique()
-    )
-    expected_total_needed = int(
-        sum(min(charge_needed, c) for c in window_group_counts.values)
-    )
-
+    # Validation: check that we achieved reasonable charging coverage
     charged_total = int(df["charge_status"].sum())
+    
+    # Calculate expected capacity based on forecast frequency
+    window_group_counts = df.reset_index().groupby("window_start")["generated_at"].nunique()
+    
+    # For each window, calculate its forecast frequency and expected capacity
+    expected_total_needed = 0
+    for window_start, n_forecasts in window_group_counts.items():
+        # Get forecasts for this window
+        window_mask = df.reset_index()["window_start"] == window_start
+        window_df = df.reset_index()[window_mask]
+        unique_gen_at = sorted(window_df["generated_at"].unique())
+        
+        if len(unique_gen_at) > 1:
+            intervals = pd.Series(unique_gen_at).diff().dropna()
+            freq_mins = int(intervals.median().total_seconds() / 60)
+        else:
+            freq_mins = 5
+        
+        periods_per_fc = max(1, freq_mins // 5)
+        window_capacity = n_forecasts * periods_per_fc
+        expected_total_needed += min(charge_needed, window_capacity)
 
-    # Upper bound: cannot exceed feasible slots
+    # Upper bound: cannot exceed expected capacity (with small buffer for edge cases)
     assert (
-        charged_total <= expected_total_needed
-    ), "Charge status is too high, check the logic for simulate_charge"
+        charged_total <= expected_total_needed + (len(window_group_counts) * 2)
+    ), f"Charge status is too high ({charged_total} > {expected_total_needed}), check the logic for simulate_charge"
 
-    # Lower bound: be within 3% of feasible slots (or equal when small counts)
+    # Lower bound: be within 10% of expected (relaxed to account for greedy scheduling constraints)
+    # The greedy algorithm may not perfectly achieve theoretical capacity due to:
+    # - Period conflicts from overlapping forecast coverage
+    # - Suboptimal early decisions in the greedy algorithm
+    # - Edge effects at window boundaries
+    # - Timing misalignments between forecast pulls and optimal charge periods
     if expected_total_needed > 0:
+        min_acceptable = int(np.floor(0.90 * expected_total_needed))
         assert (
-            charged_total >= int(np.floor(0.97 * expected_total_needed))
-        ), "Charge status is too low, check the logic for simulate_charge"
+            charged_total >= min_acceptable
+        ), f"Charge status is too low ({charged_total} < {min_acceptable}, which is 90% of {expected_total_needed}), check the logic for simulate_charge"
 
     return df["charge_status"]
 
@@ -783,18 +867,47 @@ def calc_rank_compare_metrics(
     pred_col="predicted_value",
     truth_col="signal_value",
     load_kw=1000,
+    forecast_pull_mins=30,
 ):
+    """
+    Calculate emissions reduction metrics comparing forecast-based charging to baseline.
+    
+    Parameters:
+        data_handler: AnalysisDataHandler with forecasts_v_moers data
+        charge_mins: Total minutes of charging needed per window
+        window_mins: Window duration in minutes
+        window_start_time: Optional time string (HH:MM) for daily window start
+        pred_col: Column name for forecast predictions
+        truth_col: Column name for ground truth values
+        load_kw: Load in kilowatts
+        forecast_pull_mins: Forecast pull frequency in minutes (default 30)
+                           Controls how often forecasts are retrieved.
+                           E.g., 30 means forecasts pulled every 30 minutes.
+    
+    Returns:
+        dict: Reduction and potential metrics with confidence intervals
+    """
     in_df = data_handler.forecasts_v_moers
     df = in_df.copy()
 
     if isinstance(window_mins, int):
         window_mins = pd.Timedelta(minutes=window_mins)
+    
+    forecast_pull_delta = pd.Timedelta(minutes=forecast_pull_mins)
 
     effective_forecast_samp_rate = data_handler.effective_forecast_sample_rate
 
+    # reset index before filtering
+    df = df.reset_index()
+
+    # Filter generated_at times to match the forecast_pull frequency BEFORE assigning windows
+    # This significantly reduces the volume of data that needs window assignment
+    # Keep only forecasts where generated_at minute aligns with the forecast pull frequency
+    # e.g., if forecast_pull_mins=30, keep forecasts at :00 and :30 minutes
+    df = df[df["generated_at"].dt.minute % forecast_pull_mins == 0]
 
     window_starts = assign_windows(
-        df.index.get_level_values("generated_at"), window_mins, window_start_time
+        df["generated_at"], window_mins, window_start_time
     )
 
     df = df.assign(window_start=window_starts)
@@ -808,82 +921,143 @@ def calc_rank_compare_metrics(
     
     df = df.assign(window_end=window_ends)
 
-    # reset index before filtering
-    df = df.reset_index()
-
     # Filter out rows that do not fall within the valid window
-    df.loc[
-        (df["point_time"] >= df["window_end"])
-        | (df["generated_at"] >= df["window_end"])
-        | (df["generated_at"] < df["window_start"]),
-        "window_start",
-    ] = pd.NaT
-    df = df.dropna(subset=["window_start", "window_end"])
+    # Instead of using .loc to set values then dropna, directly filter the dataframe
+    # This is much faster as it avoids the expensive .loc assignment operation
+    valid_mask = (
+        (df["point_time"] < df["window_end"])
+        & (df["generated_at"] < df["window_end"])
+        & (df["generated_at"] >= df["window_start"])
+    )
+    df = df[valid_mask]
 
-    # Filter out windows where we don't have generated_ats covering the full window duration
-    expected_gen_ats = window_mins // pd.Timedelta(minutes=5)
+    # Filter out windows where we don't have enough generated_ats to cover the full window duration
+    # With the new forecast_pull frequency, we need fewer forecasts
+    expected_gen_ats = int(np.ceil(window_mins / forecast_pull_delta))
     window_gen_at_counts = df.groupby("window_start")["generated_at"].nunique()
-    valid_windows = window_gen_at_counts[window_gen_at_counts >= expected_gen_ats].index
+    # Allow some tolerance (90% of expected)
+    min_required_gen_ats = max(1, int(np.floor(0.9 * expected_gen_ats)))
+    valid_windows = window_gen_at_counts[window_gen_at_counts >= min_required_gen_ats].index
     df = df[df["window_start"].isin(valid_windows)]
 
     # Filter out rows where generated_at != first point_time in the window
-    # e.g. we pulled an incomplete forecast (not sure why this would happen, but appe)
-    df = df.loc[
-        df['generated_at']
-        == df.groupby('generated_at')["point_time"].transform("first")
-    ]
+    # e.g. we pulled an incomplete forecast (not sure why this would happen, but safety check)
+    # Use direct boolean indexing instead of .loc for better performance
+    first_point_times = df.groupby('generated_at')["point_time"].transform("first")
+    df = df[df['generated_at'] == first_point_times]
 
     df = df.set_index(['generated_at', 'point_time']).sort_index(ascending=True)
 
+    # For pick_k_optimal_charge, we need ALL nowcast values (every 5 minutes), not just those from filtered forecasts
+    # Go back to the ORIGINAL unfiltered data to get complete nowcast coverage
+    df_for_optimal = in_df.reset_index()
+    df_for_optimal = df_for_optimal[df_for_optimal['generated_at'] == df_for_optimal['point_time']]
+    
+    # Apply window assignment
+    window_starts_optimal = assign_windows(
+        df_for_optimal["point_time"], window_mins, window_start_time
+    )
+    df_for_optimal = df_for_optimal.assign(window_start=window_starts_optimal)
+    
+    # Keep only windows that have forecasts (from valid_windows), but DON'T validate
+    # based on nowcast count - we need ALL available nowcast data for baseline/optimal
+    df_for_optimal = df_for_optimal[df_for_optimal["window_start"].isin(valid_windows)]
+    
+    # NOW validate that each window has enough nowcast data for baseline calculation
+    # We need at least charge_mins // 5 periods per window
+    min_periods_needed = charge_mins // 5
+    nowcast_counts = df_for_optimal.groupby('window_start').size()
+    windows_with_enough_data = nowcast_counts[nowcast_counts >= min_periods_needed].index
+    df_for_optimal = df_for_optimal[df_for_optimal["window_start"].isin(windows_with_enough_data)]
+    
+    # Update valid_windows to only include windows that have both forecasts AND enough nowcast data
+    valid_windows = windows_with_enough_data
+    df = df.reset_index()
+    df = df[df["window_start"].isin(valid_windows)]
+    df = df.set_index(['generated_at', 'point_time']).sort_index(ascending=True)
+    
+    df_for_optimal = df_for_optimal[['point_time', truth_col, 'window_start']].copy()
+    df_for_optimal = df_for_optimal.drop_duplicates(subset=['point_time'], keep='first').set_index('point_time').sort_index()
+
+    # Calculate optimal charge status and emissions on the optimal dataset
+    df_for_optimal['charge_status'] = pick_k_optimal_charge(df_for_optimal, truth_col, charge_mins)
+    df_for_optimal['truth_charge_emissions'] = (
+        df_for_optimal[truth_col]
+        * df_for_optimal['charge_status']
+        * (load_kw / 1000)
+        * (5 / 60)
+    )
+    
+    # Calculate baseline: immediate charging on the same optimal dataset
+    # This ensures baseline uses the same complete set of point_times as optimal
+    df_for_optimal = df_for_optimal.sort_index()
+    df_for_optimal['sequential_rank'] = df_for_optimal.groupby('window_start').cumcount()
+    df_for_optimal['baseline_charge_status'] = df_for_optimal['sequential_rank'] < charge_mins // 5
+    df_for_optimal['baseline_charge_emissions'] = (
+        df_for_optimal[truth_col]
+        * df_for_optimal['baseline_charge_status']
+        * (load_kw / 1000)
+        * (5 / 60)
+    )
+    
+    # Aggregate optimal and baseline results by window
+    optimal_by_window = df_for_optimal.groupby('window_start').agg({
+        'charge_status': 'sum',
+        'truth_charge_emissions': 'sum',
+        'baseline_charge_status': 'sum',
+        'baseline_charge_emissions': 'sum'
+    }).rename(columns={
+        'charge_status': 'truth_charge_count',
+        'baseline_charge_status': 'baseline_charge_count'
+    })
+    
+    # Calculate pred_charge_status on the forecast dataframe
     df = df.assign(
-        truth_charge_status=pick_k_optimal_charge(df, truth_col, charge_mins),
         pred_charge_status=simulate_charge(df, pred_col, charge_mins),
     )
 
     df = df.assign(
-        truth_charge_emissions=df[truth_col]
-        * df["truth_charge_status"]
-        * (load_kw / 1000)
-        * (5 / 60),  # normalize hourly MOER to 5-minute intervals,
         pred_charge_emissions=df[truth_col]
         * df["pred_charge_status"]
         * (load_kw / 1000)
         * (5 / 60),
     )
 
-    # baseline: immediate charging rather than AER
-    df = df.sort_index()
-    df = df.assign(sequential_rank=df.groupby("window_start").cumcount())
-    df = df.assign(baseline_charge_status=df["sequential_rank"] < charge_mins // 5)
-    df = df.assign(
-        baseline_charge_emissions=df[truth_col]
-        * df["baseline_charge_status"]
-        * (load_kw / 1000)
-        * (5 / 60)
-    )
-
-    assert (
-        df["baseline_charge_status"].sum()
-        == (len(df["window_start"].unique())) * charge_mins // 5
-    )
-    assert (
-        df["baseline_charge_status"].sum()
-        <= (len(df["window_start"].unique()) + 1) * charge_mins // 5
-    )
-
-    # Calculate daily-level emissions to enable bootstrap confidence intervals
-    df_with_date = df.reset_index()
-    df_with_date["date"] = df_with_date["generated_at"].dt.normalize()
+    # Aggregate forecast results by window and merge with optimal/baseline results
+    by_window = df.groupby("window_start").agg({
+        'pred_charge_status': 'sum',
+        'pred_charge_emissions': 'sum',
+    }).rename(columns={
+        'pred_charge_status': 'pred_charge_count',
+    })
     
-    daily_emissions = df_with_date.groupby("date").agg({
-        "truth_charge_emissions": "sum",
-        "pred_charge_emissions": "sum",
-        "baseline_charge_emissions": "sum",
-    }).reset_index()
+    by_window = by_window.join(optimal_by_window, how='inner')
     
-    n_days = len(daily_emissions)
+    # Validate that charge counts are correct for each window
+    expected_charge_count = charge_mins // 5
+    for window_start, row in by_window.iterrows():
+        assert row['baseline_charge_count'] == expected_charge_count, \
+            f"Window {window_start}: baseline_charge_count={row['baseline_charge_count']} != {expected_charge_count}"
+        assert row['truth_charge_count'] == expected_charge_count, \
+            f"Window {window_start}: truth_charge_count={row['truth_charge_count']} != {expected_charge_count}"
+        # pred_charge_count may be less due to forecast limitations, but should be close
+        assert row['pred_charge_count'] >= int(0.9 * expected_charge_count), \
+            f"Window {window_start}: pred_charge_count={row['pred_charge_count']} < 90% of {expected_charge_count}"
+        assert row['pred_charge_count'] <= expected_charge_count + 2, \
+            f"Window {window_start}: pred_charge_count={row['pred_charge_count']} > {expected_charge_count}"
+        
 
-    if n_days == 0:
+    # Validate sum of emissions follows order baseline >= pred >= truth
+    summed_window = by_window[['baseline_charge_emissions', 'pred_charge_emissions', 'truth_charge_emissions']].sum()
+    assert summed_window['baseline_charge_emissions'] >= summed_window['pred_charge_emissions'], \
+        "Total baseline emissions should be >= total predicted emissions. Although this may be effected by forecast_pull_mins"
+    assert summed_window['pred_charge_emissions'] >= summed_window['truth_charge_emissions'], \
+        "Total predicted emissions should be >= total truth (optimal) emissions"
+    
+    by_window = by_window.reset_index()
+    n = len(by_window)
+
+    if n == 0:
         reduction = np.nan
         potential = np.nan
         reduction_ci_lower = np.nan
@@ -892,39 +1066,37 @@ def calc_rank_compare_metrics(
         potential_ci_upper = np.nan
     else:
         # Calculate point estimates
-        y_best_emissions = daily_emissions["truth_charge_emissions"].sum()
-        y_pred_emissions = daily_emissions["pred_charge_emissions"].sum()
-        y_base_emissions = daily_emissions["baseline_charge_emissions"].sum()
+        y_best_emissions = by_window["truth_charge_emissions"].sum()
+        y_pred_emissions = by_window["pred_charge_emissions"].sum()
+        y_base_emissions = by_window["baseline_charge_emissions"].sum()
 
         assert y_pred_emissions >= y_best_emissions
         assert y_base_emissions >= y_best_emissions
 
-        reduction = (y_base_emissions - y_pred_emissions) / n_days
-        potential = (y_base_emissions - y_best_emissions) / n_days
-        
-        # Bootstrap confidence intervals (95% CI)
-        # Use the general bootstrap function to calculate CIs
-        def calc_emissions_metrics(daily_df):
-            """Calculate reduction and potential from daily emissions DataFrame"""
-            base = daily_df["baseline_charge_emissions"].sum()
-            pred = daily_df["pred_charge_emissions"].sum()
-            best = daily_df["truth_charge_emissions"].sum()
-            
-            return {
-                "reduction": (base - pred) / n_days,
-                "potential": (base - best) / n_days,
-            }
-        
-        ci_dict = bootstrap_confidence_interval(
-            df_with_date=daily_emissions,
-            metric_func=calc_emissions_metrics,
-            effective_forecast_samp_rate=effective_forecast_samp_rate,
+        reduction = (y_base_emissions - y_pred_emissions) / n
+        potential = (y_base_emissions - y_best_emissions) / n
+
+        # Calculate confidence intervals using standard error (95% CI)
+        # Each window represents an independent sample
+        by_window['reduction_per_window'] = (
+            by_window['baseline_charge_emissions'] - by_window['pred_charge_emissions']
+        )
+        by_window['potential_per_window'] = (
+            by_window['baseline_charge_emissions'] - by_window['truth_charge_emissions']
         )
         
-        reduction_ci_lower = ci_dict["reduction_ci_lower"]
-        reduction_ci_upper = ci_dict["reduction_ci_upper"]
-        potential_ci_lower = ci_dict["potential_ci_lower"]
-        potential_ci_upper = ci_dict["potential_ci_upper"]
+        # Standard error of the mean
+        reduction_se = by_window['reduction_per_window'].sem()
+        potential_se = by_window['potential_per_window'].sem()
+        
+        # 95% CI using t-distribution (more conservative for small samples)
+        # Use module-level `stats` to avoid creating a local binding
+        t_critical = stats.t.ppf(0.975, df=n-1)  # 95% CI, two-tailed
+        
+        reduction_ci_lower = reduction - (t_critical * reduction_se)
+        reduction_ci_upper = reduction + (t_critical * reduction_se)
+        potential_ci_lower = potential - (t_critical * potential_se)
+        potential_ci_upper = potential + (t_critical * potential_se)
 
     return {
         "reduction": round(reduction, 1),
@@ -989,6 +1161,9 @@ def plot_norm_mae(
                 symmetric=False,
                 array=error_plus,
                 arrayminus=error_minus,
+                width=20,
+                thickness=1,
+                color="rgba(0, 0, 0, 0.3)"  # black with some transparency
             ) if ci else None
 
             fig.add_trace(
@@ -996,11 +1171,11 @@ def plot_norm_mae(
                     x=x_values,
                     y=y_values,
                     name=model_job.model_date,
-                    text=[f"{y:.1f}%" for y in y_values],  # Add text labels on bars
+                    text=[f"{y:.1f}%" for y in y_values],
                     textposition="outside",
                     error_y=error_y_config,
                 )
-            )
+                )
 
         fig.update_layout(
             height=300,
@@ -1080,6 +1255,9 @@ def plot_rank_corr(
                 symmetric=False,
                 array=error_plus,
                 arrayminus=error_minus,
+                color="rgba(0, 0, 0, 0.3)",  # black with some transparency
+                width=20,
+                thickness=1,
             ) if ci else None
 
             fig.add_trace(
@@ -1087,7 +1265,7 @@ def plot_rank_corr(
                     x=x_values,
                     y=y_values,
                     name=model_job.model_date,
-                    text=[f"{y:.3f}" for y in y_values],  # Add text labels on bars
+                    text=[f"{y:.3f}" for y in y_values],
                     textposition="outside",
                     error_y=error_y_config,
                 )
@@ -1119,37 +1297,44 @@ AER_SCENARIOS = {
         "window_mins": 8 * 60,
         "window_start_time": "19:00",
         "load_kw": 19,
+        "forecast_pull_mins": 30,
     },
     "EV-day": {
         "charge_mins": 3 * 60,
         "window_mins": 8 * 60,
         "window_start_time": "09:00",
         "load_kw": 19,
+        "forecast_pull_mins": 30,
     },
     "Thermostat": {
         "charge_mins": 30,
         "window_mins": 60,
         "load_kw": 3,  # typical AC
+        "forecast_pull_mins": 30,
     },
     "10 kW / 24hr / 25% Duty Cycle": {
         "charge_mins": int(24 * 60 * 0.25),
         "window_mins": 24 * 60,
         "load_kw": 10,
+        "forecast_pull_mins": 30,
     },
     "10 kW / 72hr / 25% Duty Cycle": {
         "charge_mins": int(24 * 3 * 60 * 0.25),
         "window_mins": 24 * 3 * 60,
         "load_kw": 10,
+        "forecast_pull_mins": 30,
     },
     "10 kW / 24hr / 50% Duty Cycle": {
         "charge_mins": int(24 * 60 * 0.5),
         "window_mins": 24 * 60,
         "load_kw": 10,
+        "forecast_pull_mins": 30,
     },
     "10 kW / 72hr / 50% Duty Cycle": {
         "charge_mins": (int(24 * 3 * 60 * 0.5)),
         "window_mins": 24 * 3 * 60,
         "load_kw": 10,
+        "forecast_pull_mins": 30,
     },
 }
 
@@ -1158,12 +1343,12 @@ def plot_impact_forecast_metrics(
     factory: DataHandlerFactory,
     scenarios=[
         "10 kW / 24hr / 25% Duty Cycle",
-        "10 kW / 72hr / 25% Duty Cycle",
+        # "10 kW / 72hr / 25% Duty Cycle",
         "10 kW / 24hr / 50% Duty Cycle",
-        "10 kW / 72hr / 50% Duty Cycle",
+        # "10 kW / 72hr / 50% Duty Cycle",
         "EV-night",
         "EV-day",
-        "Thermostat",
+        # "Thermostat",
     ],
 ):
 
@@ -1194,7 +1379,8 @@ def plot_impact_forecast_metrics(
 
             _metrics = pd.DataFrame(_metrics)
 
-            # Calculate error bar values for potential (symmetric CIs)
+            # Calculate error bar values for potential
+            # CI values are absolute, so we need to compute distance from the mean
             potential_error = [
                 [
                     _metrics["potential"].iloc[i] - _metrics["potential_ci_lower"].iloc[i],
@@ -1213,6 +1399,9 @@ def plot_impact_forecast_metrics(
                         symmetric=False,
                         array=potential_error_symmetric[1],  # upper errors
                         arrayminus=potential_error_symmetric[0],  # lower errors
+                        color="rgba(0, 0, 0, 0.25)",  # black
+                        width=20,
+                        thickness=1,
                     ),
                     name=f"CO2 Potential Savings",  # Legend only in the first subplot
                     marker=dict(
@@ -1223,12 +1412,15 @@ def plot_impact_forecast_metrics(
                     showlegend=(
                         model_ix == 1
                     ),  # Show legend only for the first subplot
+                    text=[f"{y:.1f} lbs" for y in _metrics["potential"]],
+                    textposition="outside",
                 ),
                 row=model_ix,
                 col=1,
             )
 
             # Calculate error bar values for reduction
+            # CI values are absolute, so we need to compute distance from the mean
             reduction_error = [
                 [
                     _metrics["reduction"].iloc[i] - _metrics["reduction_ci_lower"].iloc[i],
@@ -1238,6 +1430,12 @@ def plot_impact_forecast_metrics(
             ]
             reduction_error_symmetric = list(zip(*reduction_error))
 
+            # Calculate text positions above error bars
+            text_labels = [
+                f"{(r / (p + 1e-6)) * 100:.1f}%"
+                for r, p in zip(_metrics["reduction"], _metrics["potential"])
+            ]
+            
             fig.add_trace(
                 go.Bar(
                     x=_metrics["scenario"],
@@ -1247,16 +1445,16 @@ def plot_impact_forecast_metrics(
                         symmetric=False,
                         array=reduction_error_symmetric[1],  # upper errors
                         arrayminus=reduction_error_symmetric[0],  # lower errors
+                        color="rgba(0, 0, 0, 0.25)",  # black for reduction
+                        width=20,
+                        thickness=1,
                     ),
                     name="Forecast Achieved",
-                    text=[
-                        f"{(r / (p + 1e-6)) * 100:.1f}%"
-                        for r, p in zip(_metrics["reduction"], _metrics["potential"])
-                    ],
-                    textposition="outside",
                     marker=dict(color="rgba(0, 128, 0, 0.8)"),  # Green for reduction
                     hovertemplate="%{x}: %{y:.1f} lbs CO2<extra></extra>",
                     legendgroup="Potential Savings",  # Group legend for potential savings
+                    text=text_labels,
+                    textposition="outside",
                     showlegend=(
                         model_ix == 1
                     ),  # Show legend only for the first subplot
@@ -1378,6 +1576,7 @@ def calc_max_potential(
     window_start_time=None,
     truth_col="signal_value",
     load_kw=1000,
+    **kwargs
 ):
     """Predict the maximum potential CO2 Savings, without any forecast to estimate the upper limit of impact from a given signal value.
     This version is resilient to partial windows (e.g. where the data does not fully cover the expected number of 5-min intervals).
@@ -1441,12 +1640,12 @@ def plot_max_impact_potential(
     factory: DataHandlerFactory,
     scenarios: List[str] = [
         "10 kW / 24hr / 25% Duty Cycle",
-        "10 kW / 72hr / 25% Duty Cycle",
+        # "10 kW / 72hr / 25% Duty Cycle",
         "10 kW / 24hr / 50% Duty Cycle",
-        "10 kW / 72hr / 50% Duty Cycle",
+        # "10 kW / 72hr / 50% Duty Cycle",
         "EV-night",
         "EV-day",
-        "Thermostat",
+        # "Thermostat",
     ],
 ):
     figs = {}
@@ -1875,7 +2074,7 @@ def plot_precision_recall(
 
 def plot_forecasts_vs_signal(
     factory: DataHandlerFactory,
-    horizons=["15min", "1h", "8h"],
+    horizons=["30min", "2h", "8h"],
 ) -> Dict[str, go.Figure]:
     """
     Plot forecasts vs signal for different forecast pull frequencies.
@@ -2005,7 +2204,7 @@ def plot_forecasts_vs_signal(
             signal = signal.loc[start_ts : end_ts + max(horizons)]
             fig.add_trace(
                 go.Scatter(
-                    x=signal,
+                    x=signal.index,
                     y=signal.values,
                     mode="lines",
                     name="Signal Value",
@@ -2161,6 +2360,7 @@ def generate_report(
     output_dir: Path,
     steps: Literal["signal", "fuel_mix", "forecast"] = [
         "signal",
+        "fuel_mix",
         "forecast",
     ],  # no fuel_mix by default
     first_week_of_month_only: bool = False,

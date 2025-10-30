@@ -93,6 +93,7 @@ class WattTimeBase:
         self.rate_limit = rate_limit
         self._last_request_times = []
         self.worker_count = worker_count
+        self.raised_warnings: List[WattTimeAPIWarning] = []
 
         if self.multithreaded:
             self._rate_limit_lock = (
@@ -100,7 +101,17 @@ class WattTimeBase:
             )  # prevent multiple threads from modifying _last_request_times simultaneously
             self._rate_limit_condition = threading.Condition(self._rate_limit_lock)
 
+        retry_strategy = Retry(
+            total=3,
+            status_forcelist=[500, 502, 503, 504],
+            backoff_factor=1,
+            raise_on_status=False,
+        )
+
+        adapter = HTTPAdapter(max_retries=retry_strategy)
         self.session = requests.Session()
+        self.session.mount("http://", adapter)
+        self.session.mount("https://", adapter)
 
     @property
     def password(self):
@@ -304,7 +315,7 @@ class WattTimeBase:
 
         self._last_request_meta = meta
 
-        self._last_request_meta = j.get("meta", {})
+        self._last_request_meta = meta
 
         return j
 

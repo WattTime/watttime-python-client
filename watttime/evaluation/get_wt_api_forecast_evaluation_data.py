@@ -109,7 +109,7 @@ class AnalysisDataHandler:
     region: str
     eval_start: Union[datetime, str]
     eval_end: Union[datetime, str]
-    forecast_sample_size: Union[int, float] = 0.03
+    forecast_sample_size: Union[int, float] = 0.1
     forecast_max_horizon: int = 60 * 24
     forecast_sample_seed: int = 42
     forecast_data_horizon_days: int = 3

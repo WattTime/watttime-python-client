@@ -2,17 +2,55 @@ import os
 import time
 import threading
 import time
+import logging
+from collections import defaultdict
 from datetime import date, datetime, timedelta, time as dt_time
 from collections import defaultdict
 from functools import cache
 from pathlib import Path
 from typing import Any, Dict, List, Literal, Optional, Tuple, Union
 from concurrent.futures import ThreadPoolExecutor, as_completed
+from urllib3.util.retry import Retry
+from requests.adapters import HTTPAdapter
 
 import pandas as pd
 import requests
 from dateutil.parser import parse
 from pytz import UTC
+
+
+class WattTimeAPIWarning:
+    def __init__(self, url: str, params: Dict[str, Any], warning_message: str):
+        self.url = url
+        self.params = params
+        self.warning_message = warning_message
+
+    def __repr__(self):
+        return f"<WattTimeAPIWarning url={self.url}, params={self.params}, warning={self.warning_message}>\n"
+
+    def to_dict(self) -> Dict[str, Any]:
+        def stringify(value: Any) -> Any:
+            if isinstance(value, datetime):
+                return value.isoformat()
+            return value
+
+        return {
+            "url": self.url,
+            "params": {k: stringify(v) for k, v in self.params.items()},
+            "warning_message": self.warning_message,
+        }
+
+
+def get_log():
+    logging.basicConfig(
+        format="%(asctime)s [%(levelname)-1s]  " "%(message)s",
+        level=logging.INFO,
+        handlers=[logging.StreamHandler()],
+    )
+    return logging.getLogger()
+
+
+LOG = get_log()
 
 
 class WattTimeBase:
@@ -37,8 +75,17 @@ class WattTimeBase:
             worker_count (int): The number of worker threads to use for multithreading. Default is min(10, (os.cpu_count() or 1) * 2).
 
         """
-        self.username = username or os.getenv("WATTTIME_USER")
-        self.password = password or os.getenv("WATTTIME_PASSWORD")
+
+        # This only applies to the current session, is not stored persistently
+        if username and not os.getenv("WATTTIME_USER"):
+            os.environ["WATTTIME_USER"] = username
+        if password and not os.getenv("WATTTIME_PASSWORD"):
+            os.environ["WATTTIME_PASSWORD"] = password
+
+        # Accessing attributes will raise exception if variables are not set
+        _ = self.password
+        _ = self.username
+
         self.token = None
         self.headers = None
         self.token_valid_until = None
@@ -47,6 +94,7 @@ class WattTimeBase:
         self.rate_limit = rate_limit
         self._last_request_times = []
         self.worker_count = worker_count
+        self.raised_warnings: List[WattTimeAPIWarning] = []
 
         if self.multithreaded:
             self._rate_limit_lock = (
@@ -54,7 +102,39 @@ class WattTimeBase:
             )  # prevent multiple threads from modifying _last_request_times simultaneously
             self._rate_limit_condition = threading.Condition(self._rate_limit_lock)
 
+        retry_strategy = Retry(
+            total=3,
+            status_forcelist=[500, 502, 503, 504],
+            backoff_factor=1,
+            raise_on_status=False,
+        )
+
+        adapter = HTTPAdapter(max_retries=retry_strategy)
         self.session = requests.Session()
+        self.session.mount("http://", adapter)
+        self.session.mount("https://", adapter)
+
+    @property
+    def password(self):
+        password = os.getenv("WATTTIME_PASSWORD")
+        if not password:
+            raise ValueError(
+                "WATTTIME_PASSWORD env variable is not set."
+                + "Please set this variable, or pass in a password upon initialization,"
+                + "which will store it as a variable only for the current session"
+            )
+        return password
+
+    @property
+    def username(self):
+        username = os.getenv("WATTTIME_USER")
+        if not username:
+            raise ValueError(
+                "WATTTIME_USER env variable is not set."
+                + "Please set this variable, or pass in a username upon initialization,"
+                + "which will store it as a variable only for the current session"
+            )
+        return username
 
     def _login(self):
         """
@@ -158,7 +238,7 @@ class WattTimeBase:
 
         rsp = self.session.post(url, json=params, timeout=(10, 60))
         rsp.raise_for_status()
-        print(
+        LOG.info(
             f"Successfully registered {self.username}, please check {email} for a verification email"
         )
 
@@ -222,10 +302,19 @@ class WattTimeBase:
                 f"API Request Failed: {e}\nURL: {url}\nParams: {params}"
             ) from e
 
-        if j.get("meta", {}).get("warnings"):
-            print("Warnings Returned: %s | Response: %s", params, j["meta"])
+        meta = j.get("meta", {})
+        warnings = meta.get("warnings")
+        if warnings:
+            for warning_message in warnings:
+                warning = WattTimeAPIWarning(
+                    url=url, params=params, warning_message=warning_message
+                )
+                self.raised_warnings.append(warning)
+                LOG.warning(
+                    f"API Warning: {warning_message} | URL: {url} | Params: {params}"
+                )
 
-        self._last_request_meta = j.get("meta", {})
+        self._last_request_meta = meta
 
         return j
 
@@ -409,7 +498,7 @@ class WattTimeHistorical(WattTimeBase):
         start, end = self._parse_dates(start, end)
         fp = out_dir / f"{region}_{signal_type}_{start.date()}_{end.date()}.csv"
         df.to_csv(fp, index=False)
-        print(f"file written to {fp}")
+        LOG.info(f"file written to {fp}")
 
 
 class WattTimeMyAccess(WattTimeBase):
@@ -712,7 +801,6 @@ class WattTimeMaps(WattTimeBase):
 
 
 class WattTimeMarginalFuelMix(WattTimeBase):
-
     def get_fuel_mix_jsons(
         self,
         start: Union[str, datetime],
@@ -734,7 +822,7 @@ class WattTimeMarginalFuelMix(WattTimeBase):
         chunks = self._get_chunks(start, end, chunk_size=timedelta(days=30))
 
         # No model will default to the most recent model version available
-        if model:
+        if model is not None:
             params["model"] = model
 
         param_chunks = [{**params, "start": c[0], "end": c[1]} for c in chunks]

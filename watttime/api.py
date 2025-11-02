@@ -37,8 +37,12 @@ class WattTimeBase:
             worker_count (int): The number of worker threads to use for multithreading. Default is min(10, (os.cpu_count() or 1) * 2).
 
         """
-        self.username = username or os.getenv("WATTTIME_USER")
-        self.password = password or os.getenv("WATTTIME_PASSWORD")
+
+        if username:
+            os.environ["WATTTIME_USER"] = username
+        if password:
+            os.environ["WATTTIME_PASSWORD"] = password
+
         self.token = None
         self.headers = None
         self.token_valid_until = None
@@ -67,7 +71,7 @@ class WattTimeBase:
         url = f"{self.url_base}/login"
         rsp = self.session.get(
             url,
-            auth=requests.auth.HTTPBasicAuth(self.username, self.password),
+            auth=requests.auth.HTTPBasicAuth(os.getenv("WATTTIME_USER"), os.getenv("WATTTIME_PASSWORD")),
             timeout=(10, 60),
         )
         rsp.raise_for_status()
@@ -150,8 +154,8 @@ class WattTimeBase:
 
         url = f"{self.url_base}/register"
         params = {
-            "username": self.username,
-            "password": self.password,
+            "username": os.getenv("WATTTIME_USER"),
+            "password": os.getenv("WATTTIME_PASSWORD"),
             "email": email,
             "org": organization,
         }
@@ -159,7 +163,7 @@ class WattTimeBase:
         rsp = self.session.post(url, json=params, timeout=(10, 60))
         rsp.raise_for_status()
         print(
-            f"Successfully registered {self.username}, please check {email} for a verification email"
+            f"Successfully registered {os.getenv("WATTTIME_USER")}, please check {email} for a verification email"
         )
 
     @cache

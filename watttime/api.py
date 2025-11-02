@@ -163,7 +163,7 @@ class WattTimeBase:
         rsp = self.session.post(url, json=params, timeout=(10, 60))
         rsp.raise_for_status()
         print(
-            f"Successfully registered {os.getenv("WATTTIME_USER")}, please check {email} for a verification email"
+            f"Successfully registered {os.getenv('WATTTIME_USER')}, please check {email} for a verification email"
         )
 
     @cache

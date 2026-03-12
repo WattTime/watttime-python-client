@@ -18,8 +18,6 @@ from pytz import UTC
 from requests.adapters import HTTPAdapter
 from urllib3.util.retry import Retry
 
-VERSION = open(".VERSION").read().strip()
-
 
 class WattTimeAPIWarning:
     def __init__(self, url: str, params: Dict[str, Any], warning_message: str):
@@ -159,7 +157,7 @@ class WattTimeBase:
             raise Exception("failed to log in, double check your credentials")
         self.headers = {
             "Authorization": "Bearer " + self.token,
-            "User-Agent": f"watttime-python-sdk-{VERSION}",
+            "User-Agent": "watttime-python-sdk",
         }
 
     def _is_token_valid(self) -> bool:

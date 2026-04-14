@@ -73,20 +73,20 @@ class TestWattTimeBase(unittest.TestCase):
         mock_sleep.assert_called_with(0.5)
 
     def test_parse_dates_with_string(self):
-        start = "2022-01-01"
-        end = "2022-01-31"
+        start = "2025-01-01"
+        end = "2025-01-31"
 
         parsed_start, parsed_end = self.base._parse_dates(start, end)
 
         self.assertIsInstance(parsed_start, datetime)
         self.assertIsInstance(parsed_end, datetime)
-        self.assertEqual(parsed_start, datetime(2022, 1, 1, tzinfo=UTC))
-        self.assertEqual(parsed_end, datetime(2022, 1, 31, tzinfo=UTC))
+        self.assertEqual(parsed_start, datetime(2025, 1, 1, tzinfo=UTC))
+        self.assertEqual(parsed_end, datetime(2025, 1, 31, tzinfo=UTC))
 
     def test_parse_dates_with_datetime(self):
         # Case 1: User provides a string with no timezone
-        start_str = "2022-01-01"
-        end_str = "2022-01-31"
+        start_str = "2025-01-01"
+        end_str = "2025-01-31"
         parsed_start, parsed_end = self.base._parse_dates(start_str, end_str)
         self.assertIsInstance(parsed_start, datetime)
         self.assertEqual(parsed_start.tzinfo, UTC)
@@ -94,8 +94,8 @@ class TestWattTimeBase(unittest.TestCase):
         self.assertEqual(parsed_end.tzinfo, UTC)
 
         # Case 2: User provides a string with non-UTC timezone
-        start_str = "2022-01-01 12:00:00+02:00"
-        end_str = "2022-01-31 12:00:00+02:00"
+        start_str = "2025-01-01 12:00:00+02:00"
+        end_str = "2025-01-31 12:00:00+02:00"
         parsed_start, parsed_end = self.base._parse_dates(start_str, end_str)
         self.assertIsInstance(parsed_start, datetime)
         self.assertEqual(parsed_start.tzinfo, UTC)
@@ -103,8 +103,8 @@ class TestWattTimeBase(unittest.TestCase):
         self.assertEqual(parsed_end.tzinfo, UTC)
 
         # Case 3: User provides a string with UTC timezone
-        start_str = "2022-01-01 12:00:00Z"
-        end_str = "2022-01-31 12:00:00Z"
+        start_str = "2025-01-01 12:00:00Z"
+        end_str = "2025-01-31 12:00:00Z"
         parsed_start, parsed_end = self.base._parse_dates(start_str, end_str)
         self.assertIsInstance(parsed_start, datetime)
         self.assertEqual(parsed_start.tzinfo, UTC)
@@ -112,8 +112,8 @@ class TestWattTimeBase(unittest.TestCase):
         self.assertEqual(parsed_end.tzinfo, UTC)
 
         # Case 4: User provides a datetime with no timezone
-        start_dt = datetime(2022, 1, 1)
-        end_dt = datetime(2022, 1, 31)
+        start_dt = datetime(2025, 1, 1)
+        end_dt = datetime(2025, 1, 31)
         parsed_start, parsed_end = self.base._parse_dates(start_dt, end_dt)
         self.assertIsInstance(parsed_start, datetime)
         self.assertEqual(parsed_start.tzinfo, UTC)
@@ -121,8 +121,8 @@ class TestWattTimeBase(unittest.TestCase):
         self.assertEqual(parsed_end.tzinfo, UTC)
 
         # Case 5: User provides a datetime with non-UTC timezone
-        start_dt = datetime(2022, 1, 1, tzinfo=timezone("US/Eastern"))
-        end_dt = datetime(2022, 1, 31, tzinfo=timezone("US/Eastern"))
+        start_dt = datetime(2025, 1, 1, tzinfo=timezone("US/Eastern"))
+        end_dt = datetime(2025, 1, 31, tzinfo=timezone("US/Eastern"))
         parsed_start, parsed_end = self.base._parse_dates(start_dt, end_dt)
         self.assertIsInstance(parsed_start, datetime)
         self.assertEqual(parsed_start.tzinfo, UTC)
@@ -130,8 +130,8 @@ class TestWattTimeBase(unittest.TestCase):
         self.assertEqual(parsed_end.tzinfo, UTC)
 
         # Case 6: User provides a datetime with UTC timezone
-        start_dt = datetime(2022, 1, 1, tzinfo=UTC)
-        end_dt = datetime(2022, 1, 31, tzinfo=UTC)
+        start_dt = datetime(2025, 1, 1, tzinfo=UTC)
+        end_dt = datetime(2025, 1, 31, tzinfo=UTC)
         parsed_start, parsed_end = self.base._parse_dates(start_dt, end_dt)
         self.assertIsInstance(parsed_start, datetime)
         self.assertEqual(parsed_start.tzinfo, UTC)
@@ -164,8 +164,8 @@ class TestWattTimeHistorical(unittest.TestCase):
         self.historical.session.close()
 
     def test_get_historical_jsons_3_months(self):
-        start = "2022-01-01 00:00Z"
-        end = "2022-03-31 00:00Z"
+        start = "2025-01-01 00:00Z"
+        end = "2025-03-31 00:00Z"
         jsons = self.historical.get_historical_jsons(start, end, REGION)
 
         self.assertIsInstance(jsons, list)
@@ -173,8 +173,8 @@ class TestWattTimeHistorical(unittest.TestCase):
         self.assertIsInstance(jsons[0], dict)
 
     def test_get_historical_jsons_1_week(self):
-        start = "2022-01-01 00:00Z"
-        end = "2022-01-07 00:00Z"
+        start = "2025-01-01 00:00Z"
+        end = "2025-01-07 00:00Z"
         jsons = self.historical.get_historical_jsons(start, end, REGION)
 
         self.assertIsInstance(jsons, list)
@@ -182,8 +182,8 @@ class TestWattTimeHistorical(unittest.TestCase):
         self.assertIsInstance(jsons[0], dict)
 
     def test_get_historical_jsons_signal_types(self):
-        start = "2023-01-01 00:00Z"
-        end = "2023-01-07 00:00Z"
+        start = "2025-01-01 00:00Z"
+        end = "2025-01-07 00:00Z"
         signal_types = ["co2_moer", "co2_aoer", "health_damage"]
         for signal_type in signal_types:
             if signal_type == "co2_aoer":
@@ -225,8 +225,8 @@ class TestWattTimeHistorical(unittest.TestCase):
         assert pd.api.types.is_datetime64_any_dtype(df["point_time"].dtype)
 
     def test_get_historical_csv(self):
-        start = parse("2022-01-01 00:00Z")
-        end = parse("2022-01-02 00:00Z")
+        start = parse("2025-01-01 00:00Z")
+        end = parse("2025-01-02 00:00Z")
         self.historical.get_historical_csv(start, end, REGION)
 
         fp = (
@@ -276,8 +276,8 @@ class TestWattTimeHistoricalMultiThreaded(unittest.TestCase):
         self.historical.session.close()
 
     def test_get_historical_jsons_3_months_multithreaded(self):
-        start = "2024-01-01 00:00Z"
-        end = "2024-03-31 00:00Z"
+        start = "2026-01-01 00:00Z"
+        end = "2026-03-31 00:00Z"
         jsons = self.historical.get_historical_jsons(start, end, REGION)
 
         self.assertIsInstance(jsons, list)
@@ -374,8 +374,8 @@ class TestWattTimeForecast(unittest.TestCase):
         self.assertIn("value", df.columns)
 
     def test_historical_forecast_jsons(self):
-        start = "2024-01-01 00:00Z"
-        end = "2024-01-07 00:00Z"
+        start = "2026-01-01 00:00Z"
+        end = "2026-01-07 00:00Z"
         json_list = self.forecast.get_historical_forecast_json(
             start, end, region=REGION
         )
@@ -386,7 +386,7 @@ class TestWattTimeForecast(unittest.TestCase):
         self.assertIn("generated_at", first_json["data"][0])
 
     def test_historical_forecast_json_list(self):
-        list_of_dates = [date(2024, 1, 1), date(2024, 2, 1), date(2024, 3, 1)]
+        list_of_dates = [date(2026, 1, 1), date(2026, 2, 1), date(2026, 3, 1)]
         json_list = self.forecast.get_historical_forecast_json_list(
             list_of_dates, region=REGION
         )
@@ -408,8 +408,8 @@ class TestWattTimeForecast(unittest.TestCase):
         assert gen_ats == set(list_of_dates)
 
     def test_historical_forecast_pandas(self):
-        start = "2023-01-01 00:00Z"
-        end = "2023-01-03 00:00Z"
+        start = "2025-01-01 00:00Z"
+        end = "2025-01-03 00:00Z"
         df = self.forecast.get_historical_forecast_pandas(start, end, region=REGION)
         self.assertIsInstance(df, pd.DataFrame)
         self.assertGreaterEqual(len(df), 1)
@@ -421,7 +421,7 @@ class TestWattTimeForecast(unittest.TestCase):
         """
         Test the new method get_historical_forecast_pandas_list which accepts a list of dates.
         """
-        list_of_dates = [date(2024, 1, 1), date(2024, 2, 1)]
+        list_of_dates = [date(2026, 1, 1), date(2026, 2, 1)]
         df = self.forecast.get_historical_forecast_pandas_list(
             list_of_dates, region=REGION
         )
@@ -461,8 +461,8 @@ class TestWattTimeForecastMultithreaded(unittest.TestCase):
         self.forecast.session.close()
 
     def test_historical_forecast_jsons_multithreaded(self):
-        start = "2024-01-01 00:00Z"
-        end = "2024-01-14 00:00Z"
+        start = "2026-01-01 00:00Z"
+        end = "2026-01-14 00:00Z"
         json_list = self.forecast.get_historical_forecast_json(
             start, end, region=REGION
         )
@@ -542,8 +542,8 @@ class TestWattTimeMarginalFuelMix(unittest.TestCase):
         self.fuel_mix = WattTimeMarginalFuelMix()
 
     def test_fuel_mix_jsons(self):
-        start = "2024-01-01 00:00Z"
-        end = "2024-01-07 00:00Z"
+        start = "2026-01-01 00:00Z"
+        end = "2026-01-07 00:00Z"
         fm = self.fuel_mix.get_fuel_mix_jsons(start=start, end=end, region=REGION)
 
         self.assertIsInstance(fm, list)
@@ -566,8 +566,8 @@ class TestWattTimeMarginalFuelMix(unittest.TestCase):
         self.assertEqual(REGION, fm[0]["meta"]["region"])
 
     def test_fuel_mix_pandas(self):
-        start = "2024-01-01 00:00Z"
-        end = "2024-01-07 00:00Z"
+        start = "2026-01-01 00:00Z"
+        end = "2026-01-07 00:00Z"
         df = self.fuel_mix.get_fuel_mix_pandas(start=start, end=end, region=REGION)
         self.assertIsInstance(df, pd.DataFrame)
         self.assertGreaterEqual(len(df), 12 * 24 * 5)
@@ -578,8 +578,8 @@ class TestWattTimeMarginalFuelMix(unittest.TestCase):
         
     @patch.object(WattTimeMarginalFuelMix, "_fetch_data", side_effect=RuntimeError("403 Client Error: Forbidden"))
     def test_get_fuel_mix_jsons_handles_403(self, mock_fetch_data):
-        start = "2024-01-01 00:00Z"
-        end = "2024-01-07 00:00Z"
+        start = "2026-01-01 00:00Z"
+        end = "2026-01-07 00:00Z"
 
         result = self.fuel_mix.get_fuel_mix_jsons(start=start, end=end, region=REGION)
 

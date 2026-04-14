@@ -9,4 +9,5 @@ setup(
     packages=["watttime"],
     python_requires=">=3.8",
     install_requires=["requests", "pandas>1.0.0", "holidays", "python-dateutil", "pytz"],
+    extras_require={"testing": ["pytest", "pytest-rerunfailures", "flake8", "shapely"]},
 )

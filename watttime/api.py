@@ -394,6 +394,7 @@ class WattTimeHistorical(WattTimeBase):
             Literal["co2_moer", "co2_aoer", "health_damage"]
         ] = "co2_moer",
         model: Optional[Union[str, date]] = None,
+        include_imputed_marker: bool = False,
     ) -> List[dict]:
         """
         Base function to scrape historical data, returning a list of .json responses.
@@ -414,6 +415,9 @@ class WattTimeHistorical(WattTimeBase):
         """
         url = "{}/v3/historical".format(self.url_base)
         params = {"region": region, "signal_type": signal_type}
+
+        if include_imputed_marker:
+            params["include_imputed_marker"] = "true"
 
         start, end = self._parse_dates(start, end)
         chunks = self._get_chunks(start, end)
@@ -445,6 +449,7 @@ class WattTimeHistorical(WattTimeBase):
         ] = "co2_moer",
         model: Optional[Union[str, date]] = None,
         include_meta: bool = False,
+        include_imputed_marker: bool = False,
     ):
         """
         Return a pd.DataFrame with point_time, and values.
@@ -458,7 +463,9 @@ class WattTimeHistorical(WattTimeBase):
         Returns:
             pd.DataFrame: _description_
         """
-        responses = self.get_historical_jsons(start, end, region, signal_type, model)
+        responses = self.get_historical_jsons(
+            start, end, region, signal_type, model, include_imputed_marker
+        )
         df = pd.json_normalize(
             responses, record_path="data", meta=["meta"] if include_meta else []
         )

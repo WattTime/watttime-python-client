@@ -208,6 +208,17 @@ class TestWattTimeHistorical(unittest.TestCase):
         self.assertIn("point_time", df.columns)
         self.assertIn("value", df.columns)
 
+    def test_get_historical_pandas_include_imputed(self):
+        start = datetime.now() - timedelta(days=7)
+        end = datetime.now()
+        df = self.historical.get_historical_pandas(start, end, REGION, include_imputed_marker=True)
+
+        self.assertIsInstance(df, pd.DataFrame)
+        self.assertGreaterEqual(len(df), 1)
+        self.assertIn("point_time", df.columns)
+        self.assertIn("value", df.columns)
+        self.assertIn("imputed_data_used", df.columns)
+
     def test_get_historical_pandas_meta(self):
         start = datetime.now() - timedelta(days=7)
         end = datetime.now()

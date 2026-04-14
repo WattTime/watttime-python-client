@@ -483,6 +483,7 @@ class WattTimeHistorical(WattTimeBase):
             Literal["co2_moer", "co2_aoer", "health_damage"]
         ] = "co2_moer",
         model: Optional[Union[str, date]] = None,
+        include_imputed_marker: bool = False,
     ):
         """
         Retrieves historical data from a specified start date to an end date and saves it as a CSV file.
@@ -498,7 +499,9 @@ class WattTimeHistorical(WattTimeBase):
         Returns:
             None, results are saved to a csv file in the user's home directory.
         """
-        df = self.get_historical_pandas(start, end, region, signal_type, model)
+        df = self.get_historical_pandas(
+            start, end, region, signal_type, model, include_imputed_marker
+        )
 
         out_dir = Path.home() / "watttime_historical_csvs"
         out_dir.mkdir(exist_ok=True)

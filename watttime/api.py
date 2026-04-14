@@ -1,18 +1,21 @@
 import os
-import time
 import threading
 import time
-from datetime import date, datetime, timedelta, time as dt_time
 from collections import defaultdict
+from concurrent.futures import ThreadPoolExecutor, as_completed
+from datetime import date, datetime
+from datetime import time as dt_time
+from datetime import timedelta
 from functools import cache
 from pathlib import Path
 from typing import Any, Dict, List, Literal, Optional, Tuple, Union
-from concurrent.futures import ThreadPoolExecutor, as_completed
 
 import pandas as pd
 import requests
 from dateutil.parser import parse
 from pytz import UTC
+
+VERSION = open(".VERSION").read().strip()
 
 
 class WattTimeBase:
@@ -37,8 +40,17 @@ class WattTimeBase:
             worker_count (int): The number of worker threads to use for multithreading. Default is min(10, (os.cpu_count() or 1) * 2).
 
         """
-        self.username = username or os.getenv("WATTTIME_USER")
-        self.password = password or os.getenv("WATTTIME_PASSWORD")
+
+        # This only applies to the current session, is not stored persistently
+        if username and not os.getenv("WATTTIME_USER"):
+            os.environ["WATTTIME_USER"] = username
+        if password and not os.getenv("WATTTIME_PASSWORD"):
+            os.environ["WATTTIME_PASSWORD"] = password
+
+        # Accessing attributes will raise exception if variables are not set
+        _ = self.password
+        _ = self.username
+
         self.token = None
         self.headers = None
         self.token_valid_until = None
@@ -55,6 +67,28 @@ class WattTimeBase:
             self._rate_limit_condition = threading.Condition(self._rate_limit_lock)
 
         self.session = requests.Session()
+
+    @property
+    def password(self):
+        password = os.getenv("WATTTIME_PASSWORD")
+        if not password:
+            raise ValueError(
+                "WATTTIME_PASSWORD env variable is not set."
+                + "Please set this variable, or pass in a password upon initialization,"
+                + "which will store it as a variable only for the current session"
+            )
+        return password
+
+    @property
+    def username(self):
+        username = os.getenv("WATTTIME_USER")
+        if not username:
+            raise ValueError(
+                "WATTTIME_USER env variable is not set."
+                + "Please set this variable, or pass in a username upon initialization,"
+                + "which will store it as a variable only for the current session"
+            )
+        return username
 
     def _login(self):
         """
@@ -75,7 +109,10 @@ class WattTimeBase:
         self.token_valid_until = datetime.now() + timedelta(minutes=30)
         if not self.token:
             raise Exception("failed to log in, double check your credentials")
-        self.headers = {"Authorization": "Bearer " + self.token}
+        self.headers = {
+            "Authorization": "Bearer " + self.token,
+            "User-Agent": f"watttime-python-sdk-{VERSION}",
+        }
 
     def _is_token_valid(self) -> bool:
         if not self.token_valid_until:

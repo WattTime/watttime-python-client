@@ -144,6 +144,16 @@ class TestWattTimeBase(unittest.TestCase):
         resp = self.base.register(email=os.getenv("WATTTIME_EMAIL"))
         self.assertEqual(len(mock_post.call_args_list), 1)
 
+    @patch.dict(os.environ, {"WATTTIME_USER": "env_user"}, clear=False)
+    @patch("watttime.api.LOG.warning")
+    def test_username_arg_warns_when_env_user_already_set(self, mock_warning):
+        base = WattTimeBase(username="arg_user")
+        self.assertEqual(os.getenv("WATTTIME_USER"), "arg_user")
+        mock_warning.assert_called_once_with(
+            "Both a username argument and WATTTIME_USER are set; using the username argument value."
+        )
+        base.session.close()
+
 
 class TestWattTimeHistorical(unittest.TestCase):
     def setUp(self):

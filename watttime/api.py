@@ -75,6 +75,11 @@ class WattTimeBase:
 
         """
 
+        if username and os.getenv("WATTTIME_USER") is not None:
+            LOG.warning(
+                "Both a username argument and WATTTIME_USER are set; using the username argument value."
+            )
+
         if username:
             os.environ["WATTTIME_USER"] = username
         if password:

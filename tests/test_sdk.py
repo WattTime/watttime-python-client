@@ -15,6 +15,7 @@ from watttime import (
 )
 from pathlib import Path
 import pytest
+from shapely.geometry import shape, Polygon, MultiPolygon
 
 import pandas as pd
 
@@ -464,9 +465,11 @@ class TestWattTimeForecastMultithreaded(unittest.TestCase):
 class TestWattTimeMaps(unittest.TestCase):
     def setUp(self):
         self.maps = WattTimeMaps()
+        self.myaccess = WattTimeMyAccess()
 
     def tearDown(self):
         self.maps.session.close()
+        self.myaccess.session.close()
 
     def test_get_maps_json_moer(self):
         moer = self.maps.get_maps_json(signal_type="co2_moer")
@@ -502,6 +505,39 @@ class TestWattTimeMaps(unittest.TestCase):
         self.assertEqual(region["region"], "PSCO")
         self.assertEqual(region["region_full_name"], "Public Service Co of Colorado")
         self.assertEqual(region["signal_type"], "co2_moer")
+
+    def test_my_access_in_geojson(self):
+        access = self.myaccess.get_access_pandas()
+        for signal_type in ["co2_moer", "co2_aoer", "health_damage"]:
+            access_regions = access.loc[
+                access["signal_type"] == signal_type, "region"
+            ].unique()
+            maps = self.maps.get_maps_json(signal_type=signal_type)
+            maps_regions = [i["properties"]["region"] for i in maps["features"]]
+
+            assert (
+                set(access_regions) - set(maps_regions) == set()
+            ), f"Missing regions in geojson for {signal_type}: {set(access_regions) - set(maps_regions)}"
+            assert (
+                set(maps_regions) - set(access_regions) == set()
+            ), f"Extra regions in geojson for {signal_type}: {set(maps_regions) - set(access_regions)}"
+
+    def test_ccw(self):
+        moer = self.maps.get_maps_json(signal_type="co2_moer")
+
+        def _is_ccw(geometry):
+            if isinstance(geometry, Polygon):
+                return geometry.exterior.is_ccw
+            elif isinstance(geometry, MultiPolygon):
+                return all(poly.exterior.is_ccw for poly in geometry.geoms)
+            return True
+
+        bad = [
+            f["properties"]["region_full_name"]
+            for f in moer["features"]
+            if not _is_ccw(shape(f["geometry"]))
+        ]
+        assert len(bad) == 0, f"Non-CCW geometries: {bad}"
 
 
 class TestWattTimeMarginalFuelMix(unittest.TestCase):

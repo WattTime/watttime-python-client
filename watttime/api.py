@@ -8,6 +8,8 @@ from datetime import date, datetime
 from datetime import time as dt_time
 from datetime import timedelta
 from functools import cache
+from importlib.metadata import PackageNotFoundError
+from importlib.metadata import version as _package_version
 from pathlib import Path
 from typing import Any, Dict, List, Literal, Optional, Tuple, Union
 
@@ -18,7 +20,11 @@ from pytz import UTC
 from requests.adapters import HTTPAdapter
 from urllib3.util.retry import Retry
 
-VERSION = open(".VERSION").read().strip()
+try:
+    VERSION = _package_version("watttime")
+except PackageNotFoundError:
+    # Package not installed (e.g. running from a source checkout without install)
+    VERSION = "0.0.0"
 
 
 class WattTimeAPIWarning:

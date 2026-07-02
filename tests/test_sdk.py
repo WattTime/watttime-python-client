@@ -61,6 +61,19 @@ class TestWattTimeBase(unittest.TestCase):
         assert self.base.token is not None
         assert self.base.token_valid_until > datetime.now()
 
+    def test_login_sets_user_agent_header(self):
+        from watttime.api import VERSION
+
+        mock_rsp = mock.Mock()
+        mock_rsp.json.return_value = {"token": "fake-token"}
+        mock_rsp.raise_for_status.return_value = None
+        with mock.patch.object(self.base.session, "get", return_value=mock_rsp):
+            self.base._login()
+
+        self.assertEqual(
+            self.base.headers["User-Agent"], f"watttime-python-sdk-{VERSION}"
+        )
+
     @patch("time.sleep", return_value=None)
     def test_apply_rate_limit(self, mock_sleep):
         """Test _apply_rate_limit (single-threaded) triggers sleep when rate limit is exceeded."""
@@ -211,7 +224,9 @@ class TestWattTimeHistorical(unittest.TestCase):
     def test_get_historical_pandas_include_imputed(self):
         start = datetime.now() - timedelta(days=7)
         end = datetime.now()
-        df = self.historical.get_historical_pandas(start, end, REGION, include_imputed_marker=True)
+        df = self.historical.get_historical_pandas(
+            start, end, REGION, include_imputed_marker=True
+        )
 
         self.assertIsInstance(df, pd.DataFrame)
         self.assertGreaterEqual(len(df), 1)
@@ -306,24 +321,25 @@ class TestWattTimeMyAccess(unittest.TestCase):
         json = self.access.get_access_json()
         self.assertIsInstance(json, dict)
         self.assertIn("signal_types", json)
-        
-        st_dict = {j['signal_type']: j for j in json['signal_types']}
-        for signal_type in ['co2_aoer', 'co2_moer', 'health_damage', 'marginal_fuel_mix']:
+
+        st_dict = {j["signal_type"]: j for j in json["signal_types"]}
+        for signal_type in [
+            "co2_aoer",
+            "co2_moer",
+            "health_damage",
+            "marginal_fuel_mix",
+        ]:
             st_object = st_dict[signal_type]
             self.assertIn("regions", st_object)
             self.assertIn("signal_type", st_object)
             self.assertIn("region", st_object["regions"][0])
             self.assertIn("region_full_name", st_object["regions"][0])
             self.assertIn("parent", st_object["regions"][0])
-            self.assertIn(
-                "data_point_period_seconds", st_object["regions"][0]
-            )
+            self.assertIn("data_point_period_seconds", st_object["regions"][0])
             self.assertIn("endpoints", st_object["regions"][0])
             self.assertIn("endpoint", st_object["regions"][0]["endpoints"][0])
             self.assertIn("models", st_object["regions"][0]["endpoints"][0])
-            self.assertIn(
-                "model", st_object["regions"][0]["endpoints"][0]["models"][0]
-            )
+            self.assertIn("model", st_object["regions"][0]["endpoints"][0]["models"][0])
             self.assertIn(
                 "data_start",
                 st_object["regions"][0]["endpoints"][0]["models"][0],
@@ -336,9 +352,7 @@ class TestWattTimeMyAccess(unittest.TestCase):
                 "train_end",
                 st_object["regions"][0]["endpoints"][0]["models"][0],
             )
-            self.assertIn(
-                "type", st_object["regions"][0]["endpoints"][0]["models"][0]
-            )
+            self.assertIn("type", st_object["regions"][0]["endpoints"][0]["models"][0])
 
     def test_access_pandas(self):
         df = self.access.get_access_pandas()
@@ -599,8 +613,12 @@ class TestWattTimeMarginalFuelMix(unittest.TestCase):
         self.assertEqual("point_time", df.index.name)
         assert df.index.is_monotonic_increasing
         assert all(df.sum(axis="columns") == 1.0)
-        
-    @patch.object(WattTimeMarginalFuelMix, "_fetch_data", side_effect=RuntimeError("403 Client Error: Forbidden"))
+
+    @patch.object(
+        WattTimeMarginalFuelMix,
+        "_fetch_data",
+        side_effect=RuntimeError("403 Client Error: Forbidden"),
+    )
     def test_get_fuel_mix_jsons_handles_403(self, mock_fetch_data):
         start = "2026-01-01 00:00Z"
         end = "2026-01-07 00:00Z"
@@ -610,7 +628,6 @@ class TestWattTimeMarginalFuelMix(unittest.TestCase):
         self.assertEqual(result, [])
         mock_fetch_data.assert_called_once()
         # TODO: test for logging here once we use log rather than print in api.py
-        
 
 
 if __name__ == "__main__":

@@ -1,21 +1,30 @@
+import logging
 import os
-import time
 import threading
 import time
-import logging
-from datetime import date, datetime, timedelta, time as dt_time
 from collections import defaultdict
+from concurrent.futures import ThreadPoolExecutor, as_completed
+from datetime import date, datetime
+from datetime import time as dt_time
+from datetime import timedelta
 from functools import cache
+from importlib.metadata import PackageNotFoundError
+from importlib.metadata import version as _package_version
 from pathlib import Path
 from typing import Any, Dict, List, Literal, Optional, Tuple, Union
-from concurrent.futures import ThreadPoolExecutor, as_completed
-from urllib3.util.retry import Retry
-from requests.adapters import HTTPAdapter
 
 import pandas as pd
 import requests
 from dateutil.parser import parse
 from pytz import UTC
+from requests.adapters import HTTPAdapter
+from urllib3.util.retry import Retry
+
+try:
+    VERSION = _package_version("watttime")
+except PackageNotFoundError:
+    # Package not installed (e.g. running from a source checkout without install)
+    VERSION = "0.0.0"
 
 
 class WattTimeAPIWarning:
@@ -124,7 +133,9 @@ class WattTimeBase:
         url = f"{self.url_base}/login"
         rsp = self.session.get(
             url,
-            auth=requests.auth.HTTPBasicAuth(os.getenv("WATTTIME_USER"), os.getenv("WATTTIME_PASSWORD")),
+            auth=requests.auth.HTTPBasicAuth(
+                os.getenv("WATTTIME_USER"), os.getenv("WATTTIME_PASSWORD")
+            ),
             timeout=(10, 60),
         )
         rsp.raise_for_status()
@@ -132,7 +143,10 @@ class WattTimeBase:
         self.token_valid_until = datetime.now() + timedelta(minutes=30)
         if not self.token:
             raise Exception("failed to log in, double check your credentials")
-        self.headers = {"Authorization": "Bearer " + self.token}
+        self.headers = {
+            "Authorization": "Bearer " + self.token,
+            "User-Agent": f"watttime-python-sdk-{VERSION}",
+        }
 
     def _is_token_valid(self) -> bool:
         if not self.token_valid_until:

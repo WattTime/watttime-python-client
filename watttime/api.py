@@ -196,7 +196,20 @@ class WattTimeBase:
 
         Returns:
             List[Tuple[datetime, datetime]]: A list of tuples representing the chunks of time.
+            If start == end, a single zero-length chunk is returned.
+
+        Raises:
+            ValueError: If start is after end.
         """
+        if start > end:
+            raise ValueError(f"start ({start}) must not be after end ({end})")
+
+        # A zero-length span is a valid request: it asks the API for the single
+        # point (or single forecast run) at that instant. The loop below would
+        # produce no chunks at all, so return the span itself as one chunk.
+        if start == end:
+            return [(start, end)]
+
         chunks = []
         while start < end:
             chunk_end = min(end, start + chunk_size)

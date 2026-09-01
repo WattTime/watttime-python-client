@@ -262,6 +262,24 @@ class TestWattTimeHistorical(unittest.TestCase):
         assert fp.exists()
         fp.unlink()
 
+    def test_get_historical_csv_include_imputed(self):
+        start = parse("2025-01-01 00:00Z")
+        end = parse("2025-01-02 00:00Z")
+        self.historical.get_historical_csv(
+            start, end, REGION, include_imputed_marker=True
+        )
+
+        fp = (
+            Path.home()
+            / "watttime_historical_csvs"
+            / f"{REGION}_co2_moer_{start.date()}_{end.date()}.csv"
+        )
+        assert fp.exists()
+        df = pd.read_csv(fp)
+        self.assertIn("imputed_data_used", df.columns)
+        self.assertNotIn("meta", df.columns)
+        fp.unlink()
+
     def test_multi_model_range(self):
         """If model is not specified, we should only return the most recent model data"""
         myaccess = WattTimeMyAccess()

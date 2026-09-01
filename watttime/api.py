@@ -454,7 +454,12 @@ class WattTimeHistorical(WattTimeBase):
             pd.DataFrame: _description_
         """
         responses = self.get_historical_jsons(
-            start, end, region, signal_type, model, include_imputed_marker
+            start,
+            end,
+            region,
+            signal_type=signal_type,
+            model=model,
+            include_imputed_marker=include_imputed_marker,
         )
         df = pd.json_normalize(
             responses, record_path="data", meta=["meta"] if include_meta else []
@@ -490,7 +495,12 @@ class WattTimeHistorical(WattTimeBase):
             None, results are saved to a csv file in the user's home directory.
         """
         df = self.get_historical_pandas(
-            start, end, region, signal_type, model, include_imputed_marker
+            start,
+            end,
+            region,
+            signal_type=signal_type,
+            model=model,
+            include_imputed_marker=include_imputed_marker,
         )
 
         out_dir = Path.home() / "watttime_historical_csvs"

@@ -182,6 +182,23 @@ class WattTimeBase:
             return False
         return self.token_valid_until > datetime.now()
 
+    def _parse_date(self, dt: Union[str, datetime]) -> datetime:
+        """
+        Parse a single date into a UTC timezone-aware datetime.
+
+        Args:
+            dt (Union[str, datetime]): The date to parse. It can be either a string or a datetime object.
+
+        Returns:
+            datetime: The parsed date as a UTC timezone-aware datetime object.
+        """
+        if isinstance(dt, str):
+            dt = parse(dt)
+
+        if dt.tzinfo:
+            return dt.astimezone(UTC)
+        return dt.replace(tzinfo=UTC)
+
     def _parse_dates(
         self, start: Union[str, datetime], end: Union[str, datetime]
     ) -> Tuple[datetime, datetime]:
@@ -195,22 +212,7 @@ class WattTimeBase:
         Returns:
             Tuple[datetime, datetime]: A tuple containing the parsed start and end dates as datetime objects.
         """
-        if isinstance(start, str):
-            start = parse(start)
-        if isinstance(end, str):
-            end = parse(end)
-
-        if start.tzinfo:
-            start = start.astimezone(UTC)
-        else:
-            start = start.replace(tzinfo=UTC)
-
-        if end.tzinfo:
-            end = end.astimezone(UTC)
-        else:
-            end = end.replace(tzinfo=UTC)
-
-        return start, end
+        return self._parse_date(start), self._parse_date(end)
 
     def _get_chunks(
         self,
@@ -450,6 +452,7 @@ class WattTimeHistorical(WattTimeBase):
         include_imputed_marker: bool = False,
         *,
         chunk_size: Optional[timedelta] = None,
+        updated_since: Optional[Union[str, datetime]] = None,
     ) -> List[dict]:
         """
         Base function to scrape historical data, returning a list of .json responses.
@@ -464,6 +467,11 @@ class WattTimeHistorical(WattTimeBase):
             chunk_size (Optional[timedelta], optional): The span of each request the date range is split into.
                 Defaults to 30 days. Smaller spans mean more, faster requests; use this when the API is
                 slow to answer large spans and requests are hitting the read timeout.
+            updated_since (Optional[Union[str, datetime]], optional): Only return data points revised at or
+                after this datetime (the filter is inclusive: rows whose last_updated equals updated_since
+                are returned). When provided, each data point in the response also carries a last_updated
+                field. May legitimately match nothing, in which case responses contain empty data lists.
+                Defaults to None.
 
         Raises:
             Exception: Scraping failed for some reason
@@ -476,6 +484,9 @@ class WattTimeHistorical(WattTimeBase):
 
         if include_imputed_marker:
             params["include_imputed_marker"] = "true"
+
+        if updated_since is not None:
+            params["updated_since"] = self._parse_date(updated_since)
 
         start, end = self._parse_dates(start, end)
         chunks = self._get_chunks(start, end, chunk_size=chunk_size)
@@ -510,6 +521,7 @@ class WattTimeHistorical(WattTimeBase):
         include_imputed_marker: bool = False,
         *,
         chunk_size: Optional[timedelta] = None,
+        updated_since: Optional[Union[str, datetime]] = None,
     ):
         """
         Return a pd.DataFrame with point_time, and values.
@@ -519,6 +531,10 @@ class WattTimeHistorical(WattTimeBase):
             include_meta (bool, optional): adds additional columns to the output dataframe,
                 containing the metadata information. Note that metadata is returned for each API response,
                 not for each point_time.
+            updated_since (Optional[Union[str, datetime]], optional): Only return data points revised at or
+                after this datetime (inclusive). Adds a last_updated column to the output dataframe.
+                An empty dataframe with the expected columns is returned when no data points have been
+                revised since the given datetime.
 
         Returns:
             pd.DataFrame: _description_
@@ -531,12 +547,27 @@ class WattTimeHistorical(WattTimeBase):
             model=model,
             include_imputed_marker=include_imputed_marker,
             chunk_size=chunk_size,
+            updated_since=updated_since,
         )
         df = pd.json_normalize(
             responses, record_path="data", meta=["meta"] if include_meta else []
         )
 
-        df["point_time"] = pd.to_datetime(df["point_time"])
+        # an updated_since filter can legitimately match nothing; keep the
+        # expected columns present so downstream code can rely on them
+        if df.empty:
+            expected = ["point_time", "value"]
+            if include_imputed_marker:
+                expected.append("imputed_data_used")
+            if updated_since is not None:
+                expected.append("last_updated")
+            if include_meta:
+                expected.append("meta")
+            df = df.reindex(columns=expected)
+
+        df["point_time"] = pd.to_datetime(df["point_time"], utc=True)
+        if "last_updated" in df.columns:
+            df["last_updated"] = pd.to_datetime(df["last_updated"], utc=True)
 
         return df
 
@@ -552,6 +583,7 @@ class WattTimeHistorical(WattTimeBase):
         include_imputed_marker: bool = False,
         *,
         chunk_size: Optional[timedelta] = None,
+        updated_since: Optional[Union[str, datetime]] = None,
     ):
         """
         Retrieves historical data from a specified start date to an end date and saves it as a CSV file.
@@ -564,6 +596,9 @@ class WattTimeHistorical(WattTimeBase):
             signal_type (Optional[Literal["co2_moer", "co2_aoer", "health_damage"]]): The type of signal for which historical data is requested. Default is "co2_moer".
             model (Optional[Union[str, date]]): The date of the model for which historical data is requested. It can be a string in the format "YYYY-MM-DD" or a date object. Default is None.
             chunk_size (Optional[timedelta]): See .get_historical_jsons(). Default is None (30 days).
+            updated_since (Optional[Union[str, datetime]]): Only include data points revised at or after
+                this datetime (inclusive). The resulting CSV is a partial dataset, so the filename gains
+                an "_updated-since-<timestamp>" suffix to distinguish it from a full pull.
 
         Returns:
             None, results are saved to a csv file in the user's home directory.
@@ -576,13 +611,18 @@ class WattTimeHistorical(WattTimeBase):
             model=model,
             include_imputed_marker=include_imputed_marker,
             chunk_size=chunk_size,
+            updated_since=updated_since,
         )
 
         out_dir = Path.home() / "watttime_historical_csvs"
         out_dir.mkdir(exist_ok=True)
 
         start, end = self._parse_dates(start, end)
-        fp = out_dir / f"{region}_{signal_type}_{start.date()}_{end.date()}.csv"
+        fp_stem = f"{region}_{signal_type}_{start.date()}_{end.date()}"
+        if updated_since is not None:
+            us = self._parse_date(updated_since)
+            fp_stem += f"_updated-since-{us.strftime('%Y%m%dT%H%M%SZ')}"
+        fp = out_dir / f"{fp_stem}.csv"
         df.to_csv(fp, index=False)
         LOG.info(f"file written to {fp}")
 

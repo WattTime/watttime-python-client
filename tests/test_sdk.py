@@ -465,6 +465,79 @@ class TestWattTimeHistorical(unittest.TestCase):
         assert fp.exists()
         fp.unlink()
 
+    def test_get_historical_pandas_updated_since(self):
+        start = datetime.now() - timedelta(days=7)
+        end = datetime.now()
+        df = self.historical.get_historical_pandas(
+            start, end, REGION, updated_since=parse("2020-01-01 00:00Z")
+        )
+
+        self.assertIsInstance(df, pd.DataFrame)
+        self.assertGreaterEqual(len(df), 1)
+        self.assertIn("point_time", df.columns)
+        self.assertIn("value", df.columns)
+        self.assertIn("last_updated", df.columns)
+        assert pd.api.types.is_datetime64_any_dtype(df["last_updated"].dtype)
+
+    def test_get_historical_pandas_updated_since_empty(self):
+        start = datetime.now() - timedelta(days=7)
+        end = datetime.now()
+        df = self.historical.get_historical_pandas(
+            start, end, REGION, updated_since=datetime.now() + timedelta(days=365)
+        )
+
+        self.assertIsInstance(df, pd.DataFrame)
+        self.assertEqual(len(df), 0)
+        self.assertIn("point_time", df.columns)
+        self.assertIn("value", df.columns)
+        self.assertIn("last_updated", df.columns)
+        assert pd.api.types.is_datetime64_any_dtype(df["point_time"].dtype)
+
+    def test_get_historical_pandas_empty_without_updated_since(self):
+        """The API answers 200 with an empty data list for a request that matches
+        no points, so an empty frame is a normal outcome even with no filter set.
+        Each of these raised KeyError: 'point_time' before the df.empty guard."""
+        now = datetime.now(UTC)
+        spans = {
+            # the span #74 made reachable: /v3/historical returns no points for it
+            "zero_length": (now - timedelta(days=2), now - timedelta(days=2)),
+            "before_data_start": (
+                datetime(2010, 1, 1, tzinfo=UTC),
+                datetime(2010, 1, 2, tzinfo=UTC),
+            ),
+            "future": (now + timedelta(days=30), now + timedelta(days=31)),
+        }
+
+        for label, (start, end) in spans.items():
+            with self.subTest(span=label):
+                df = self.historical.get_historical_pandas(start, end, REGION)
+
+                self.assertIsInstance(df, pd.DataFrame)
+                self.assertEqual(len(df), 0)
+                self.assertIn("point_time", df.columns)
+                self.assertIn("value", df.columns)
+                # no filter was set, so no last_updated column should appear
+                self.assertNotIn("last_updated", df.columns)
+                assert pd.api.types.is_datetime64_any_dtype(df["point_time"].dtype)
+
+    def test_get_historical_csv_updated_since(self):
+        start = parse("2025-01-01 00:00Z")
+        end = parse("2025-01-02 00:00Z")
+        updated_since = parse("2020-01-01 00:00Z")
+        self.historical.get_historical_csv(
+            start, end, REGION, updated_since=updated_since
+        )
+
+        fp = (
+            Path.home()
+            / "watttime_historical_csvs"
+            / f"{REGION}_co2_moer_{start.date()}_{end.date()}_updated-since-20200101T000000Z.csv"
+        )
+        assert fp.exists()
+        df = pd.read_csv(fp)
+        self.assertIn("last_updated", df.columns)
+        fp.unlink()
+
     def test_get_historical_csv_include_imputed(self):
         start = parse("2025-01-01 00:00Z")
         end = parse("2025-01-02 00:00Z")

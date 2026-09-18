@@ -95,7 +95,7 @@ moers = wt_hist.get_historical_pandas(
 )
 ```
 
-The timeout applies to each attempt; the client retries a failed request up to three times before raising.
+A request that times out is not simply retried: on the historical endpoints the client splits its time span in half and asks again (up to twice), logging a warning each time, so occasional slowness is absorbed without any of the above. Connection errors and transient server errors are retried up to three times with backoff. When the client does give up it raises `WattTimeRequestError`, whose `kind` attribute (`"timeout"`, `"http_401"`, `"http_4xx"`, `"http_5xx"`, `"connection"`) lets your code decide what to do without parsing the message.
 
 You could also combine these classes to iterate through all regions where you have access to data:
 

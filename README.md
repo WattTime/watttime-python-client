@@ -74,6 +74,51 @@ wt_hist.get_historical_csv(
 )
 ```
 
+A request that matches no data points — a range outside the region's coverage, for instance — is answered normally rather than as an error, and `get_historical_pandas` returns an empty dataframe with the expected columns. Check `len(df)` rather than relying on an exception.
+
+#### Fetching only revised data
+
+WattTime occasionally revises historical data after it is first published. Rather than re-pulling a whole range to pick up those revisions, pass `updated_since` to fetch only the points revised at or after a given time (the filter is inclusive):
+
+```python
+from watttime import WattTimeHistorical
+
+wt_hist = WattTimeHistorical(username, password)
+
+revised = wt_hist.get_historical_pandas(
+    start = '2022-01-01 00:00Z',
+    end = '2023-01-01 00:00Z',
+    region = 'CAISO_NORTH',
+    signal_type = 'co2_moer',
+    updated_since = '2023-01-15 00:00Z'
+)
+```
+
+The result carries an extra `last_updated` column. If nothing has been revised in that window the call returns an empty dataframe with the expected columns, so downstream code can rely on them either way. `get_historical_csv` accepts the same argument and adds an `_updated-since-<timestamp>` suffix to the filename, so a filtered pull is never mistaken for a complete one.
+
+#### Tuning requests that time out
+
+Historical pulls are split into 30-day requests, each with a 60 s read timeout. If the API is slow to answer a large span, a request can time out and the error message will say so. Two options, which can be combined:
+
+```python
+from datetime import timedelta
+from watttime import WattTimeHistorical
+
+# allow each request more time: (connect, read) seconds
+wt_hist = WattTimeHistorical(username, password, timeout=(10, 300))
+
+# or make each request cover less time
+moers = wt_hist.get_historical_pandas(
+    start = '2022-01-01 00:00Z',
+    end = '2023-01-01 00:00Z',
+    region = 'CAISO_NORTH',
+    signal_type = 'co2_moer',
+    chunk_size = timedelta(days=10)
+)
+```
+
+The timeout applies to each attempt; the client retries a failed request up to three times before raising.
+
 You could also combine these classes to iterate through all regions where you have access to data:
 
 ```python

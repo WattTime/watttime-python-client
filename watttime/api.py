@@ -52,6 +52,45 @@ def _is_timeout(exc: BaseException) -> bool:
     return False
 
 
+class WattTimeRequestError(RuntimeError):
+    """
+    Raised when an API request fails after the client has done what it can about it.
+
+    Subclasses RuntimeError so existing `except RuntimeError` handlers keep working.
+    `kind` names the failure class so callers can branch on it instead of parsing
+    the message: "timeout", "http_401", "http_4xx", "http_5xx", "connection" or "other".
+    """
+
+    def __init__(self, message: str, kind: str, url: str, params: Dict[str, Any]):
+        super().__init__(message)
+        self.kind = kind
+        self.url = url
+        self.params = params
+
+
+def _classify_request_exception(exc: requests.exceptions.RequestException) -> str:
+    """
+    Sort a failed request into the class that decides how the client responds.
+
+    A 504 is grouped with read timeouts: the gateway gave up waiting on the same
+    slow upstream query, so it calls for the same response (ask for less at once).
+    """
+    if _is_timeout(exc):
+        return "timeout"
+    status = getattr(getattr(exc, "response", None), "status_code", None)
+    if status == 504:
+        return "timeout"
+    if status == 401:
+        return "http_401"
+    if status is not None and 400 <= status < 500:
+        return "http_4xx"
+    if status is not None and 500 <= status < 600:
+        return "http_5xx"
+    if isinstance(exc, requests.exceptions.ConnectionError):
+        return "connection"
+    return "other"
+
+
 class WattTimeAPIWarning:
     def __init__(self, url: str, params: Dict[str, Any], warning_message: str):
         self.url = url
@@ -108,7 +147,7 @@ class WattTimeBase:
             multithreaded (bool): Whether to use multithreading for requests. Default is False.
             rate_limit (int): The maximum number of requests to make per second. Default is 10 as this algins well with WattTime's API rate limiting policy.
             worker_count (int): The number of worker threads to use for multithreading. Default is min(10, (os.cpu_count() or 1) * 2).
-            timeout (Optional[Union[float, Tuple[float, float]]]): The timeout passed to every HTTP request, in seconds, using the standard `requests` forms: a single value applied to both the connect and read phases, or a (connect, read) tuple. `None` disables timeouts entirely. Default is (10, 60). Note that this is a per-attempt timeout: the session retries each request up to 3 times with backoff, so a request can take several times this long before raising.
+            timeout (Optional[Union[float, Tuple[float, float]]]): The timeout passed to every HTTP request, in seconds, using the standard `requests` forms: a single value applied to both the connect and read phases, or a (connect, read) tuple. `None` disables timeouts entirely. Default is (10, 60). A request that times out is not retried as-is; on the chunked endpoints its time span is split in half and retried (up to twice), and elsewhere it fails with a hint. Connection errors and transient server errors are retried up to 3 times with backoff.
 
         """
 
@@ -132,6 +171,7 @@ class WattTimeBase:
         self._last_request_times = []
         self.worker_count = worker_count
         self.raised_warnings: List[WattTimeAPIWarning] = []
+        self._login_lock = threading.Lock()
 
         if self.multithreaded:
             self._rate_limit_lock = (
@@ -139,9 +179,16 @@ class WattTimeBase:
             )  # prevent multiple threads from modifying _last_request_times simultaneously
             self._rate_limit_condition = threading.Condition(self._rate_limit_lock)
 
+        # The transport retries what re-issuing the identical request can fix:
+        # connection errors, transient 5xx, and 429 (honouring Retry-After).
+        # It does NOT retry read timeouts or 504: those mean the API was slow to
+        # answer *this much* data, so the client responds by asking for less at a
+        # time instead (see _fetch_adaptive). Repeating a slow query four times
+        # only multiplies the load on a backend that is already struggling.
         retry_strategy = Retry(
             total=3,
-            status_forcelist=[500, 502, 503, 504],
+            read=0,
+            status_forcelist=[429, 500, 502, 503],
             backoff_factor=1,
             raise_on_status=False,
         )
@@ -317,16 +364,28 @@ class WattTimeBase:
         j = self._make_rate_limited_request(url, params=params)
         return j
 
-    def _make_rate_limited_request(self, url: str, params: Dict[str, Any]) -> Dict:
+    def _ensure_logged_in(self):
         """
-        Makes a single API request while respecting the rate limit.
+        Log in if there is no token or the local 30-minute clock has run out.
+        Serialised so that concurrent workers reaching an expired token log in once.
         """
+        if self._is_token_valid() and self.headers:
+            return
+        with self._login_lock:
+            if not self._is_token_valid() or not self.headers:
+                self._login()
 
-        # should already be logged in -- keeping incase long running chunked request surpasses
-        # token timeout
-        if not self._is_token_valid() or not self.headers:
-            self._login()
+    def _refresh_token(self, rejected_headers: Optional[Dict[str, str]]):
+        """
+        Log in again after the API rejected a token the client thought was valid.
+        Workers that all saw the same rejected token refresh it once, not once each.
+        """
+        with self._login_lock:
+            if self.headers is rejected_headers:
+                self._login()
 
+    def _rate_limited_get_json(self, url: str, params: Dict[str, Any]) -> Dict:
+        """One GET, rate limited, raising requests exceptions untouched."""
         ts = time.time()
 
         # apply rate limiting by either sleeping (single thread) or
@@ -337,24 +396,53 @@ class WattTimeBase:
         else:
             self._apply_rate_limit(ts)
 
-        try:
-            rsp = self.session.get(
-                url, headers=self.headers, params=params, timeout=self.timeout
+        rsp = self.session.get(
+            url, headers=self.headers, params=params, timeout=self.timeout
+        )
+        rsp.raise_for_status()
+        return rsp.json()
+
+    def _request_error(
+        self, exc: requests.exceptions.RequestException, url: str, params: Dict
+    ) -> WattTimeRequestError:
+        kind = _classify_request_exception(exc)
+        msg = f"API Request Failed: {exc}\nURL: {url}\nParams: {params}"
+        if kind == "timeout":
+            msg += (
+                f"\nHint: the request exceeded the client timeout ({self.timeout}). "
+                "This usually means the API was slow to respond, which is more likely "
+                "for requests covering a large time span. Either pass a smaller "
+                "`chunk_size` to the historical methods (e.g. timedelta(days=10)) so "
+                "each request covers less time, or construct the client with a longer "
+                "`timeout`."
             )
-            rsp.raise_for_status()
-            j = rsp.json()
-        except requests.exceptions.RequestException as e:
-            msg = f"API Request Failed: {e}\nURL: {url}\nParams: {params}"
-            if _is_timeout(e):
-                msg += (
-                    f"\nHint: the request exceeded the client timeout ({self.timeout}) "
-                    "on every retry. This usually means the API was slow to respond, "
-                    "which is more likely for requests covering a large time span. "
-                    "Either pass a smaller `chunk_size` to the historical methods "
-                    "(e.g. timedelta(days=10)) so each request covers less time, or "
-                    "construct the client with a longer `timeout`."
+        return WattTimeRequestError(msg, kind=kind, url=url, params=params)
+
+    def _make_rate_limited_request(self, url: str, params: Dict[str, Any]) -> Dict:
+        """
+        Makes a single API request while respecting the rate limit.
+
+        A 401 on a token the client still considers valid is refreshed and retried
+        once; a second 401 is a real authentication failure. Every other failure is
+        raised as WattTimeRequestError with its `kind` set.
+        """
+        self._ensure_logged_in()
+        headers_used = self.headers
+
+        try:
+            try:
+                j = self._rate_limited_get_json(url, params)
+            except requests.exceptions.HTTPError as e:
+                if _classify_request_exception(e) != "http_401":
+                    raise
+                LOG.warning(
+                    f"API returned 401 for a token the client considered valid; "
+                    f"refreshing and retrying once | URL: {url} | Params: {params}"
                 )
-            raise RuntimeError(msg) from e
+                self._refresh_token(headers_used)
+                j = self._rate_limited_get_json(url, params)
+        except requests.exceptions.RequestException as e:
+            raise self._request_error(e, url, params) from e
 
         meta = j.get("meta", {})
         warnings = meta.get("warnings")
@@ -398,21 +486,65 @@ class WattTimeBase:
         if self.multithreaded:
             self._rate_limit_condition.notify_all()
 
+    # How many times one chunk may be halved after timing out. A chunk becomes at
+    # most 2**_MAX_TIMEOUT_SPLITS requests. Splitting is depth-first and the first
+    # sub-span that still times out at the last level fails the call, so a chunk
+    # the API never answers costs about (1 + _MAX_TIMEOUT_SPLITS) x read timeout.
+    _MAX_TIMEOUT_SPLITS = 2
+
+    def _fetch_adaptive(
+        self, url: str, params: Dict[str, Any], depth: int = 0
+    ) -> List[Dict]:
+        """
+        Fetch one set of params, halving its time span and retrying on timeout.
+
+        A read timeout or 504 on a span request usually means the API was slow to
+        answer that much data at once, so re-issuing the identical request tends to
+        fail the same way. Asking for half the span instead is what actually helps.
+        Only applies when `start` and `end` are datetimes (the chunked endpoints), and
+        at most _MAX_TIMEOUT_SPLITS times per original chunk. Every split is logged.
+        """
+        try:
+            return [self._make_rate_limited_request(url, params)]
+        except WattTimeRequestError as e:
+            start, end = params.get("start"), params.get("end")
+            if not (
+                e.kind == "timeout"
+                and isinstance(start, datetime)
+                and isinstance(end, datetime)
+                and depth < self._MAX_TIMEOUT_SPLITS
+            ):
+                raise
+            half = (end - start) / 2
+            if half <= timedelta(minutes=5):  # the chunker's floor
+                raise
+            halves = self._get_chunks(start, end, chunk_size=half)
+            LOG.warning(
+                f"Request timed out (timeout={self.timeout}); splitting {start} -> {end} "
+                f"into {len(halves)} requests of {half} and retrying "
+                f"(split {depth + 1} of {self._MAX_TIMEOUT_SPLITS}) | URL: {url}"
+            )
+
+        responses = []
+        for sub_start, sub_end in halves:
+            sub_params = {**params, "start": sub_start, "end": sub_end}
+            responses.extend(self._fetch_adaptive(url, sub_params, depth + 1))
+        return responses
+
     def _fetch_data(
         self,
         url: str,
         param_chunks: Union[Dict[str, Any], List[Dict[str, Any]]],
     ) -> List[Dict]:
         """
-        Base method for fetching data without multithreading.
+        Fetch a series of requests with varying `param_chunks`, sequentially or with
+        a thread pool. Each chunk goes through _fetch_adaptive, so a chunk that times
+        out is split into smaller spans rather than failing the whole call.
         If you are making a single request, you can call _make_rate_limited_request directly.
-        This class is suited for making a series of requests in a for loop, with
-        varying `param_chunks`.
         """
 
         # first try to login before beginning multithreading
-        if not self._is_token_valid() or not self.headers:
-            self._login()
+        self._ensure_logged_in()
 
         if isinstance(param_chunks, dict):
             param_chunks = [param_chunks]
@@ -421,18 +553,15 @@ class WattTimeBase:
         if self.multithreaded:
             with ThreadPoolExecutor(max_workers=self.worker_count) as executor:
                 futures = {
-                    executor.submit(
-                        self._make_rate_limited_request, url, params
-                    ): params
+                    executor.submit(self._fetch_adaptive, url, params): params
                     for params in param_chunks
                 }
 
                 for future in as_completed(futures):
-                    responses.append(future.result())
+                    responses.extend(future.result())
         else:
             for params in param_chunks:
-                rsp = self._make_rate_limited_request(url, params)
-                responses.append(rsp)
+                responses.extend(self._fetch_adaptive(url, params))
 
         return responses
 

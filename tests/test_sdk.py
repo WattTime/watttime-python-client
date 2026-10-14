@@ -578,6 +578,9 @@ class TestWattTimeMaps(unittest.TestCase):
         self.assertEqual(region["region_full_name"], "Public Service Co of Colorado")
         self.assertEqual(region["signal_type"], "co2_moer")
 
+    @unittest.skip(
+        "UK/NIE regions are in release-candidate state; revert after 2026-10-28."
+    )
     def test_my_access_in_geojson(self):
         access = self.myaccess.get_access_pandas()
         for signal_type in ["co2_moer", "co2_aoer", "health_damage"]:

@@ -46,3 +46,17 @@ jobs:
     - name: Test with pytest
       run: |
         pytest --reruns 2
+
+    - name: Notify Slack on failure
+      if: ${{ failure() }}
+      uses: slackapi/slack-github-action@v3
+      with:
+        webhook: ${{ secrets.SLACK_WEBHOOK_URL }}
+        webhook-type: incoming-webhook
+        payload: |
+          text: "❌ ${{ github.workflow }} failed on ${{ github.ref_name }}"
+          blocks:
+            - type: section
+              text:
+                type: mrkdwn
+                text: "*${{ github.workflow }}* failed on `${{ github.ref_name }}` by ${{ github.actor }}\n<${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}|View run>"

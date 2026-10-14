@@ -578,22 +578,24 @@ class TestWattTimeMaps(unittest.TestCase):
         self.assertEqual(region["region_full_name"], "Public Service Co of Colorado")
         self.assertEqual(region["signal_type"], "co2_moer")
 
-    # Disabled while UK/NIE regions are in release-candidate state; revert after 2026-10-28.
-    # def test_my_access_in_geojson(self):
-    #     access = self.myaccess.get_access_pandas()
-    #     for signal_type in ["co2_moer", "co2_aoer", "health_damage"]:
-    #         access_regions = access.loc[
-    #             access["signal_type"] == signal_type, "region"
-    #         ].unique()
-    #         maps = self.maps.get_maps_json(signal_type=signal_type)
-    #         maps_regions = [i["properties"]["region"] for i in maps["features"]]
+    @unittest.skip(
+        "UK/NIE regions are in release-candidate state; revert after 2026-10-28."
+    )
+    def test_my_access_in_geojson(self):
+        access = self.myaccess.get_access_pandas()
+        for signal_type in ["co2_moer", "co2_aoer", "health_damage"]:
+            access_regions = access.loc[
+                access["signal_type"] == signal_type, "region"
+            ].unique()
+            maps = self.maps.get_maps_json(signal_type=signal_type)
+            maps_regions = [i["properties"]["region"] for i in maps["features"]]
 
-    #         assert (
-    #             set(access_regions) - set(maps_regions) == set()
-    #         ), f"Missing regions in geojson for {signal_type}: {set(access_regions) - set(maps_regions)}"
-    #         assert (
-    #             set(maps_regions) - set(access_regions) == set()
-    #         ), f"Extra regions in geojson for {signal_type}: {set(maps_regions) - set(access_regions)}"
+            assert (
+                set(access_regions) - set(maps_regions) == set()
+            ), f"Missing regions in geojson for {signal_type}: {set(access_regions) - set(maps_regions)}"
+            assert (
+                set(maps_regions) - set(access_regions) == set()
+            ), f"Extra regions in geojson for {signal_type}: {set(maps_regions) - set(access_regions)}"
 
     def test_ccw(self):
         moer = self.maps.get_maps_json(signal_type="co2_moer")

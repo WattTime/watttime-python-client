@@ -1,3 +1,4 @@
+import inspect
 import unittest
 import unittest.mock as mock
 from unittest.mock import patch
@@ -7,6 +8,7 @@ from pytz import timezone, UTC
 import os
 from watttime import (
     WattTimeBase,
+    WattTimeRequestError,
     WattTimeHistorical,
     WattTimeMyAccess,
     WattTimeForecast,
@@ -15,6 +17,8 @@ from watttime import (
 )
 from pathlib import Path
 import pytest
+import requests
+import urllib3.exceptions
 from shapely.geometry import shape, Polygon, MultiPolygon
 
 import pandas as pd
@@ -73,6 +77,353 @@ class TestWattTimeBase(unittest.TestCase):
         self.assertEqual(
             self.base.headers["User-Agent"], f"watttime-python-sdk-{VERSION}"
         )
+
+    def _mock_login_response(self):
+        mock_rsp = mock.Mock()
+        mock_rsp.json.return_value = {"token": "fake-token"}
+        mock_rsp.raise_for_status.return_value = None
+        return mock_rsp
+
+    def _authed_base(self, **kwargs):
+        """A client with a fake, unexpired token so requests skip _login()."""
+        base = WattTimeBase(**kwargs)
+        base.token = "fake-token"
+        base.token_valid_until = datetime.now() + timedelta(minutes=30)
+        base.headers = {"Authorization": "Bearer fake-token"}
+        return base
+
+    def test_timeout_reaches_all_three_call_sites(self):
+        """The default (10, 60) is passed to login, the data request, and register."""
+        base = WattTimeBase()
+        self.assertEqual(base.timeout, (10, 60))
+
+        mock_rsp = mock.Mock()
+        mock_rsp.json.return_value = {"token": "fake-token", "data": [], "meta": {}}
+        mock_rsp.raise_for_status.return_value = None
+
+        with mock.patch.object(base.session, "get", return_value=mock_rsp) as mock_get:
+            base._login()
+            self.assertEqual(mock_get.call_args.kwargs["timeout"], (10, 60))
+
+            base._make_rate_limited_request("https://api.watttime.org/v3/test", {})
+            self.assertEqual(mock_get.call_args.kwargs["timeout"], (10, 60))
+
+        with mock.patch.object(
+            base.session, "post", return_value=mock_rsp
+        ) as mock_post:
+            base.register(email="someone@example.com")
+        self.assertEqual(mock_post.call_args.kwargs["timeout"], (10, 60))
+
+        base.session.close()
+
+    def test_timeout_accepts_tuple_and_scalar_and_none(self):
+        """Both `requests` timeout forms, and None, are stored and forwarded as given."""
+        for value in [(3, 5), 30, 12.5, None]:
+            with self.subTest(timeout=value):
+                base = WattTimeBase(timeout=value)
+                self.assertEqual(base.timeout, value)
+
+                with mock.patch.object(
+                    base.session, "get", return_value=self._mock_login_response()
+                ) as mock_get:
+                    base._login()
+
+                self.assertEqual(mock_get.call_args.kwargs["timeout"], value)
+                base.session.close()
+
+    def test_new_parameters_are_keyword_only(self):
+        """New optional parameters are keyword-only, so existing positional calls
+        are unaffected and the positional contract stays where it is today."""
+        keyword_only = inspect.Parameter.KEYWORD_ONLY
+        checks = [
+            (WattTimeBase.__init__, "timeout"),
+            (WattTimeHistorical.get_historical_jsons, "chunk_size"),
+            (WattTimeHistorical.get_historical_pandas, "chunk_size"),
+            (WattTimeHistorical.get_historical_csv, "chunk_size"),
+        ]
+        for func, name in checks:
+            with self.subTest(f"{func.__qualname__}({name})"):
+                param = inspect.signature(func).parameters[name]
+                self.assertIs(param.kind, keyword_only)
+
+        client = WattTimeHistorical(None, None, False, 10, 4)
+        self.assertEqual(client.worker_count, 4)
+        self.assertEqual(client.timeout, (10, 60))
+        client.session.close()
+
+        with self.assertRaises(TypeError):
+            WattTimeHistorical(None, None, False, 10, 4, (3, 5))
+
+    def test_timeout_error_message_points_at_knobs(self):
+        """A timeout is wrapped in RuntimeError with __cause__ preserved and a hint
+        naming both knobs -- including when urllib3's retry machinery has wrapped it
+        as ConnectionError -> MaxRetryError -> ReadTimeoutError, which is what the
+        session raises once its retries are exhausted."""
+        url = "https://api.watttime.org/v3/test"
+        reason = urllib3.exceptions.ReadTimeoutError(None, url, "Read timed out.")
+        exhausted = requests.exceptions.ConnectionError(
+            urllib3.exceptions.MaxRetryError(None, url, reason=reason)
+        )
+
+        for exc in [requests.exceptions.ReadTimeout("too slow"), exhausted]:
+            with self.subTest(exc=type(exc).__name__):
+                base = self._authed_base(timeout=(10, 60))
+                with mock.patch.object(base.session, "get", side_effect=exc):
+                    with self.assertRaises(RuntimeError) as ctx:
+                        base._make_rate_limited_request(url, {})
+
+                self.assertIs(ctx.exception.__cause__, exc)
+                message = str(ctx.exception)
+                self.assertIn("Hint", message)
+                self.assertIn("chunk_size", message)
+                self.assertIn("`timeout`", message)
+                self.assertIn("(10, 60)", message)
+                base.session.close()
+
+    def test_non_timeout_error_message_has_no_hint(self):
+        base = self._authed_base()
+        error = requests.exceptions.HTTPError("403 Client Error: Forbidden")
+
+        with mock.patch.object(base.session, "get", side_effect=error):
+            with self.assertRaises(RuntimeError) as ctx:
+                base._make_rate_limited_request("https://api.watttime.org/v3/test", {})
+
+        self.assertNotIn("Hint", str(ctx.exception))
+        base.session.close()
+
+    # --- failure-class-aware retries ---
+
+    @staticmethod
+    def _http_error(status):
+        return requests.exceptions.HTTPError(
+            f"{status} error", response=mock.Mock(status_code=status)
+        )
+
+    @staticmethod
+    def _response_raising(status):
+        rsp = mock.Mock()
+        rsp.raise_for_status.side_effect = TestWattTimeBase._http_error(status)
+        return rsp
+
+    @staticmethod
+    def _ok_response():
+        rsp = mock.Mock()
+        rsp.json.return_value = {"data": [], "meta": {}}
+        rsp.raise_for_status.return_value = None
+        return rsp
+
+    @staticmethod
+    def _slow_api(max_ok_span, calls):
+        """A stand-in for _make_rate_limited_request that times out on spans longer
+        than max_ok_span and records every call."""
+
+        def fake(url, params):
+            calls.append(params)
+            start, end = params.get("start"), params.get("end")
+            if not (isinstance(start, datetime) and isinstance(end, datetime)):
+                raise WattTimeRequestError("no span", "timeout", url, params)
+            if end - start > max_ok_span:
+                raise WattTimeRequestError("timed out", "timeout", url, params)
+            return {"data": [], "meta": {}}
+
+        return fake
+
+    def test_transport_retry_policy(self):
+        """The transport retries connection errors, transient 5xx and 429 -- never
+        read timeouts or 504, which the client handles by asking for less at once."""
+        retry = self.base.session.get_adapter("https://api.watttime.org").max_retries
+        self.assertEqual(retry.total, 3)
+        self.assertEqual(retry.read, 0)
+        self.assertIn(429, retry.status_forcelist)
+        self.assertNotIn(504, retry.status_forcelist)
+
+    def test_request_error_kind_classification(self):
+        url = "https://api.watttime.org/v3/test"
+        exhausted = requests.exceptions.ConnectionError(
+            urllib3.exceptions.MaxRetryError(
+                None,
+                url,
+                reason=urllib3.exceptions.ReadTimeoutError(
+                    None, url, "Read timed out."
+                ),
+            )
+        )
+        cases = [
+            (requests.exceptions.ReadTimeout("slow"), "timeout"),
+            (exhausted, "timeout"),
+            (self._http_error(504), "timeout"),
+            (self._http_error(401), "http_401"),
+            (self._http_error(403), "http_4xx"),
+            (self._http_error(500), "http_5xx"),
+            (requests.exceptions.ConnectionError("reset by peer"), "connection"),
+            (requests.exceptions.HTTPError("no response attached"), "other"),
+        ]
+        for exc, kind in cases:
+            with self.subTest(kind=kind, exc=type(exc).__name__):
+                base = self._authed_base()
+                fake_login = lambda: setattr(base, "headers", {"Authorization": "new"})
+                with mock.patch.object(base, "_login", side_effect=fake_login):
+                    with mock.patch.object(base.session, "get", side_effect=exc):
+                        with self.assertRaises(WattTimeRequestError) as ctx:
+                            base._make_rate_limited_request(url, {})
+                self.assertEqual(ctx.exception.kind, kind)
+                self.assertIsInstance(ctx.exception, RuntimeError)
+                base.session.close()
+
+    def test_401_refreshes_token_and_retries_once(self):
+        base = self._authed_base()
+
+        def fake_login():
+            base.headers = {"Authorization": "Bearer refreshed"}
+            base.token_valid_until = datetime.now() + timedelta(minutes=30)
+
+        with mock.patch.object(base, "_login", side_effect=fake_login) as mock_login:
+            with mock.patch.object(
+                base.session,
+                "get",
+                side_effect=[self._response_raising(401), self._ok_response()],
+            ) as mock_get:
+                result = base._make_rate_limited_request(
+                    "https://api.watttime.org/v3/test", {}
+                )
+
+        self.assertEqual(result, {"data": [], "meta": {}})
+        mock_login.assert_called_once()
+        self.assertEqual(mock_get.call_count, 2)
+        self.assertEqual(
+            mock_get.call_args.kwargs["headers"], {"Authorization": "Bearer refreshed"}
+        )
+        base.session.close()
+
+    def test_second_401_is_an_auth_failure(self):
+        base = self._authed_base()
+        fake_login = lambda: setattr(base, "headers", {"Authorization": "refreshed"})
+
+        with mock.patch.object(base, "_login", side_effect=fake_login) as mock_login:
+            with mock.patch.object(
+                base.session, "get", return_value=self._response_raising(401)
+            ) as mock_get:
+                with self.assertRaises(WattTimeRequestError) as ctx:
+                    base._make_rate_limited_request(
+                        "https://api.watttime.org/v3/test", {}
+                    )
+
+        self.assertEqual(ctx.exception.kind, "http_401")
+        mock_login.assert_called_once()
+        self.assertEqual(mock_get.call_count, 2)
+        base.session.close()
+
+    def test_other_4xx_is_not_retried(self):
+        base = self._authed_base()
+
+        with mock.patch.object(base, "_login") as mock_login:
+            with mock.patch.object(
+                base.session, "get", return_value=self._response_raising(403)
+            ) as mock_get:
+                with self.assertRaises(WattTimeRequestError) as ctx:
+                    base._make_rate_limited_request(
+                        "https://api.watttime.org/v3/test", {}
+                    )
+
+        self.assertEqual(ctx.exception.kind, "http_4xx")
+        mock_login.assert_not_called()
+        self.assertEqual(mock_get.call_count, 1)
+        base.session.close()
+
+    def test_timeout_on_span_request_splits_and_retries(self):
+        """A 30-day chunk the API cannot answer in time becomes two 15-day requests."""
+        base = self._authed_base()
+        start = datetime(2025, 1, 1, tzinfo=UTC)
+        end = datetime(2025, 1, 31, tzinfo=UTC)
+        calls = []
+
+        with mock.patch.object(
+            base,
+            "_make_rate_limited_request",
+            side_effect=self._slow_api(timedelta(days=15), calls),
+        ):
+            with mock.patch("watttime.api.LOG.warning") as mock_warning:
+                responses = base._fetch_data(
+                    "https://x/v3/historical",
+                    [{"region": REGION, "start": start, "end": end}],
+                )
+
+        self.assertEqual(len(responses), 2)
+        self.assertEqual(len(calls), 3)  # one timeout, then the two halves
+        self.assertEqual(calls[1]["start"], start)
+        self.assertEqual(calls[2]["end"], end)
+        self.assertEqual(calls[1]["region"], REGION)
+        # halves must not overlap, same as the chunker's own rule
+        self.assertEqual(calls[2]["start"] - calls[1]["end"], timedelta(minutes=5))
+        mock_warning.assert_called_once()
+        self.assertIn("splitting", mock_warning.call_args.args[0])
+        base.session.close()
+
+    def test_split_stops_at_depth_cap(self):
+        """Depth-first: the first sub-span that still times out at the last level
+        fails the call, so a dead API costs one timeout per level, not one per leaf."""
+        base = self._authed_base()
+        start = datetime(2025, 1, 1, tzinfo=UTC)
+        end = datetime(2025, 1, 31, tzinfo=UTC)
+        calls = []
+
+        with mock.patch.object(
+            base,
+            "_make_rate_limited_request",
+            side_effect=self._slow_api(timedelta(0), calls),
+        ):
+            with mock.patch("watttime.api.LOG.warning") as mock_warning:
+                with self.assertRaises(WattTimeRequestError) as ctx:
+                    base._fetch_adaptive("https://x", {"start": start, "end": end})
+
+        self.assertEqual(ctx.exception.kind, "timeout")
+        self.assertEqual(len(calls), 1 + base._MAX_TIMEOUT_SPLITS)
+        self.assertEqual(mock_warning.call_count, base._MAX_TIMEOUT_SPLITS)
+        base.session.close()
+
+    def test_no_split_for_non_span_requests(self):
+        """Only requests with datetime start/end are split; anything else fails once."""
+        base = self._authed_base()
+        calls = []
+        fake = self._slow_api(timedelta(0), calls)
+
+        for params in [
+            {},
+            {"start": "2025-01-01T00:00Z", "end": "2025-01-02T00:00Z"},
+        ]:
+            with self.subTest(params=params):
+                calls.clear()
+                with mock.patch.object(
+                    base, "_make_rate_limited_request", side_effect=fake
+                ):
+                    with self.assertRaises(WattTimeRequestError):
+                        base._fetch_adaptive("https://x", params)
+                self.assertEqual(len(calls), 1)
+        base.session.close()
+
+    def test_multithreaded_fetch_splits_inside_the_worker(self):
+        base = self._authed_base(multithreaded=True, worker_count=2)
+        start = datetime(2025, 1, 1, tzinfo=UTC)
+        chunks = [
+            {
+                "start": start + timedelta(days=30 * i),
+                "end": start + timedelta(days=30 * (i + 1)),
+            }
+            for i in range(2)
+        ]
+        calls = []
+
+        with mock.patch.object(
+            base,
+            "_make_rate_limited_request",
+            side_effect=self._slow_api(timedelta(days=15), calls),
+        ):
+            with mock.patch("watttime.api.LOG.warning"):
+                responses = base._fetch_data("https://x", chunks)
+
+        self.assertEqual(len(responses), 4)
+        self.assertEqual(len(calls), 6)  # 2 timeouts + 4 halves
+        base.session.close()
 
     @patch("time.sleep", return_value=None)
     def test_apply_rate_limit(self, mock_sleep):
@@ -179,6 +530,34 @@ class TestWattTimeBase(unittest.TestCase):
         with self.assertRaises(ValueError):
             self.base._get_chunks(start, end)
 
+    def test_get_chunks_honors_chunk_size(self):
+        start = datetime(2025, 1, 1, tzinfo=UTC)
+        end = datetime(2025, 1, 31, tzinfo=UTC)
+
+        chunks = self.base._get_chunks(start, end, chunk_size=timedelta(days=10))
+
+        self.assertEqual(len(chunks), 3)
+        self.assertEqual(chunks[0][0], start)
+        self.assertEqual(chunks[-1][1], end)
+        self.assertEqual(chunks[1][0] - chunks[0][1], timedelta(minutes=5))
+
+        # None means the 30-day default
+        self.assertEqual(
+            self.base._get_chunks(start, end, chunk_size=None),
+            self.base._get_chunks(start, end),
+        )
+
+    def test_get_chunks_rejects_chunk_size_at_or_below_trim(self):
+        # 5 minutes is trimmed from every chunk end but the last, so a chunk that
+        # short would be empty or inverted; zero or negative would never terminate.
+        start = datetime(2025, 1, 1, tzinfo=UTC)
+        end = datetime(2025, 1, 2, tzinfo=UTC)
+
+        for bad in [timedelta(minutes=5), timedelta(0), timedelta(minutes=-10)]:
+            with self.subTest(chunk_size=bad):
+                with self.assertRaises(ValueError):
+                    self.base._get_chunks(start, end, chunk_size=bad)
+
     @mock.patch("watttime.requests.Session.post", side_effect=mocked_register)
     def test_mock_register(self, mock_post):
         resp = self.base.register(email=os.getenv("WATTTIME_EMAIL"))
@@ -201,6 +580,38 @@ class TestWattTimeHistorical(unittest.TestCase):
 
     def tearDown(self):
         self.historical.session.close()
+
+    def test_get_historical_jsons_chunk_size_controls_request_count(self):
+        """30 days at 10-day chunks is three requests instead of one."""
+        fake_response = {"data": [], "meta": {"model": {"date": "2024-01-01"}}}
+
+        with mock.patch.object(
+            self.historical, "_fetch_data", return_value=[fake_response]
+        ) as mock_fetch:
+            self.historical.get_historical_jsons(
+                "2025-01-01 00:00Z",
+                "2025-01-31 00:00Z",
+                REGION,
+                chunk_size=timedelta(days=10),
+            )
+
+        param_chunks = mock_fetch.call_args.args[1]
+        self.assertEqual(len(param_chunks), 3)
+
+    def test_get_historical_pandas_forwards_chunk_size(self):
+        fake_response = {
+            "data": [{"point_time": "2025-01-01T00:00:00+00:00", "value": 1.0}],
+            "meta": {},
+        }
+
+        with mock.patch.object(
+            self.historical, "get_historical_jsons", return_value=[fake_response]
+        ) as mock_jsons:
+            self.historical.get_historical_pandas(
+                "2025-01-01", "2025-01-02", REGION, chunk_size=timedelta(days=1)
+            )
+
+        self.assertEqual(mock_jsons.call_args.kwargs["chunk_size"], timedelta(days=1))
 
     def test_get_historical_jsons_3_months(self):
         start = "2025-01-01 00:00Z"
@@ -287,6 +698,24 @@ class TestWattTimeHistorical(unittest.TestCase):
             / f"{REGION}_co2_moer_{start.date()}_{end.date()}.csv"
         )
         assert fp.exists()
+        fp.unlink()
+
+    def test_get_historical_csv_include_imputed(self):
+        start = parse("2025-01-01 00:00Z")
+        end = parse("2025-01-02 00:00Z")
+        self.historical.get_historical_csv(
+            start, end, REGION, include_imputed_marker=True
+        )
+
+        fp = (
+            Path.home()
+            / "watttime_historical_csvs"
+            / f"{REGION}_co2_moer_{start.date()}_{end.date()}.csv"
+        )
+        assert fp.exists()
+        df = pd.read_csv(fp)
+        self.assertIn("imputed_data_used", df.columns)
+        self.assertNotIn("meta", df.columns)
         fp.unlink()
 
     def test_multi_model_range(self):

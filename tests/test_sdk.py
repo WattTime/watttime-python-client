@@ -1,7 +1,9 @@
 import unittest
 import unittest.mock as mock
 from unittest.mock import patch
-from datetime import datetime, timedelta, date
+from datetime import datetime, timedelta
+from functools import lru_cache
+from typing import Tuple
 from dateutil.parser import parse
 from pytz import timezone, UTC
 import os
@@ -20,6 +22,52 @@ from shapely.geometry import shape, Polygon, MultiPolygon
 import pandas as pd
 
 REGION = "CAISO_NORTH"
+
+
+@lru_cache(maxsize=1)
+def _my_access() -> pd.DataFrame:
+    """The test user's my-access, fetched once per test run."""
+    myaccess = WattTimeMyAccess()
+    try:
+        return myaccess.get_access_pandas()
+    finally:
+        myaccess.session.close()
+
+
+def model_window(
+    region: str,
+    days: int,
+    signal_type: str = "co2_moer",
+    endpoint: str = "v3/historical",
+    lag: timedelta = timedelta(days=7),
+) -> Tuple[datetime, datetime]:
+    """A day-aligned UTC window of up to `days` days, ending `lag` before today.
+
+    It sits inside every model my-access lists as serving `endpoint` at its end,
+    and the model the API picks when no `model` is passed is one of those.
+    """
+    access = _my_access()
+    rows = access.loc[
+        (access["signal_type"] == signal_type)
+        & (access["region"] == region)
+        & (access["endpoint"] == endpoint)
+    ]
+    assert not rows.empty, f"my-access lists no {endpoint} model for {region}"
+
+    data_start = pd.to_datetime(rows["data_start"], utc=True)
+    data_end = pd.to_datetime(
+        rows.get("data_end", pd.Series(None, index=rows.index)), utc=True
+    )
+    end = pd.Timestamp.now(tz="UTC").floor("D") - lag
+    live = (data_start < end) & (data_end.isna() | (data_end > end))
+    assert live.any(), f"no {endpoint} model for {region} serves {end.date()}"
+
+    # my-access gives data_start as a date, so stay a day clear of it
+    start = max(
+        end - timedelta(days=days), data_start[live].max() + pd.Timedelta(days=1)
+    )
+    assert start < end, f"{endpoint} models for {region} overlap by under a day"
+    return start.to_pydatetime(), end.to_pydatetime()
 
 
 def mocked_register(*args, **kwargs):
@@ -203,8 +251,7 @@ class TestWattTimeHistorical(unittest.TestCase):
         self.historical.session.close()
 
     def test_get_historical_jsons_3_months(self):
-        start = "2025-01-01 00:00Z"
-        end = "2025-03-31 00:00Z"
+        start, end = model_window(REGION, days=90)
         jsons = self.historical.get_historical_jsons(start, end, REGION)
 
         self.assertIsInstance(jsons, list)
@@ -212,8 +259,7 @@ class TestWattTimeHistorical(unittest.TestCase):
         self.assertIsInstance(jsons[0], dict)
 
     def test_get_historical_jsons_1_week(self):
-        start = "2025-01-01 00:00Z"
-        end = "2025-01-07 00:00Z"
+        start, end = model_window(REGION, days=6)
         jsons = self.historical.get_historical_jsons(start, end, REGION)
 
         self.assertIsInstance(jsons, list)
@@ -221,14 +267,13 @@ class TestWattTimeHistorical(unittest.TestCase):
         self.assertIsInstance(jsons[0], dict)
 
     def test_get_historical_jsons_signal_types(self):
-        start = "2025-01-01 00:00Z"
-        end = "2025-01-07 00:00Z"
         signal_types = ["co2_moer", "co2_aoer", "health_damage"]
         for signal_type in signal_types:
             if signal_type == "co2_aoer":
                 region = "CAISO"
             else:
                 region = REGION
+            start, end = model_window(region, days=6, signal_type=signal_type)
             jsons = self.historical.get_historical_jsons(
                 start, end, region, signal_type=signal_type
             )
@@ -239,8 +284,7 @@ class TestWattTimeHistorical(unittest.TestCase):
             self.assertEqual(jsons[0]["meta"]["region"], region)
 
     def test_get_historical_pandas(self):
-        start = datetime.now() - timedelta(days=7)
-        end = datetime.now()
+        start, end = model_window(REGION, days=7, lag=timedelta(0))
         df = self.historical.get_historical_pandas(start, end, REGION)
 
         self.assertIsInstance(df, pd.DataFrame)
@@ -249,8 +293,7 @@ class TestWattTimeHistorical(unittest.TestCase):
         self.assertIn("value", df.columns)
 
     def test_get_historical_pandas_include_imputed(self):
-        start = datetime.now() - timedelta(days=7)
-        end = datetime.now()
+        start, end = model_window(REGION, days=7, lag=timedelta(0))
         df = self.historical.get_historical_pandas(
             start, end, REGION, include_imputed_marker=True
         )
@@ -262,8 +305,7 @@ class TestWattTimeHistorical(unittest.TestCase):
         self.assertIn("imputed_data_used", df.columns)
 
     def test_get_historical_pandas_meta(self):
-        start = datetime.now() - timedelta(days=7)
-        end = datetime.now()
+        start, end = model_window(REGION, days=7, lag=timedelta(0))
         df = self.historical.get_historical_pandas(
             start, end, REGION, include_meta=True
         )
@@ -277,8 +319,7 @@ class TestWattTimeHistorical(unittest.TestCase):
         assert pd.api.types.is_datetime64_any_dtype(df["point_time"].dtype)
 
     def test_get_historical_csv(self):
-        start = parse("2025-01-01 00:00Z")
-        end = parse("2025-01-02 00:00Z")
+        start, end = model_window(REGION, days=1)
         self.historical.get_historical_csv(start, end, REGION)
 
         fp = (
@@ -291,16 +332,18 @@ class TestWattTimeHistorical(unittest.TestCase):
 
     def test_multi_model_range(self):
         """If model is not specified, we should only return the most recent model data"""
-        myaccess = WattTimeMyAccess()
-        access = myaccess.get_access_pandas()
+        access = _my_access()
         access = access.loc[
-            (access["signal_type"] == "co2_moer") & (access["region"] == REGION)
+            (access["signal_type"] == "co2_moer")
+            & (access["region"] == REGION)
+            & (access["endpoint"] == "v3/historical")
         ].sort_values("model", ascending=False)
         assert len(access) > 1
 
-        # start request one month before data_start of most recent model
-        start = access["data_start"].values[0] - pd.Timedelta(days=30)
-        end = access["data_start"].values[0] + pd.Timedelta(days=30)
+        # straddle data_start of the most recent model in one request: inside the
+        # 30-day chunk size, so no chunk falls wholly before data_start
+        start = access["data_start"].values[0] - pd.Timedelta(days=14)
+        end = access["data_start"].values[0] + pd.Timedelta(days=14)
         df = self.historical.get_historical_pandas(
             start, end, REGION, include_meta=True
         )
@@ -328,8 +371,7 @@ class TestWattTimeHistoricalMultiThreaded(unittest.TestCase):
         self.historical.session.close()
 
     def test_get_historical_jsons_3_months_multithreaded(self):
-        start = "2026-01-01 00:00Z"
-        end = "2026-03-31 00:00Z"
+        start, end = model_window(REGION, days=90)
         jsons = self.historical.get_historical_jsons(start, end, REGION)
 
         self.assertIsInstance(jsons, list)
@@ -425,8 +467,7 @@ class TestWattTimeForecast(unittest.TestCase):
         self.assertIn("value", df.columns)
 
     def test_historical_forecast_jsons(self):
-        start = "2026-01-01 00:00Z"
-        end = "2026-01-07 00:00Z"
+        start, end = model_window(REGION, days=6, endpoint="v3/forecast")
         json_list = self.forecast.get_historical_forecast_json(
             start, end, region=REGION
         )
@@ -437,7 +478,13 @@ class TestWattTimeForecast(unittest.TestCase):
         self.assertIn("generated_at", first_json["data"][0])
 
     def test_historical_forecast_json_list(self):
-        list_of_dates = [date(2026, 1, 1), date(2026, 2, 1), date(2026, 3, 1)]
+        start, end = model_window(REGION, days=60, endpoint="v3/forecast")
+        # whole days inside the window, a month apart
+        list_of_dates = [
+            start.date(),
+            (start + timedelta(days=30)).date(),
+            (end - timedelta(days=1)).date(),
+        ]
         json_list = self.forecast.get_historical_forecast_json_list(
             list_of_dates, region=REGION
         )
@@ -459,8 +506,7 @@ class TestWattTimeForecast(unittest.TestCase):
         assert gen_ats == set(list_of_dates)
 
     def test_historical_forecast_pandas(self):
-        start = "2025-01-01 00:00Z"
-        end = "2025-01-03 00:00Z"
+        start, end = model_window(REGION, days=2, endpoint="v3/forecast")
         df = self.forecast.get_historical_forecast_pandas(start, end, region=REGION)
         self.assertIsInstance(df, pd.DataFrame)
         self.assertGreaterEqual(len(df), 1)
@@ -470,19 +516,21 @@ class TestWattTimeForecast(unittest.TestCase):
 
     def test_historical_forecast_pandas_single_instant(self):
         # start == end asks for the one forecast run generated at that instant.
-        generated_at = "2025-01-15 06:00Z"
+        start, _ = model_window(REGION, days=1, endpoint="v3/forecast")
+        generated_at = start + timedelta(hours=6)
         df = self.forecast.get_historical_forecast_pandas(
             generated_at, generated_at, region=REGION
         )
         self.assertIsInstance(df, pd.DataFrame)
         self.assertEqual(df["generated_at"].nunique(), 1)
-        self.assertEqual(parse(generated_at), df["generated_at"].iloc[0])
+        self.assertEqual(generated_at, df["generated_at"].iloc[0])
 
     def test_historical_forecast_pandas_list(self):
         """
         Test the new method get_historical_forecast_pandas_list which accepts a list of dates.
         """
-        list_of_dates = [date(2026, 1, 1), date(2026, 2, 1)]
+        start, _ = model_window(REGION, days=60, endpoint="v3/forecast")
+        list_of_dates = [start.date(), (start + timedelta(days=30)).date()]
         df = self.forecast.get_historical_forecast_pandas_list(
             list_of_dates, region=REGION
         )
@@ -522,8 +570,7 @@ class TestWattTimeForecastMultithreaded(unittest.TestCase):
         self.forecast.session.close()
 
     def test_historical_forecast_jsons_multithreaded(self):
-        start = "2026-01-01 00:00Z"
-        end = "2026-01-14 00:00Z"
+        start, end = model_window(REGION, days=13, endpoint="v3/forecast")
         json_list = self.forecast.get_historical_forecast_json(
             start, end, region=REGION
         )
@@ -620,8 +667,9 @@ class TestWattTimeMarginalFuelMix(unittest.TestCase):
         self.fuel_mix = WattTimeMarginalFuelMix()
 
     def test_fuel_mix_jsons(self):
-        start = "2026-01-01 00:00Z"
-        end = "2026-01-07 00:00Z"
+        start, end = model_window(
+            REGION, days=6, signal_type="marginal_fuel_mix", endpoint="v3/fuel-mix"
+        )
         fm = self.fuel_mix.get_fuel_mix_jsons(start=start, end=end, region=REGION)
 
         self.assertIsInstance(fm, list)
@@ -644,8 +692,9 @@ class TestWattTimeMarginalFuelMix(unittest.TestCase):
         self.assertEqual(REGION, fm[0]["meta"]["region"])
 
     def test_fuel_mix_pandas(self):
-        start = "2026-01-01 00:00Z"
-        end = "2026-01-07 00:00Z"
+        start, end = model_window(
+            REGION, days=6, signal_type="marginal_fuel_mix", endpoint="v3/fuel-mix"
+        )
         df = self.fuel_mix.get_fuel_mix_pandas(start=start, end=end, region=REGION)
         self.assertIsInstance(df, pd.DataFrame)
         self.assertGreaterEqual(len(df), 12 * 24 * 5)
